@@ -257,6 +257,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 
 	paneCount := 0
+	panes := make([]paneComposite, 0)
 
 	// Render each pane's status line and content.
 	root.Walk(func(cell *mux.LayoutCell) {
@@ -269,19 +270,15 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 			return
 		}
 		paneCount++
-		isActive := pid == activePaneID
-		pressed := overlay.IsPanePressed(pid)
-		copyOverlay := pd.CopyModeOverlay()
-
-		// Status line cells.
-		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
-
-		// Pane content cells.
-		contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
-		for row := 0; row < contentH; row++ {
-			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
-		}
+		panes = append(panes, paneComposite{
+			cell:        cell,
+			pd:          pd,
+			isActive:    pid == activePaneID,
+			pressed:     overlay.IsPanePressed(pid),
+			copyOverlay: pd.CopyModeOverlay(),
+		})
 	})
+	c.composePanes(g, layoutHeight, panes)
 
 	// Border cells.
 	if c.cachedBorderMap == nil || c.cachedBorderRoot != root || c.cachedBorderH != layoutHeight {
@@ -316,7 +313,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 
 const dirtyPaneParallelThreshold = 4
 
-type dirtyPaneComposite struct {
+type paneComposite struct {
 	cell        *mux.LayoutCell
 	pd          PaneData
 	isActive    bool
@@ -324,7 +321,7 @@ type dirtyPaneComposite struct {
 	copyOverlay *proto.ViewportOverlay
 }
 
-func (c *Compositor) composeDirtyPane(g *ScreenGrid, layoutHeight int, pane dirtyPaneComposite) {
+func (c *Compositor) composePane(g *ScreenGrid, layoutHeight int, pane paneComposite) {
 	buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
 	contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
 	// Rebuild every row for dirty panes. TUI full-screen recomposes can
@@ -335,6 +332,28 @@ func (c *Compositor) composeDirtyPane(g *ScreenGrid, layoutHeight int, pane dirt
 		buildPaneContentCells(g, pane.cell, row, pane.isActive, pane.pd, pane.copyOverlay)
 	}
 	clearPaneContentRows(g, pane.cell, contentH, mux.PaneContentHeight(pane.cell.H))
+}
+
+func (c *Compositor) composePanes(g *ScreenGrid, layoutHeight int, panes []paneComposite) {
+	if len(panes) < dirtyPaneParallelThreshold {
+		for _, pane := range panes {
+			c.composePane(g, layoutHeight, pane)
+		}
+		return
+	}
+
+	// Each pane writes only cells inside its own rectangle, and root.Walk
+	// yields disjoint leaf rectangles. That makes parallel g.Set calls across
+	// panes race-free because no two goroutines touch the same coordinates.
+	var wg sync.WaitGroup
+	wg.Add(len(panes))
+	for _, pane := range panes {
+		go func(pane paneComposite) {
+			defer wg.Done()
+			c.composePane(g, layoutHeight, pane)
+		}(pane)
+	}
+	wg.Wait()
 }
 
 func (c *Compositor) buildGridWithOverlayDirty(
@@ -354,7 +373,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	paneCount := 0
-	dirtyCells := make([]dirtyPaneComposite, 0, len(dirtyPanes))
+	dirtyCells := make([]paneComposite, 0, len(dirtyPanes))
 	root.Walk(func(cell *mux.LayoutCell) {
 		pid := cell.CellPaneID()
 		if pid == 0 {
@@ -368,7 +387,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		if _, ok := dirtyPanes[pid]; !ok {
 			return
 		}
-		dirtyCells = append(dirtyCells, dirtyPaneComposite{
+		dirtyCells = append(dirtyCells, paneComposite{
 			cell:        cell,
 			pd:          pd,
 			isActive:    pid == activePaneID,
@@ -377,22 +396,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		})
 	})
 	compositedPanes := len(dirtyCells)
-
-	if len(dirtyCells) < dirtyPaneParallelThreshold {
-		for _, pane := range dirtyCells {
-			c.composeDirtyPane(g, layoutHeight, pane)
-		}
-	} else {
-		var wg sync.WaitGroup
-		wg.Add(len(dirtyCells))
-		for _, pane := range dirtyCells {
-			go func(pane dirtyPaneComposite) {
-				defer wg.Done()
-				c.composeDirtyPane(g, layoutHeight, pane)
-			}(pane)
-		}
-		wg.Wait()
-	}
+	c.composePanes(g, layoutHeight, dirtyCells)
 
 	if overlay.DropIndicator != nil {
 		buildDropIndicatorCells(g, overlay.DropIndicator)

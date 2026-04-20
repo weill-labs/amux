@@ -18,9 +18,15 @@ func benchLayoutTree(n, w, h int) (*mux.LayoutCell, []uint32) {
 	ids = append(ids, 1)
 	for i := 2; i <= n; i++ {
 		var target *mux.LayoutCell
+		bestSize := -1
 		root.Walk(func(c *mux.LayoutCell) {
-			if target == nil {
+			size := c.W
+			if i%2 == 0 {
+				size = c.H
+			}
+			if size >= 2*mux.PaneMinSize+1 && size > bestSize {
 				target = c
+				bestSize = size
 			}
 		})
 		dir := mux.SplitVertical
