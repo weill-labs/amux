@@ -48,7 +48,7 @@ func benchScreen(w, h int) string {
 }
 
 func BenchmarkRenderFull(b *testing.B) {
-	for _, n := range []int{1, 4, 10, 20} {
+	for _, n := range []int{2, 4, 6, 8, 12} {
 		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
 			w, h := 200, 60
 			root, _ := benchLayoutTree(n, w, h)
