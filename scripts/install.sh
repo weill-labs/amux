@@ -105,9 +105,11 @@ discover_live_sessions() {
 		return 0
 	fi
 
+	# Bound each probe so a stale socket with a wedged server doesn't hang
+	# install. Dev machines accumulate these from crashed test harnesses.
 	while IFS= read -r sock; do
 		session="${sock##*/}"
-		if out="$("$dest" -s "$session" status 2>/dev/null)"; then
+		if out="$(timeout 2s "$dest" -s "$session" status 2>/dev/null)"; then
 			printf '%s\t%s\n' "$session" "$out"
 		fi
 	done < <(find "$socket_dir" -maxdepth 1 -type s -print 2>/dev/null | sort)
