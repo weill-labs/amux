@@ -120,6 +120,42 @@ func TestRunConnectRejectsConflictingSessionFlags(t *testing.T) {
 	}
 }
 
+func TestRunConnectRejectsInvalidSessionArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "duplicate session flag", args: []string{"gpu", "--session", "work", "--session", "logs"}},
+		{name: "missing session value", args: []string{"gpu", "--session"}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			transport := &stubPaneTransport{}
+			installTestPaneTransport(t, sess, transport, nil)
+
+			res := runConnect(&CommandContext{Srv: srv, Sess: sess, Args: tt.args})
+			if res.Err == nil {
+				t.Fatal("runConnect() error = nil, want usage error")
+			}
+			if got := res.Err.Error(); got != "usage: connect <host> [--session <name> | --session-per-client]" {
+				t.Fatalf("runConnect() error = %q, want connect usage", got)
+			}
+			if len(transport.connectHostCalls) != 0 {
+				t.Fatalf("ConnectHost calls = %d, want 0", len(transport.connectHostCalls))
+			}
+		})
+	}
+}
+
 func TestRunConnectMirrorsExistingRemoteMainSessionLayout(t *testing.T) {
 	t.Parallel()
 
