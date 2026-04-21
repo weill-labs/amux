@@ -164,7 +164,7 @@ func parseConnectTarget(args []string, localSessionName string) (connectTarget, 
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; arg {
 		case "--session":
-			if perClient || i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+			if perClient || sessionExplicit || i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
 				return connectTarget{}, errors.New(connectCommandUsage)
 			}
 			target.sessionName = args[i+1]
