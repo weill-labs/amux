@@ -34,7 +34,10 @@ func splitRemotePane(t *testing.T, h *ServerHarness) {
 func connectRemoteSessionViaRemoteCLI(t *testing.T, h *ServerHarness) {
 	t.Helper()
 	gen := h.generation()
-	out := h.runCmd("remote", "connect", "test-remote")
+	// These integration tests exercise the remote mirroring/disconnect mechanics.
+	// Use the explicit per-client session flag so the SSH fixture stays hermetic
+	// even if another test left a stale "main" socket behind for the same UID.
+	out := h.runCmd("remote", "connect", "test-remote", "--session-per-client")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("remote connect failed: %s", out)
 	}

@@ -287,6 +287,20 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "connect forwards host and session flags",
+			args:        []string{"connect", "host-a", "--session", "work"},
+			wantCmd:     "connect",
+			wantArgs:    []string{"host-a", "--session", "work"},
+			wantHandled: true,
+		},
+		{
+			name:        "remote connect unwraps to session command with per-client flag",
+			args:        []string{"remote", "connect", "host-a", "--session-per-client"},
+			wantCmd:     "connect",
+			wantArgs:    []string{"host-a", "--session-per-client"},
+			wantHandled: true,
+		},
+		{
 			name:        "respawn narrows to pane arg",
 			args:        []string{"respawn", "pane-1", "ignored"},
 			wantCmd:     "respawn",
@@ -785,6 +799,22 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
+			name:     "connect forwards session override through server",
+			args:     []string{"connect", "host-a", "--session", "work"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "connect", args: []string{"host-a", "--session", "work"}},
+			},
+		},
+		{
+			name:     "remote connect forwards per-client flag through server",
+			args:     []string{"remote", "connect", "host-a", "--session-per-client"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "connect", args: []string{"host-a", "--session-per-client"}},
+			},
+		},
+		{
 			name:     "remote subcommand dispatches through server",
 			args:     []string{"remote", "disconnect", "host-a"},
 			wantExit: 0,
@@ -927,7 +957,7 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			name:       "connect usage error stays in dispatch layer",
 			args:       []string{"connect"},
 			wantExit:   1,
-			wantStderr: "usage: amux connect <host>\n",
+			wantStderr: "usage: amux connect <host> [--session <name> | --session-per-client]\n",
 		},
 	}
 

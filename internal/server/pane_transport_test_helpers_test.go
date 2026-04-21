@@ -11,6 +11,8 @@ type stubPaneTransport struct {
 	createPaneErr    error
 	createPaneRemote uint32
 	createPaneCalls  []createPaneCall
+	connectLayout    *proto.LayoutSnapshot
+	connectHostCalls []connectHostCall
 	runHostOutput    string
 	runHostErr       error
 	runHostCalls     []runHostCommandCall
@@ -32,6 +34,11 @@ type stubPaneTransport struct {
 type createPaneCall struct {
 	hostName    string
 	localPaneID uint32
+	sessionName string
+}
+
+type connectHostCall struct {
+	hostName    string
 	sessionName string
 }
 
@@ -111,8 +118,15 @@ func (s *stubPaneTransport) CreatePane(hostName string, localPaneID uint32, sess
 }
 
 func (s *stubPaneTransport) ConnectHost(hostName string, sessionName string) (*proto.LayoutSnapshot, error) {
+	s.connectHostCalls = append(s.connectHostCalls, connectHostCall{
+		hostName:    hostName,
+		sessionName: sessionName,
+	})
 	if err := s.lookupHostErr(s.reconnectErrs, hostName); err != nil {
 		return nil, err
+	}
+	if s.connectLayout != nil {
+		return s.connectLayout, nil
 	}
 	return &proto.LayoutSnapshot{
 		ActiveWindowID: 1,

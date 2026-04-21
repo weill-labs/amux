@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -11,6 +13,8 @@ import (
 )
 
 const ReloadServerExecPathFlag = remotecmd.ReloadServerExecPathFlag
+
+const connectCommandUsage = "usage: connect <host> [--session <name> | --session-per-client]"
 
 type remoteCommandContext struct {
 	*CommandContext
@@ -147,16 +151,61 @@ func cmdHosts(ctx *CommandContext) {
 	ctx.applyCommandResult(remotecmd.Hosts(remoteCommandContext{ctx}, ctx.Args))
 }
 
+type connectTarget struct {
+	hostName    string
+	sessionName string
+}
+
+func parseConnectTarget(args []string, localSessionName string) (connectTarget, error) {
+	target := connectTarget{sessionName: DefaultSessionName}
+	sessionExplicit := false
+	perClient := false
+
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; arg {
+		case "--session":
+			if perClient || sessionExplicit || i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return connectTarget{}, errors.New(connectCommandUsage)
+			}
+			target.sessionName = args[i+1]
+			sessionExplicit = true
+			i++
+		case "--session-per-client":
+			if sessionExplicit || perClient {
+				return connectTarget{}, errors.New(connectCommandUsage)
+			}
+			perClient = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return connectTarget{}, errors.New(connectCommandUsage)
+			}
+			if target.hostName != "" {
+				return connectTarget{}, errors.New(connectCommandUsage)
+			}
+			target.hostName = arg
+		}
+	}
+
+	if target.hostName == "" {
+		return connectTarget{}, errors.New(connectCommandUsage)
+	}
+	if perClient {
+		target.sessionName = managedSessionName(localSessionName)
+	}
+	return target, nil
+}
+
 func runConnect(ctx *CommandContext) commandpkg.Result {
-	if len(ctx.Args) < 1 {
-		return commandpkg.Result{Err: fmt.Errorf("usage: connect <host>")}
+	target, err := parseConnectTarget(ctx.Args, ctx.Sess.Name)
+	if err != nil {
+		return commandpkg.Result{Err: err}
 	}
 	if ctx.Sess.RemoteManager == nil {
 		return commandpkg.Result{Err: fmt.Errorf("no remote hosts configured")}
 	}
 
-	hostName := ctx.Args[0]
-	layout, err := ctx.Sess.RemoteManager.ConnectHost(hostName, managedSessionName(ctx.Sess.Name))
+	hostName := target.hostName
+	layout, err := ctx.Sess.RemoteManager.ConnectHost(hostName, target.sessionName)
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
