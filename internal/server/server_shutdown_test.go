@@ -155,6 +155,7 @@ func TestShutdownTimesOutBlockedCrashCheckpointWrite(t *testing.T) {
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
+	srv.shutdownCheckpointTimeout = 50 * time.Millisecond
 
 	coord := &blockingCrashCheckpointCoordinator{
 		writeStarted: make(chan struct{}),
@@ -178,12 +179,12 @@ func TestShutdownTimesOutBlockedCrashCheckpointWrite(t *testing.T) {
 	select {
 	case <-shutdownDone:
 		t.Fatal("shutdown returned before checkpoint timeout elapsed")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(20 * time.Millisecond):
 	}
 
 	select {
 	case <-shutdownDone:
-	case <-time.After(3 * time.Second):
+	case <-time.After(time.Second):
 		coord.Stop()
 		t.Fatal("shutdown hung on blocked crash checkpoint write")
 	}

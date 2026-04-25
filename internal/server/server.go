@@ -726,6 +726,7 @@ func (s *Server) shutdown() {
 
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
+		timeout := s.shutdownCrashCheckpointTimeout()
 
 		// Persist one final snapshot before the checkpoint coordinator stops so
 		// the next start can restore the latest clean-shutdown state.
@@ -736,11 +737,11 @@ func (s *Server) shutdown() {
 		}()
 		select {
 		case <-checkpointDone:
-		case <-time.After(s.shutdownCrashCheckpointTimeout()):
+		case <-time.After(timeout):
 			if s.logger != nil {
 				s.logger.Warn("timed out waiting for crash checkpoint during shutdown",
 					"session", sess.Name,
-					"timeout", s.shutdownCrashCheckpointTimeout())
+					"timeout", timeout)
 			}
 		}
 
