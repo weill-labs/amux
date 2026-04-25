@@ -149,3 +149,75 @@ func (l *notifyListener) Close() error {
 func (l *notifyListener) Addr() net.Addr {
 	return trackingAddr("notify")
 }
+
+func TestShutdownTimesOutBlockedCrashCheckpointWrite(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	coord := &blockingCrashCheckpointCoordinator{
+		writeStarted: make(chan struct{}),
+		releaseWrite: make(chan struct{}),
+		stopCalled:   make(chan struct{}),
+	}
+	sess.checkpointCoordinator = coord
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		srv.shutdown()
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-coord.writeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not start crash checkpoint write")
+	}
+
+	select {
+	case <-shutdownDone:
+		t.Fatal("shutdown returned before checkpoint timeout elapsed")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(3 * time.Second):
+		coord.Stop()
+		t.Fatal("shutdown hung on blocked crash checkpoint write")
+	}
+
+	select {
+	case <-coord.stopCalled:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not stop the crash checkpoint coordinator")
+	}
+}
+
+type blockingCrashCheckpointCoordinator struct {
+	writeStarted chan struct{}
+	releaseWrite chan struct{}
+	stopCalled   chan struct{}
+	writeOnce    sync.Once
+	stopOnce     sync.Once
+}
+
+func (c *blockingCrashCheckpointCoordinator) Trigger() {}
+
+func (c *blockingCrashCheckpointCoordinator) Stop() {
+	c.stopOnce.Do(func() {
+		close(c.stopCalled)
+		close(c.releaseWrite)
+	})
+}
+
+func (c *blockingCrashCheckpointCoordinator) Write() {}
+
+func (c *blockingCrashCheckpointCoordinator) WriteNow() (string, error) {
+	c.writeOnce.Do(func() {
+		close(c.writeStarted)
+	})
+	<-c.releaseWrite
+	return "", nil
+}
