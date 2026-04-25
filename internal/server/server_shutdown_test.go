@@ -2,6 +2,7 @@ package server
 
 import (
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -156,6 +157,8 @@ func TestShutdownTimesOutBlockedCrashCheckpointWrite(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 	srv.shutdownCheckpointTimeout = 50 * time.Millisecond
+	logger, logBuf := newAuditTestLogger()
+	srv.logger = logger
 
 	coord := &blockingCrashCheckpointCoordinator{
 		writeStarted: make(chan struct{}),
@@ -193,6 +196,10 @@ func TestShutdownTimesOutBlockedCrashCheckpointWrite(t *testing.T) {
 	case <-coord.stopCalled:
 	case <-time.After(time.Second):
 		t.Fatal("shutdown did not stop the crash checkpoint coordinator")
+	}
+
+	if !strings.Contains(logBuf.String(), "timed out waiting for crash checkpoint during shutdown") {
+		t.Fatalf("shutdown log = %q, want timeout warning", logBuf.String())
 	}
 }
 

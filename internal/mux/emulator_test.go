@@ -49,6 +49,31 @@ func TestVTEmulatorSize(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorCloseIgnoresClosedResponsePipe(t *testing.T) {
+	t.Parallel()
+
+	emu, ok := NewVTEmulatorWithScrollback(10, 4, DefaultScrollbackLines).(*vtEmulator)
+	if !ok {
+		t.Fatal("NewVTEmulatorWithScrollback() did not return *vtEmulator")
+	}
+
+	if err := emu.closeResponsePipe(nil); err != nil {
+		t.Fatalf("closeResponsePipe(nil) = %v, want nil", err)
+	}
+	if err := emu.Close(); err != nil {
+		t.Fatalf("Close() after response pipe close = %v, want nil", err)
+	}
+}
+
+func TestVTEmulatorCloseResponsePipeNilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var emu *vtEmulator
+	if err := emu.closeResponsePipe(nil); err != nil {
+		t.Fatalf("nil closeResponsePipe(nil) = %v, want nil", err)
+	}
+}
+
 func TestVTEmulatorResizeWiderReflowsVisibleRows(t *testing.T) {
 	t.Parallel()
 
