@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -213,7 +214,11 @@ func (p *touchedScreenProbe) WidthMethod() uv.WidthMethod {
 }
 
 func (v *vtEmulator) Close() error {
-	return v.emu.Close()
+	err := v.emu.Close()
+	if errors.Is(err, io.ErrClosedPipe) {
+		return nil
+	}
+	return err
 }
 
 func (v *vtEmulator) closeResponsePipe(err error) error {

@@ -531,7 +531,9 @@ func TestPaneActorDoesNotDeadlockAfterDrainResponsesExit(t *testing.T) {
 	p.baseHistory.Store(&paneBaseHistory{})
 	p.startActor()
 	defer func() {
-		_ = emu.Close()
+		if err := emu.Close(); err != nil {
+			t.Fatalf("emu.Close() during cleanup = %v, want nil", err)
+		}
 		stopDone := make(chan struct{})
 		go func() {
 			p.stopActor()
