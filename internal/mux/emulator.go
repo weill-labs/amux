@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 	"image/color"
+	"io"
 	"strings"
 	"sync/atomic"
 
@@ -120,6 +121,10 @@ type vtEmulator struct {
 	scrollbackLimit   int
 }
 
+type responsePipeWriteCloser interface {
+	CloseWithError(error) error
+}
+
 // NewVTEmulatorWithScrollback creates a terminal emulator with an explicit
 // retained scrollback limit.
 func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {
@@ -209,6 +214,20 @@ func (p *touchedScreenProbe) WidthMethod() uv.WidthMethod {
 
 func (v *vtEmulator) Close() error {
 	return v.emu.Close()
+}
+
+func (v *vtEmulator) closeResponsePipe(err error) error {
+	if err == nil {
+		err = io.ErrClosedPipe
+	}
+	if v == nil || v.emu == nil {
+		return nil
+	}
+	pw, ok := v.emu.InputPipe().(responsePipeWriteCloser)
+	if !ok {
+		return nil
+	}
+	return pw.CloseWithError(err)
 }
 
 func (v *vtEmulator) Render() string {
