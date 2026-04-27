@@ -404,7 +404,13 @@ type Server struct {
 	// commands overrides the default commandRegistry for handler lookup.
 	// When nil, handleCommand falls back to the package-level registry.
 	commands map[string]CommandHandler
+
+	// shutdownCheckpointTimeout bounds the final crash checkpoint write during
+	// shutdown. Zero uses the default timeout.
+	shutdownCheckpointTimeout time.Duration
 }
+
+const defaultShutdownCheckpointTimeout = 2 * time.Second
 
 // lookupCommand returns the handler for the given command name, consulting the
 // server-level override first, then the package-level commandRegistry.
@@ -720,10 +726,24 @@ func (s *Server) shutdown() {
 
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
+		timeout := s.shutdownCrashCheckpointTimeout()
 
 		// Persist one final snapshot before the checkpoint coordinator stops so
 		// the next start can restore the latest clean-shutdown state.
-		_, _ = sess.writeCrashCheckpointNow()
+		checkpointDone := make(chan struct{})
+		go func() {
+			_, _ = sess.writeCrashCheckpointNow()
+			close(checkpointDone)
+		}()
+		select {
+		case <-checkpointDone:
+		case <-time.After(timeout):
+			if s.logger != nil {
+				s.logger.Warn("timed out waiting for crash checkpoint during shutdown",
+					"session", sess.Name,
+					"timeout", timeout)
+			}
+		}
 
 		sess.stopEventLoop()
 
@@ -747,6 +767,13 @@ func (s *Server) shutdown() {
 		}
 		wg.Wait()
 	}
+}
+
+func (s *Server) shutdownCrashCheckpointTimeout() time.Duration {
+	if s == nil || s.shutdownCheckpointTimeout <= 0 {
+		return defaultShutdownCheckpointTimeout
+	}
+	return s.shutdownCheckpointTimeout
 }
 
 func (s *Server) handleConn(conn net.Conn) {

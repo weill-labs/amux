@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"io"
 	"os"
 	"strings"
 
@@ -35,6 +36,7 @@ func (p *Pane) drainResponses(emulator TerminalEmulator, ptmx *os.File, done cha
 	if done != nil {
 		defer close(done)
 	}
+	defer closeTerminalResponsePipe(emulator)
 	buf := make([]byte, 1024)
 	for {
 		n, err := emulator.Read(buf)
@@ -359,6 +361,7 @@ func (p *Pane) drainResponsesDiscard(emulator TerminalEmulator, done chan struct
 	if done != nil {
 		defer close(done)
 	}
+	defer closeTerminalResponsePipe(emulator)
 	buf := make([]byte, 1024)
 	for {
 		_, err := emulator.Read(buf)
@@ -366,6 +369,18 @@ func (p *Pane) drainResponsesDiscard(emulator TerminalEmulator, done chan struct
 			return
 		}
 	}
+}
+
+type terminalResponsePipeCloser interface {
+	closeResponsePipe(error) error
+}
+
+func closeTerminalResponsePipe(emulator TerminalEmulator) {
+	closer, ok := emulator.(terminalResponsePipeCloser)
+	if !ok {
+		return
+	}
+	_ = closer.closeResponsePipe(io.ErrClosedPipe)
 }
 
 // FeedOutput feeds remote PTY output into this proxy pane's local emulator

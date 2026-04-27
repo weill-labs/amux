@@ -519,6 +519,80 @@ func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
 	}
 }
 
+func TestPaneActorDoesNotDeadlockAfterDrainResponsesExit(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithScrollback(20, 5, DefaultScrollbackLines)
+	p := &Pane{
+		ID:              1,
+		emulator:        emu,
+		scrollbackLines: DefaultScrollbackLines,
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	p.startActor()
+	defer func() {
+		if err := emu.Close(); err != nil {
+			t.Fatalf("emu.Close() during cleanup = %v, want nil", err)
+		}
+		stopDone := make(chan struct{})
+		go func() {
+			p.stopActor()
+			close(stopDone)
+		}()
+		select {
+		case <-stopDone:
+		case <-time.After(time.Second):
+			t.Fatal("timed out stopping pane actor during cleanup")
+		}
+	}()
+
+	ptmx, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open /dev/null: %v", err)
+	}
+	if err := ptmx.Close(); err != nil {
+		t.Fatalf("close /dev/null writer: %v", err)
+	}
+
+	drainDone := make(chan struct{})
+	go p.drainResponses(emu, ptmx, drainDone)
+
+	if _, err := emu.Write([]byte("\x1b[5n")); err != nil {
+		t.Fatalf("initial emulator.Write(DSR) error = %v", err)
+	}
+
+	select {
+	case <-drainDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for drainResponses to exit")
+	}
+
+	applyDone := make(chan struct{})
+	go func() {
+		_ = p.applyOutput([]byte("\x1b[5n"))
+		close(applyDone)
+	}()
+
+	select {
+	case <-applyDone:
+	case <-time.After(200 * time.Millisecond):
+		_ = emu.Close()
+		t.Fatal("pane actor deadlocked on DSR after drainResponses exited")
+	}
+
+	unblocked := make(chan struct{})
+	go func() {
+		p.withActor(func() {})
+		close(unblocked)
+	}()
+
+	select {
+	case <-unblocked:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("pane actor stayed wedged after DSR write returned")
+	}
+}
+
 func TestRestorePaneWithScrollbackUsesExistingPTYAndProcess(t *testing.T) {
 	t.Parallel()
 
