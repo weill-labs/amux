@@ -38,9 +38,6 @@ func TestSessionLockSubprocessHelper(t *testing.T) {
 	case "hold":
 		fmt.Fprintln(os.Stdout, "ready")
 		select {}
-	case "probe":
-		srv.Shutdown()
-		fmt.Fprintln(os.Stdout, "started")
 	default:
 		srv.Shutdown()
 		fmt.Fprintf(os.Stderr, "unknown helper mode %q", mode)

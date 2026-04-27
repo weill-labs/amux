@@ -499,10 +499,6 @@ func newServerWithScrollbackLogger(sessionName string, scrollbackLines int, logg
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
-	sockDir := SocketDir()
-	if err := os.MkdirAll(sockDir, 0700); err != nil {
-		return nil, fmt.Errorf("creating socket dir: %w", err)
-	}
 
 	listener, sockPath, sessionLock, err := listenForSession(sessionName)
 	if err != nil {
@@ -657,11 +653,6 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 }
 
 func NewServerFromCrashCheckpointWithScrollbackLogger(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
-	sockDir := SocketDir()
-	if err := os.MkdirAll(sockDir, 0700); err != nil {
-		return nil, fmt.Errorf("creating socket dir: %w", err)
-	}
-
 	listener, sockPath, sessionLock, err := listenForSession(sessionName)
 	if err != nil {
 		return nil, err
