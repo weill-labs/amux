@@ -21,7 +21,7 @@ const (
 	sessionLockHelperSessionEnv = "AMUX_SESSION_LOCK_HELPER_SESSION"
 )
 
-func TestSessionLockHelperProcess(t *testing.T) {
+func TestSessionLockSubprocessHelper(t *testing.T) {
 	mode := os.Getenv(sessionLockHelperModeEnv)
 	if mode == "" {
 		return
@@ -158,7 +158,7 @@ func TestNewServerWithScrollbackConcurrentStartsYieldSingleWinner(t *testing.T) 
 func startSessionLockHelper(t *testing.T, mode, session string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSessionLockHelperProcess$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
 	cmd.Env = append(os.Environ(),
 		sessionLockHelperModeEnv+"="+mode,
 		sessionLockHelperSessionEnv+"="+session,
