@@ -288,7 +288,7 @@ func TestCheckpointRestoreAuditLogsRestoreEvent(t *testing.T) {
 	}
 	defer os.Remove(socketPath)
 
-	srv, err := newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, socketPath, cp, "", mux.DefaultScrollbackLines, logger)
+	srv, err := newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, socketPath, nil, cp, "", mux.DefaultScrollbackLines, logger)
 	if err != nil {
 		t.Fatalf("newServerFromCrashCheckpointWithListenerLogger: %v", err)
 	}

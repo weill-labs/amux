@@ -15,11 +15,12 @@ func TestRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cp := &ServerCheckpoint{
-		Version:     ServerCheckpointVersion,
-		SessionName: "test-session",
-		StartedAt:   time.Date(2026, time.March, 27, 12, 0, 0, 0, time.UTC),
-		Counter:     5,
-		ListenerFd:  10,
+		Version:       ServerCheckpointVersion,
+		SessionName:   "test-session",
+		StartedAt:     time.Date(2026, time.March, 27, 12, 0, 0, 0, time.UTC),
+		Counter:       5,
+		ListenerFd:    10,
+		SessionLockFd: 11,
 		Layout: proto.LayoutSnapshot{
 			SessionName:  "test-session",
 			ActivePaneID: 2,
@@ -93,6 +94,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if got.ListenerFd != cp.ListenerFd {
 		t.Errorf("ListenerFd = %d, want %d", got.ListenerFd, cp.ListenerFd)
+	}
+	if got.SessionLockFd != cp.SessionLockFd {
+		t.Errorf("SessionLockFd = %d, want %d", got.SessionLockFd, cp.SessionLockFd)
 	}
 	if len(got.Panes) != len(cp.Panes) {
 		t.Fatalf("Panes = %d, want %d", len(got.Panes), len(cp.Panes))
