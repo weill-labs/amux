@@ -442,6 +442,27 @@ func SocketPath(session string) string {
 	return proto.SocketPath(session)
 }
 
+func listenForSession(sessionName string) (net.Listener, string, *os.File, error) {
+	sockPath := SocketPath(sessionName)
+	sessionLock, err := acquireSessionLock(sessionName)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	_ = os.Remove(sockPath)
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		closeSessionLock(sessionLock)
+		return nil, "", nil, fmt.Errorf("listening: %w", err)
+	}
+	if err := os.Chmod(sockPath, 0700); err != nil {
+		listener.Close()
+		closeSessionLock(sessionLock)
+		return nil, "", nil, fmt.Errorf("chmod socket: %w", err)
+	}
+	return listener, sockPath, sessionLock, nil
+}
+
 func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Logger) *Session {
 	if logger == nil {
 		logger = auditlog.Discard()
@@ -483,23 +504,9 @@ func newServerWithScrollbackLogger(sessionName string, scrollbackLines int, logg
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
 
-	sockPath := SocketPath(sessionName)
-
-	sessionLock, err := acquireSessionLock(sessionName)
+	listener, sockPath, sessionLock, err := listenForSession(sessionName)
 	if err != nil {
 		return nil, err
-	}
-
-	_ = os.Remove(sockPath)
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		closeSessionLock(sessionLock)
-		return nil, fmt.Errorf("listening: %w", err)
-	}
-	if err := os.Chmod(sockPath, 0700); err != nil {
-		listener.Close()
-		closeSessionLock(sessionLock)
-		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
 	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
@@ -655,23 +662,9 @@ func NewServerFromCrashCheckpointWithScrollbackLogger(sessionName string, cp *ch
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
 
-	sockPath := SocketPath(sessionName)
-	sessionLock, err := acquireSessionLock(sessionName)
+	listener, sockPath, sessionLock, err := listenForSession(sessionName)
 	if err != nil {
 		return nil, err
-	}
-
-	// Clean up any stale socket from the crashed server.
-	_ = os.Remove(sockPath)
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		closeSessionLock(sessionLock)
-		return nil, fmt.Errorf("listening: %w", err)
-	}
-	if err := os.Chmod(sockPath, 0700); err != nil {
-		listener.Close()
-		closeSessionLock(sessionLock)
-		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
 	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, sessionLock, cp, crashPath, scrollbackLines, logger)
