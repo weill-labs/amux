@@ -49,6 +49,7 @@ type ServerCheckpoint struct {
 	WindowCounter uint32
 	Generation    uint64 // layout generation counter (survives reload)
 	ListenerFd    int
+	SessionLockFd int
 	Layout        proto.LayoutSnapshot
 	Panes         []PaneCheckpoint
 }

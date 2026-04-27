@@ -107,6 +107,9 @@ func (s *Server) Reload(execPath string) error {
 		return fmt.Errorf("getting listener FD: %w", err)
 	}
 	cp.ListenerFd = lnFd
+	if s.sessionLock != nil {
+		cp.SessionLockFd = int(s.sessionLock.Fd())
+	}
 
 	// Do not exec without a durable crash checkpoint. If the new binary rejects
 	// the reload checkpoint after a version bump, crash recovery is the only
@@ -128,6 +131,12 @@ func (s *Server) Reload(execPath string) error {
 	if err := clearCloexec(uintptr(cp.ListenerFd)); err != nil {
 		sess.shutdown.Store(false)
 		return fmt.Errorf("clearing close-on-exec on listener: %w", err)
+	}
+	if cp.SessionLockFd > 0 {
+		if err := clearCloexec(uintptr(cp.SessionLockFd)); err != nil {
+			sess.shutdown.Store(false)
+			return fmt.Errorf("clearing close-on-exec on session lock: %w", err)
+		}
 	}
 	for _, pc := range cp.Panes {
 		if !pc.IsProxy && pc.PtmxFd >= 0 {
@@ -210,6 +219,11 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 	if err != nil {
 		return nil, fmt.Errorf("restoring listener: %w", err)
 	}
+	sessionLock, err := restoreOrAcquireSessionLock(cp.SessionName, cp.SessionLockFd)
+	if err != nil {
+		listener.Close()
+		return nil, err
+	}
 
 	sess := newSessionWithLogger(cp.SessionName, scrollbackLines, logger.With("session", cp.SessionName))
 	if !cp.StartedAt.IsZero() {
@@ -223,6 +237,7 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 		listener:     listener,
 		sessions:     map[string]*Session{cp.SessionName: sess},
 		sockPath:     SocketPath(cp.SessionName),
+		sessionLock:  sessionLock,
 		logger:       logger,
 		shutdownDone: make(chan struct{}),
 	}
@@ -272,6 +287,7 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 
 	if len(sess.Panes) == 0 {
 		listener.Close()
+		closeSessionLock(sessionLock)
 		return nil, fmt.Errorf("no panes restored from checkpoint")
 	}
 

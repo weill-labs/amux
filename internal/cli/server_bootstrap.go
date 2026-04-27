@@ -107,7 +107,7 @@ func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollb
 		"path", crashPath,
 		"error", err,
 	)
-	return server.NewServerFromCrashCheckpointWithListenerFdLogger(restoreSessionName, cp.ListenerFd, crashCP, crashPath, scrollbackLines, logger)
+	return server.NewServerFromCrashCheckpointWithListenerAndLockFdLogger(restoreSessionName, cp.ListenerFd, cp.SessionLockFd, crashCP, crashPath, scrollbackLines, logger)
 }
 
 func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
