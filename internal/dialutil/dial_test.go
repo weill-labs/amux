@@ -14,31 +14,45 @@ import (
 )
 
 func TestDialUnixHelpersTimeoutOnWedgedSocket(t *testing.T) {
+	t.Parallel()
+
 	sockPath := newWedgedUnixSocket(t)
 	timeout := 40 * time.Millisecond
 
 	tests := []struct {
-		name string
-		dial func(context.Context, string, time.Duration) (net.Conn, error)
+		name    string
+		timeout time.Duration
+		dial    func(context.Context, string) (net.Conn, error)
 	}{
 		{
-			name: "dial",
-			dial: func(_ context.Context, path string, timeout time.Duration) (net.Conn, error) {
+			name:    "dial",
+			timeout: timeout,
+			dial: func(_ context.Context, path string) (net.Conn, error) {
 				return DialUnixWithDefault(path, timeout)
 			},
 		},
 		{
-			name: "dial context",
-			dial: func(ctx context.Context, path string, timeout time.Duration) (net.Conn, error) {
+			name:    "dial context",
+			timeout: timeout,
+			dial: func(ctx context.Context, path string) (net.Conn, error) {
 				return DialUnixContextWithDefault(ctx, path, timeout)
+			},
+		},
+		{
+			name:    "stale probe",
+			timeout: StaleProbeDialTimeout,
+			dial: func(_ context.Context, path string) (net.Conn, error) {
+				return DialUnixStaleProbe(path)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			start := time.Now()
-			conn, err := tt.dial(context.Background(), sockPath, timeout)
+			conn, err := tt.dial(context.Background(), sockPath)
 			elapsed := time.Since(start)
 			if conn != nil {
 				conn.Close()
@@ -46,14 +60,27 @@ func TestDialUnixHelpersTimeoutOnWedgedSocket(t *testing.T) {
 			if !isTimeoutError(err) {
 				t.Fatalf("dial error = %v, want timeout", err)
 			}
-			if elapsed > timeout+220*time.Millisecond {
-				t.Fatalf("dial returned in %v, want within configured timeout %v", elapsed, timeout)
+			if elapsed > tt.timeout+220*time.Millisecond {
+				t.Fatalf("dial returned in %v, want within configured timeout %v", elapsed, tt.timeout)
 			}
 		})
 	}
 }
 
+func TestDialTimeoutDefaults(t *testing.T) {
+	t.Parallel()
+
+	if DefaultDialTimeout != 2*time.Second {
+		t.Fatalf("DefaultDialTimeout = %v, want 2s", DefaultDialTimeout)
+	}
+	if StaleProbeDialTimeout != 500*time.Millisecond {
+		t.Fatalf("StaleProbeDialTimeout = %v, want 500ms", StaleProbeDialTimeout)
+	}
+}
+
 func TestDialUnixMissingSocketReturnsBeforeTimeout(t *testing.T) {
+	t.Parallel()
+
 	missingPath := filepath.Join(t.TempDir(), "missing.sock")
 	timeout := 80 * time.Millisecond
 
@@ -77,6 +104,10 @@ func TestDialUnixMissingSocketReturnsBeforeTimeout(t *testing.T) {
 func TestDialTimeoutFromEnvOverridesDefault(t *testing.T) {
 	t.Setenv(EnvDialTimeout, "500ms")
 	sockPath := newWedgedUnixSocket(t)
+
+	if got := TimeoutFromEnv(DefaultDialTimeout); got != 500*time.Millisecond {
+		t.Fatalf("TimeoutFromEnv() = %v, want env override", got)
+	}
 
 	start := time.Now()
 	conn, err := DialUnix(sockPath)
