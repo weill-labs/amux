@@ -36,6 +36,7 @@ func (s *Session) ownPane(pane *mux.Pane) *mux.Pane {
 		return nil
 	}
 	pane.SetCloseForbiddenOwner(&s.eventLoopOwner)
+	pane.SetOnCloseWarning(s.logPaneCloseWarning)
 	return pane
 }
 

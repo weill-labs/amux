@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -409,9 +410,13 @@ type Server struct {
 	// shutdownCheckpointTimeout bounds the final crash checkpoint write during
 	// shutdown. Zero uses the default timeout.
 	shutdownCheckpointTimeout time.Duration
+	// shutdownPaneCloseTimeout bounds each pane close wait during shutdown.
+	// Zero uses the default timeout.
+	shutdownPaneCloseTimeout time.Duration
 }
 
 const defaultShutdownCheckpointTimeout = 2 * time.Second
+const defaultShutdownPaneCloseTimeout = 3 * time.Second
 
 // lookupCommand returns the handler for the given command name, consulting the
 // server-level override first, then the package-level commandRegistry.
@@ -757,13 +762,20 @@ func (s *Server) shutdown() {
 		}
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
+		paneCloseTimeout := s.shutdownPaneCloseWaitTimeout()
 		var wg sync.WaitGroup
 		for _, p := range panes {
 			wg.Add(1)
 			go func(p *mux.Pane) {
 				defer wg.Done()
 				_ = p.Close()
-				_ = p.WaitClosed()
+				ctx, cancel := context.WithTimeout(context.Background(), paneCloseTimeout)
+				defer cancel()
+				if err := p.WaitClosed(ctx); err != nil && s.logger != nil {
+					fields := append([]any{"event", "pane_shutdown_close_timeout"}, paneAuditFields(p)...)
+					fields = append(fields, "timeout", paneCloseTimeout, "error", err)
+					s.logger.Warn("timed out waiting for pane close during shutdown", fields...)
+				}
 			}(p)
 		}
 		wg.Wait()
@@ -776,6 +788,13 @@ func (s *Server) shutdownCrashCheckpointTimeout() time.Duration {
 		return defaultShutdownCheckpointTimeout
 	}
 	return s.shutdownCheckpointTimeout
+}
+
+func (s *Server) shutdownPaneCloseWaitTimeout() time.Duration {
+	if s == nil || s.shutdownPaneCloseTimeout <= 0 {
+		return defaultShutdownPaneCloseTimeout
+	}
+	return s.shutdownPaneCloseTimeout
 }
 
 func (s *Server) handleConn(conn net.Conn) {
