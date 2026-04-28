@@ -13,6 +13,7 @@ import (
 	"time"
 
 	charmlog "github.com/charmbracelet/log"
+	"github.com/weill-labs/amux/internal/dialutil"
 )
 
 type pprofEndpoint struct {
@@ -44,7 +45,7 @@ func newPprofMux() *http.ServeMux {
 
 func newPprofEndpoint(sockPath string, logger *charmlog.Logger) (*pprofEndpoint, error) {
 	if _, err := os.Stat(sockPath); err == nil {
-		conn, dialErr := net.Dial("unix", sockPath)
+		conn, dialErr := dialutil.DialUnixStaleProbe(sockPath)
 		if dialErr == nil {
 			conn.Close()
 			return nil, fmt.Errorf("pprof debug endpoint already running at %s", sockPath)

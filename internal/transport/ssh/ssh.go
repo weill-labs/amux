@@ -10,6 +10,7 @@ import (
 
 	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/auditlog"
+	"github.com/weill-labs/amux/internal/dialutil"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -38,7 +39,7 @@ func BuildSSHConfig(user, identityFile string) (*ssh.ClientConfig, error) {
 	}
 
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		conn, err := net.Dial("unix", sock)
+		conn, err := dialutil.DialUnix(sock)
 		if err == nil {
 			agentClient := agent.NewClient(conn)
 			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))

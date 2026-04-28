@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/dialutil"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/transport"
 	_ "github.com/weill-labs/amux/internal/transport/mosh"
@@ -189,7 +190,7 @@ func (s *sshSessionState) set(tr transport.Transport) {
 }
 
 func runLocalServerCommand(sessionName, cmdName string, args []string) error {
-	conn, err := net.Dial("unix", proto.SocketPath(sessionName))
+	conn, err := dialutil.DialUnix(proto.SocketPath(sessionName))
 	if err != nil {
 		return err
 	}

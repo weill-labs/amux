@@ -3,12 +3,13 @@ package proto
 import (
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/weill-labs/amux/internal/dialutil"
 )
 
 type daemonFns struct {
@@ -141,7 +142,7 @@ func EnsureDaemon(sessionName string, timeout time.Duration) error {
 
 // SocketAlive checks if a socket exists and a server is listening on it.
 func SocketAlive(sockPath string) bool {
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := dialutil.DialUnix(sockPath)
 	if err != nil {
 		return false
 	}
