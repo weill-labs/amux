@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -815,6 +816,98 @@ func TestWaitClosedReturnsNilBeforeClose(t *testing.T) {
 	if err := p.WaitClosed(); err != nil {
 		t.Fatalf("WaitClosed() before Close = %v, want nil", err)
 	}
+}
+
+func TestWaitClosedReturnsContextDeadlineExceeded(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{}
+	p.closed.Store(true)
+	closeDone := p.ensureCloseDone()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := p.WaitClosed(ctx)
+	elapsed := time.Since(start)
+	close(closeDone)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitClosed(ctx) = %v, want context deadline exceeded", err)
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("WaitClosed(ctx) took %v, want bounded by context deadline", elapsed)
+	}
+}
+
+type closeWarningRecord struct {
+	paneID  uint32
+	message string
+	fields  []any
+}
+
+func TestCloseBlockingTimesOutHungReadLoop(t *testing.T) {
+	t.Parallel()
+
+	readLoopDone := make(chan struct{})
+	p := &Pane{
+		ID:                   17,
+		Meta:                 PaneMeta{Name: "pane-17", Host: DefaultHost},
+		readLoopDone:         readLoopDone,
+		closeReadLoopTimeout: 25 * time.Millisecond,
+	}
+	warnings := make(chan closeWarningRecord, 1)
+	p.SetOnCloseWarning(func(pane *Pane, message string, fields ...any) {
+		warnings <- closeWarningRecord{
+			paneID:  pane.ID,
+			message: message,
+			fields:  append([]any(nil), fields...),
+		}
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.closeBlocking()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("closeBlocking() = %v, want nil", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		close(readLoopDone)
+		<-done
+		t.Fatal("closeBlocking() hung on readLoopDone")
+	}
+
+	select {
+	case warning := <-warnings:
+		if warning.paneID != 17 {
+			t.Fatalf("warning pane ID = %d, want 17", warning.paneID)
+		}
+		if warning.message != "pane read loop did not exit before close timeout" {
+			t.Fatalf("warning message = %q", warning.message)
+		}
+		if got := fieldValue(warning.fields, "event"); got != "pane_close_read_loop_timeout" {
+			t.Fatalf("warning event = %v, want pane_close_read_loop_timeout", got)
+		}
+		if got := fieldValue(warning.fields, "timeout"); got != 25*time.Millisecond {
+			t.Fatalf("warning timeout = %v, want 25ms", got)
+		}
+	default:
+		t.Fatal("closeBlocking() did not log the read loop timeout")
+	}
+}
+
+func fieldValue(fields []any, key string) any {
+	for i := 0; i+1 < len(fields); i += 2 {
+		if fields[i] == key {
+			return fields[i+1]
+		}
+	}
+	return nil
 }
 
 func TestCloseHandlesUnstartedProcessPane(t *testing.T) {

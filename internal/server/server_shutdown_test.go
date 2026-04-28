@@ -2,10 +2,14 @@ package server
 
 import (
 	"net"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
+
+	"github.com/weill-labs/amux/internal/mux"
 )
 
 func TestShutdownCommandFlushesReplyBeforeShutdownStarts(t *testing.T) {
@@ -201,6 +205,73 @@ func TestShutdownTimesOutBlockedCrashCheckpointWrite(t *testing.T) {
 	if !strings.Contains(logBuf.String(), "timed out waiting for crash checkpoint during shutdown") {
 		t.Fatalf("shutdown log = %q, want timeout warning", logBuf.String())
 	}
+}
+
+func TestShutdownExitsWithWedgedPaneReadLoop(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	logger, logBuf := newAuditTestLogger()
+	srv.SetLogger(logger)
+	srv.shutdownPaneCloseTimeout = 100 * time.Millisecond
+
+	pane1 := newTestPane(sess, 1, "pane-1")
+	wedgedPane := newTestPane(sess, 2, "pane-2")
+	pane3 := newTestPane(sess, 3, "pane-3")
+	releaseReadLoop := wedgePaneReadLoopForShutdownTest(t, wedgedPane, 25*time.Millisecond)
+	defer releaseReadLoop()
+	sess.Panes = []*mux.Pane{pane1, wedgedPane, pane3}
+
+	shutdownDone := make(chan struct{})
+	start := time.Now()
+	go func() {
+		srv.shutdown()
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown hung on wedged pane read loop")
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("shutdown took %v, want bounded by pane close timeout", elapsed)
+	}
+
+	logs := logBuf.String()
+	if !strings.Contains(logs, "pane_close_read_loop_timeout") {
+		t.Fatalf("shutdown log = %q, want read loop timeout warning", logs)
+	}
+	if !strings.Contains(logs, "pane-2") {
+		t.Fatalf("shutdown log = %q, want wedged pane name", logs)
+	}
+}
+
+func wedgePaneReadLoopForShutdownTest(t *testing.T, pane *mux.Pane, timeout time.Duration) func() {
+	t.Helper()
+
+	readLoopDone := make(chan struct{})
+	setPaneFieldForShutdownTest(t, pane, "readLoopDone", readLoopDone)
+	setPaneFieldForShutdownTest(t, pane, "closeReadLoopTimeout", timeout)
+
+	var releaseOnce sync.Once
+	return func() {
+		releaseOnce.Do(func() {
+			close(readLoopDone)
+		})
+	}
+}
+
+func setPaneFieldForShutdownTest(t *testing.T, pane *mux.Pane, name string, value any) {
+	t.Helper()
+
+	field := reflect.ValueOf(pane).Elem().FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("mux.Pane.%s field not found", name)
+	}
+	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(reflect.ValueOf(value))
 }
 
 type blockingCrashCheckpointCoordinator struct {
