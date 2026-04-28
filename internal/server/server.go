@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -768,14 +769,7 @@ func (s *Server) shutdown() {
 			wg.Add(1)
 			go func(p *mux.Pane) {
 				defer wg.Done()
-				_ = p.Close()
-				ctx, cancel := context.WithTimeout(context.Background(), paneCloseTimeout)
-				defer cancel()
-				if err := p.WaitClosed(ctx); err != nil && s.logger != nil {
-					fields := append([]any{"event", "pane_shutdown_close_timeout"}, paneAuditFields(p)...)
-					fields = append(fields, "timeout", paneCloseTimeout, "error", err)
-					s.logger.Warn("timed out waiting for pane close during shutdown", fields...)
-				}
+				s.closePaneDuringShutdown(p, paneCloseTimeout)
 			}(p)
 		}
 		wg.Wait()
@@ -795,6 +789,25 @@ func (s *Server) shutdownPaneCloseWaitTimeout() time.Duration {
 		return defaultShutdownPaneCloseTimeout
 	}
 	return s.shutdownPaneCloseTimeout
+}
+
+func (s *Server) closePaneDuringShutdown(p *mux.Pane, timeout time.Duration) {
+	_ = p.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := p.WaitClosed(ctx); errors.Is(err, context.DeadlineExceeded) {
+		s.logPaneShutdownCloseTimeout(p, timeout, err)
+	}
+}
+
+func (s *Server) logPaneShutdownCloseTimeout(p *mux.Pane, timeout time.Duration, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	fields := append([]any{"event", "pane_shutdown_close_timeout"}, paneAuditFields(p)...)
+	fields = append(fields, "timeout", timeout, "error", err)
+	s.logger.Warn("timed out waiting for pane close during shutdown", fields...)
 }
 
 func (s *Server) handleConn(conn net.Conn) {

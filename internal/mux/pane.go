@@ -24,6 +24,8 @@ const DefaultHost = "local"
 // PaneNameFormat is the format string for auto-assigned pane names.
 const PaneNameFormat = "pane-%d"
 
+const defaultPaneCloseReadLoopTimeout = 2 * time.Second
+
 func paneShellEnv(id uint32, sessionName string) []string {
 	return paneCommandEnvWithProfile(os.Environ(), id, sessionName, "")
 }
@@ -769,16 +771,7 @@ func (p *Pane) closeBlocking() error {
 		ptmxErr = state.ptmx.Close()
 	}
 	closeTimeout := p.effectiveCloseReadLoopTimeout()
-	if state.readLoopDone != nil {
-		select {
-		case <-state.readLoopDone:
-		case <-time.After(closeTimeout):
-			p.logCloseWarning("pane read loop did not exit before close timeout",
-				"event", "pane_close_read_loop_timeout",
-				"timeout", closeTimeout,
-			)
-		}
-	}
+	p.waitForReadLoopDone(state.readLoopDone, closeTimeout)
 	p.waitForDetachedProcessExit(state, proc, closeTimeout)
 	p.stopActor()
 	emuErr := func() error {
@@ -794,7 +787,24 @@ func (p *Pane) effectiveCloseReadLoopTimeout() time.Duration {
 	if p.closeReadLoopTimeout > 0 {
 		return p.closeReadLoopTimeout
 	}
-	return 2 * time.Second
+	return defaultPaneCloseReadLoopTimeout
+}
+
+func (p *Pane) waitForReadLoopDone(done <-chan struct{}, timeout time.Duration) {
+	if done == nil {
+		return
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+		p.logCloseWarning("pane read loop did not exit before close timeout",
+			"event", "pane_close_read_loop_timeout",
+			"timeout", timeout,
+		)
+	}
 }
 
 func (p *Pane) logCloseWarning(message string, fields ...any) {
