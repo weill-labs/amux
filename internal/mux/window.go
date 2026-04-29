@@ -83,8 +83,10 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 		return nil, fmt.Errorf("window has no layout root")
 	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
+	equalizeAnchoredLeadAfterSplit := false
 
 	if !targetRoot.IsLeaf() && targetRoot.Dir == dir {
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, false)
 		// Same direction: add as sibling, redistribute equally
 		newLeaf.Parent = targetRoot
 		targetRoot.Children = append(targetRoot.Children, newLeaf)
@@ -138,8 +140,12 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 			parent.Children[parentIdx] = newRoot
 			newRoot.Parent = parent
 		}
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, true)
 	}
 
+	if equalizeAnchoredLeadAfterSplit {
+		w.equalizeAnchoredLeadColumns()
+	}
 	w.Root.FixOffsets()
 
 	w.resizePTYs()
