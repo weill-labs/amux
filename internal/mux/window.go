@@ -390,6 +390,8 @@ func (w *Window) ClosePane(paneID uint32) error {
 	if err != nil {
 		return err
 	}
+	prevAnchoredColumnCount := len(w.anchoredLeadWidthColumns())
+	prevAnchoredEqual := prevAnchoredColumnCount > 0 && !w.anchoredLeadColumnsWidthChanged()
 
 	// Count leaves to prevent closing the last pane
 	count := 0
@@ -422,6 +424,11 @@ func (w *Window) ClosePane(paneID uint32) error {
 
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
+
+	if len(w.anchoredLeadWidthColumns()) < prevAnchoredColumnCount &&
+		w.shouldEqualizeAnchoredLeadAfterClose(prevAnchoredEqual) {
+		w.equalizeAnchoredLeadColumns()
+	}
 
 	// Keep a surviving lead pane designated as pending lead when a lead window
 	// collapses back to one pane. The next split rematerializes the anchored

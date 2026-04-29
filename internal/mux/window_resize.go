@@ -252,6 +252,10 @@ func (w *Window) shouldEqualizeAnchoredLeadAfterRootSplit(parent *LayoutCell, pa
 	return !w.anchoredLeadColumnsWidthChanged()
 }
 
+func (w *Window) shouldEqualizeAnchoredLeadAfterClose(prevAnchoredEqual bool) bool {
+	return prevAnchoredEqual && w.hasAnchoredLead() && w.anchoredLeadColumnsWidthChanged()
+}
+
 func (w *Window) anchoredLeadColumnsWidthChanged() bool {
 	columns, sizes := w.anchoredLeadWidthTargets()
 	if len(columns) < 2 {
@@ -280,7 +284,12 @@ func (w *Window) equalizeAnchoredLeadColumns() {
 		return
 	}
 
-	logical.ResizeSubtree(equalizedColumnGroupWidth(sizes[1:]), w.Root.H)
+	logical.W = equalizedColumnGroupWidth(sizes[1:])
+	logical.H = w.Root.H
+	for i, column := range columns[1:] {
+		column.ResizeSubtree(sizes[i+1], w.Root.H)
+	}
+	logical.FixOffsets()
 }
 
 func (w *Window) anchoredLeadWidthColumns() []*LayoutCell {
