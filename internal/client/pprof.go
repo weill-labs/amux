@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weill-labs/amux/internal/dialutil"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -66,7 +67,7 @@ func newPprofEndpoint(session string, pid int) (*pprofEndpoint, error) {
 
 	sockPath := PprofProcessSocketPath(session, pid)
 	if _, err := os.Stat(sockPath); err == nil {
-		conn, dialErr := net.Dial("unix", sockPath)
+		conn, dialErr := dialutil.DialUnixStaleProbe(sockPath)
 		if dialErr == nil {
 			conn.Close()
 			return nil, fmt.Errorf("pprof debug endpoint already running at %s", sockPath)
@@ -155,7 +156,7 @@ func promoteFallbackPprofAlias(session, aliasPath, skipPath string) {
 	})
 
 	for _, candidate := range candidates {
-		conn, err := net.Dial("unix", candidate.path)
+		conn, err := dialutil.DialUnixStaleProbe(candidate.path)
 		if err != nil {
 			_ = os.Remove(candidate.path)
 			continue

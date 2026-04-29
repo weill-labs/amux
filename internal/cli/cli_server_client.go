@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weill-labs/amux/internal/dialutil"
 	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/server"
 )
@@ -137,7 +138,7 @@ type serverSocket struct {
 }
 
 func dialServer(sessionName string) (*serverSocket, error) {
-	conn, err := net.Dial("unix", server.SocketPath(sessionName))
+	conn, err := dialutil.DialUnix(server.SocketPath(sessionName))
 	if err != nil {
 		return nil, fmt.Errorf("connecting to server: %w", err)
 	}
