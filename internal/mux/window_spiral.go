@@ -213,11 +213,12 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 	}
 
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
-	anchoredLeadLogicalVertical := dir == SplitVertical && w.hasAnchoredLead() && root.Parent == w.Root && root.IndexInParent() == 1
+	parent := root.Parent
+	parentIdx := root.IndexInParent()
 	equalizeAnchoredLeadAfterSplit := false
 
 	if !root.IsLeaf() && root.Dir == dir {
-		equalizeAnchoredLeadAfterSplit = anchoredLeadLogicalVertical && !w.anchoredLeadColumnsWidthChanged()
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, false)
 		newLeaf.Parent = root
 		if insertFirst {
 			root.Children = append([]*LayoutCell{newLeaf}, root.Children...)
@@ -227,8 +228,6 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		root.distributeEqual()
 	} else {
 		oldRoot := root
-		parent := oldRoot.Parent
-		parentIdx := oldRoot.IndexInParent()
 
 		newRoot := &LayoutCell{
 			X: oldRoot.X, Y: oldRoot.Y, W: oldRoot.W, H: oldRoot.H,
@@ -274,7 +273,7 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		} else {
 			parent.Children[parentIdx] = newRoot
 		}
-		equalizeAnchoredLeadAfterSplit = anchoredLeadLogicalVertical
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, true)
 	}
 
 	if equalizeAnchoredLeadAfterSplit {
