@@ -213,8 +213,11 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 	}
 
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
+	anchoredLeadLogicalVertical := dir == SplitVertical && w.hasAnchoredLead() && root.Parent == w.Root && root.IndexInParent() == 1
+	equalizeAnchoredLeadAfterSplit := false
 
 	if !root.IsLeaf() && root.Dir == dir {
+		equalizeAnchoredLeadAfterSplit = anchoredLeadLogicalVertical && !w.anchoredLeadColumnsWidthChanged()
 		newLeaf.Parent = root
 		if insertFirst {
 			root.Children = append([]*LayoutCell{newLeaf}, root.Children...)
@@ -271,8 +274,12 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		} else {
 			parent.Children[parentIdx] = newRoot
 		}
+		equalizeAnchoredLeadAfterSplit = anchoredLeadLogicalVertical
 	}
 
+	if equalizeAnchoredLeadAfterSplit {
+		w.equalizeAnchoredLeadColumns()
+	}
 	w.Root.FixOffsets()
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
