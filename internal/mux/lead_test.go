@@ -404,16 +404,7 @@ func TestClosePaneWithAnchoredLeadEqualizesRemainingTwoColumns(t *testing.T) {
 	p1 := fakePaneID(1)
 	p2 := fakePaneID(2)
 	p3 := fakePaneID(3)
-	w := NewWindow(p1, 120, 24)
-	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
-		t.Fatalf("SplitRoot p2: %v", err)
-	}
-	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
-		t.Fatalf("SplitRoot p3: %v", err)
-	}
-	if err := w.SetLead(p1.ID); err != nil {
-		t.Fatalf("SetLead: %v", err)
-	}
+	w := newAnchoredLeadColumnsWindow(t, 120, p1, p2, p3)
 
 	if err := w.ClosePane(p3.ID); err != nil {
 		t.Fatalf("ClosePane: %v", err)
@@ -433,19 +424,7 @@ func TestClosePaneWithAnchoredLeadEqualizesRemainingThreeColumns(t *testing.T) {
 	p2 := fakePaneID(2)
 	p3 := fakePaneID(3)
 	p4 := fakePaneID(4)
-	w := NewWindow(p1, 120, 24)
-	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
-		t.Fatalf("SplitRoot p2: %v", err)
-	}
-	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
-		t.Fatalf("SplitRoot p3: %v", err)
-	}
-	if _, err := w.SplitRoot(SplitVertical, p4); err != nil {
-		t.Fatalf("SplitRoot p4: %v", err)
-	}
-	if err := w.SetLead(p1.ID); err != nil {
-		t.Fatalf("SetLead: %v", err)
-	}
+	w := newAnchoredLeadColumnsWindow(t, 120, p1, p2, p3, p4)
 
 	if err := w.ClosePane(p4.ID); err != nil {
 		t.Fatalf("ClosePane: %v", err)
@@ -464,16 +443,7 @@ func TestClosePaneWithAnchoredLeadPreservesManualLeadWidth(t *testing.T) {
 	p1 := fakePaneID(1)
 	p2 := fakePaneID(2)
 	p3 := fakePaneID(3)
-	w := NewWindow(p1, 120, 24)
-	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
-		t.Fatalf("SplitRoot p2: %v", err)
-	}
-	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
-		t.Fatalf("SplitRoot p3: %v", err)
-	}
-	if err := w.SetLead(p1.ID); err != nil {
-		t.Fatalf("SetLead: %v", err)
-	}
+	w := newAnchoredLeadColumnsWindow(t, 120, p1, p2, p3)
 	if !w.ResizeBorder(w.Root.Children[0].W, 0, 21) {
 		t.Fatal("ResizeBorder should grow the lead column to 60")
 	}
@@ -548,16 +518,7 @@ func TestMovePaneToRootEdgeWithAnchoredLeadComposesCloseAndSplitEqualize(t *test
 	p1 := fakePaneID(1)
 	p2 := fakePaneID(2)
 	p3 := fakePaneID(3)
-	w := NewWindow(p1, 120, 24)
-	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
-		t.Fatalf("SplitRoot p2: %v", err)
-	}
-	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
-		t.Fatalf("SplitRoot p3: %v", err)
-	}
-	if err := w.SetLead(p1.ID); err != nil {
-		t.Fatalf("SetLead: %v", err)
-	}
+	w := newAnchoredLeadColumnsWindow(t, 120, p1, p2, p3)
 
 	if err := w.MovePaneToRootEdge(p2.ID, SplitVertical, true); err != nil {
 		t.Fatalf("MovePaneToRootEdge: %v", err)
@@ -571,6 +532,24 @@ func TestMovePaneToRootEdgeWithAnchoredLeadComposesCloseAndSplitEqualize(t *test
 	if p2Cell, p3Cell := w.Root.FindPane(p2.ID), w.Root.FindPane(p3.ID); p2Cell == nil || p3Cell == nil || p2Cell.X >= p3Cell.X {
 		t.Fatalf("moved pane should remain before pane-3, got p2=%v p3=%v", p2Cell, p3Cell)
 	}
+}
+
+func newAnchoredLeadColumnsWindow(t *testing.T, width int, panes ...*Pane) *Window {
+	t.Helper()
+	if len(panes) < 2 {
+		t.Fatalf("newAnchoredLeadColumnsWindow needs at least 2 panes, got %d", len(panes))
+	}
+
+	w := NewWindow(panes[0], width, 24)
+	for _, pane := range panes[1:] {
+		if _, err := w.SplitRoot(SplitVertical, pane); err != nil {
+			t.Fatalf("SplitRoot pane-%d: %v", pane.ID, err)
+		}
+	}
+	if err := w.SetLead(panes[0].ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+	return w
 }
 
 func TestLeadResizeRoundTripPreservesUnevenColumns(t *testing.T) {
