@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,8 @@ const DefaultHost = "local"
 
 // PaneNameFormat is the format string for auto-assigned pane names.
 const PaneNameFormat = "pane-%d"
+
+const defaultPaneCloseReadLoopTimeout = 2 * time.Second
 
 func paneShellEnv(id uint32, sessionName string) []string {
 	return paneCommandEnvWithProfile(os.Environ(), id, sessionName, "")
@@ -103,22 +106,24 @@ type Pane struct {
 	// Used by proxy panes to route input over SSH to a remote amux server.
 	writeOverride func([]byte) (int, error)
 
-	closed              atomic.Bool
-	exitDone            chan struct{} // closed by waitLoop when the shell process exits
-	closeDoneOnce       sync.Once
-	closeDone           chan struct{}
-	closeErr            error
-	closeForbiddenOwner *debugowner.Checker
-	drainStarted        bool
-	onOutput            func(paneID uint32, data []byte, seq uint64)
-	onExit              func(paneID uint32, reason string)
-	onClipboard         func(paneID uint32, data []byte)
-	onTakeover          func(paneID uint32, req TakeoverRequest)
-	onMetaUpdate        func(paneID uint32, update MetaUpdate)
-	osc52Scanner        OSC52Scanner
-	controlScanner      AmuxControlScanner
-	metaScanner         AmuxMetaScanner
-	suppressCallbacks   atomic.Bool
+	closed               atomic.Bool
+	exitDone             chan struct{} // closed by waitLoop when the shell process exits
+	closeDoneOnce        sync.Once
+	closeDone            chan struct{}
+	closeErr             error
+	closeForbiddenOwner  *debugowner.Checker
+	drainStarted         bool
+	onOutput             func(paneID uint32, data []byte, seq uint64)
+	onExit               func(paneID uint32, reason string)
+	onClipboard          func(paneID uint32, data []byte)
+	onTakeover           func(paneID uint32, req TakeoverRequest)
+	onMetaUpdate         func(paneID uint32, update MetaUpdate)
+	onCloseWarning       func(pane *Pane, message string, fields ...any)
+	osc52Scanner         OSC52Scanner
+	controlScanner       AmuxControlScanner
+	metaScanner          AmuxMetaScanner
+	suppressCallbacks    atomic.Bool
+	closeReadLoopTimeout time.Duration
 
 	// Idle tracking (LAB-159)
 	createdAt        time.Time
@@ -551,6 +556,12 @@ func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
 	p.onMetaUpdate = fn
 }
 
+// SetOnCloseWarning sets the callback invoked when close teardown hits a
+// bounded wait. Must be called before Close().
+func (p *Pane) SetOnCloseWarning(fn func(pane *Pane, message string, fields ...any)) {
+	p.onCloseWarning = fn
+}
+
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop(ptmx *os.File, done chan struct{}) {
 	if done != nil {
@@ -728,13 +739,22 @@ func (p *Pane) Close() error {
 }
 
 // WaitClosed waits for the background Close teardown to finish and returns the
-// final close error, if any.
-func (p *Pane) WaitClosed() error {
+// final close error, if any. Passing a context bounds the wait; without one it
+// waits until Close teardown finishes.
+func (p *Pane) WaitClosed(ctxs ...context.Context) error {
 	if !p.closed.Load() {
 		return nil
 	}
-	<-p.ensureCloseDone()
-	return p.closeErr
+	ctx := context.Background()
+	if len(ctxs) > 0 && ctxs[0] != nil {
+		ctx = ctxs[0]
+	}
+	select {
+	case <-p.ensureCloseDone():
+		return p.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (p *Pane) closeBlocking() error {
@@ -750,10 +770,9 @@ func (p *Pane) closeBlocking() error {
 	if state.ptmx != nil {
 		ptmxErr = state.ptmx.Close()
 	}
-	if state.readLoopDone != nil {
-		<-state.readLoopDone
-	}
-	p.waitForDetachedProcessExit(state, proc, 2*time.Second)
+	closeTimeout := p.effectiveCloseReadLoopTimeout()
+	p.waitForReadLoopDone(state.readLoopDone, closeTimeout)
+	p.waitForDetachedProcessExit(state, proc, closeTimeout)
 	p.stopActor()
 	emuErr := func() error {
 		if state.emulator == nil {
@@ -762,6 +781,37 @@ func (p *Pane) closeBlocking() error {
 		return state.emulator.Close()
 	}()
 	return errors.Join(ptmxErr, emuErr)
+}
+
+func (p *Pane) effectiveCloseReadLoopTimeout() time.Duration {
+	if p.closeReadLoopTimeout > 0 {
+		return p.closeReadLoopTimeout
+	}
+	return defaultPaneCloseReadLoopTimeout
+}
+
+func (p *Pane) waitForReadLoopDone(done <-chan struct{}, timeout time.Duration) {
+	if done == nil {
+		return
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+		p.logCloseWarning("pane read loop did not exit before close timeout",
+			"event", "pane_close_read_loop_timeout",
+			"timeout", timeout,
+		)
+	}
+}
+
+func (p *Pane) logCloseWarning(message string, fields ...any) {
+	if p.onCloseWarning == nil {
+		return
+	}
+	p.onCloseWarning(p, message, fields...)
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained

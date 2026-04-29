@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -409,9 +411,13 @@ type Server struct {
 	// shutdownCheckpointTimeout bounds the final crash checkpoint write during
 	// shutdown. Zero uses the default timeout.
 	shutdownCheckpointTimeout time.Duration
+	// shutdownPaneCloseTimeout bounds each pane close wait during shutdown.
+	// Zero uses the default timeout.
+	shutdownPaneCloseTimeout time.Duration
 }
 
 const defaultShutdownCheckpointTimeout = 2 * time.Second
+const defaultShutdownPaneCloseTimeout = 3 * time.Second
 
 // lookupCommand returns the handler for the given command name, consulting the
 // server-level override first, then the package-level commandRegistry.
@@ -757,13 +763,13 @@ func (s *Server) shutdown() {
 		}
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
+		paneCloseTimeout := s.shutdownPaneCloseWaitTimeout()
 		var wg sync.WaitGroup
 		for _, p := range panes {
 			wg.Add(1)
 			go func(p *mux.Pane) {
 				defer wg.Done()
-				_ = p.Close()
-				_ = p.WaitClosed()
+				s.closePaneDuringShutdown(p, paneCloseTimeout)
 			}(p)
 		}
 		wg.Wait()
@@ -776,6 +782,32 @@ func (s *Server) shutdownCrashCheckpointTimeout() time.Duration {
 		return defaultShutdownCheckpointTimeout
 	}
 	return s.shutdownCheckpointTimeout
+}
+
+func (s *Server) shutdownPaneCloseWaitTimeout() time.Duration {
+	if s == nil || s.shutdownPaneCloseTimeout <= 0 {
+		return defaultShutdownPaneCloseTimeout
+	}
+	return s.shutdownPaneCloseTimeout
+}
+
+func (s *Server) closePaneDuringShutdown(p *mux.Pane, timeout time.Duration) {
+	_ = p.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := p.WaitClosed(ctx); errors.Is(err, context.DeadlineExceeded) {
+		s.logPaneShutdownCloseTimeout(p, timeout, err)
+	}
+}
+
+func (s *Server) logPaneShutdownCloseTimeout(p *mux.Pane, timeout time.Duration, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	fields := append([]any{"event", "pane_shutdown_close_timeout"}, paneAuditFields(p)...)
+	fields = append(fields, "timeout", timeout, "error", err)
+	s.logger.Warn("timed out waiting for pane close during shutdown", fields...)
 }
 
 func (s *Server) handleConn(conn net.Conn) {

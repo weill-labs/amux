@@ -107,6 +107,15 @@ func (s *Session) logPaneExit(pane *mux.Pane, reason string) {
 	}
 }
 
+func (s *Session) logPaneCloseWarning(pane *mux.Pane, message string, fields ...any) {
+	if s == nil || pane == nil {
+		return
+	}
+	closeFields := append([]any(nil), fields...)
+	closeFields = append(closeFields, paneAuditFields(pane)...)
+	auditlog.LogWithLevel(s.logger, charmlog.WarnLevel, message, closeFields...)
+}
+
 func (s *Session) logCheckpointWrite(kind, path string, duration time.Duration, err error) {
 	if s == nil {
 		return
