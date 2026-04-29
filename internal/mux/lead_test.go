@@ -398,6 +398,97 @@ func TestSplitRootVerticalWithAnchoredLeadKeepsEqualColumnsInSameDirection(t *te
 	}
 }
 
+func TestClosePaneWithAnchoredLeadEqualizesRemainingTwoColumns(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 120, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot p3: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if err := w.ClosePane(p3.ID); err != nil {
+		t.Fatalf("ClosePane: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{59, 60}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after close = %v, want %v", got, want)
+	}
+}
+
+func TestClosePaneWithAnchoredLeadEqualizesRemainingThreeColumns(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	w := NewWindow(p1, 120, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot p3: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p4); err != nil {
+		t.Fatalf("SplitRoot p4: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if err := w.ClosePane(p4.ID); err != nil {
+		t.Fatalf("ClosePane: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{39, 39, 40}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after close = %v, want %v", got, want)
+	}
+}
+
+func TestClosePaneWithAnchoredLeadPreservesManualLeadWidth(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 120, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot p3: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+	if !w.ResizeBorder(w.Root.Children[0].W, 0, 21) {
+		t.Fatal("ResizeBorder should grow the lead column to 60")
+	}
+
+	if err := w.ClosePane(p3.ID); err != nil {
+		t.Fatalf("ClosePane: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{60, 59}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after manual close = %v, want %v", got, want)
+	}
+}
+
 func TestSplitRootHorizontalWithAnchoredLeadPreservesWidths(t *testing.T) {
 	t.Parallel()
 
@@ -448,6 +539,37 @@ func TestMovePaneToRootEdgeWithAnchoredLeadEqualizesWrappedColumns(t *testing.T)
 	want := []int{39, 39, 40}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("anchored lead column widths after MovePaneToRootEdge = %v, want %v", got, want)
+	}
+}
+
+func TestMovePaneToRootEdgeWithAnchoredLeadComposesCloseAndSplitEqualize(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 120, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot p3: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if err := w.MovePaneToRootEdge(p2.ID, SplitVertical, true); err != nil {
+		t.Fatalf("MovePaneToRootEdge: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{39, 39, 40}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after MovePaneToRootEdge = %v, want %v", got, want)
+	}
+	if p2Cell, p3Cell := w.Root.FindPane(p2.ID), w.Root.FindPane(p3.ID); p2Cell == nil || p3Cell == nil || p2Cell.X >= p3Cell.X {
+		t.Fatalf("moved pane should remain before pane-3, got p2=%v p3=%v", p2Cell, p3Cell)
 	}
 }
 

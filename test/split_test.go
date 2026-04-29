@@ -506,6 +506,29 @@ func TestGoldenThreeColumnsMiddleSplitWithLead(t *testing.T) {
 	assertGolden(t, "three_col_middle_split_lead.color", colorMap)
 }
 
+func TestGoldenCloseColumnRebalancesLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	setLead(t, h, "pane-1")
+
+	gen := h.generation()
+	out := h.runCmd("kill", "pane-3")
+	if !strings.Contains(out, "Killed") {
+		t.Fatalf("kill pane-3 failed: %s", out)
+	}
+	h.waitLayout(gen)
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "close_column_rebalances_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "close_column_rebalances_lead.color", colorMap)
+}
+
 func TestGoldenNinePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
