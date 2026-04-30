@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 func setLead(t *testing.T, h *ServerHarness, pane string) {
@@ -721,6 +724,407 @@ func TestGoldenFourPaneWithLead(t *testing.T) {
 
 	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "four_pane_lead.color", colorMap)
+}
+
+// ---------------------------------------------------------------------------
+// Golden file tests — layout mutation operations
+// ---------------------------------------------------------------------------
+
+const (
+	mutationGoldenWidth   = 80
+	mutationGoldenHeight  = 24
+	mutationGoldenSession = "t-00000000"
+)
+
+type mutationGoldenHarness struct {
+	t      *testing.T
+	window *mux.Window
+	panes  map[uint32]*mutationGoldenPaneData
+	nextID uint32
+}
+
+type mutationGoldenPaneData struct {
+	id    uint32
+	name  string
+	color string
+	lead  bool
+}
+
+func (p *mutationGoldenPaneData) RenderScreen(bool) string { return "" }
+func (p *mutationGoldenPaneData) CellAt(int, int, bool) render.ScreenCell {
+	return render.ScreenCell{Char: " ", Width: 1}
+}
+func (p *mutationGoldenPaneData) CopyModeOverlay() *proto.ViewportOverlay { return nil }
+func (p *mutationGoldenPaneData) CursorPos() (int, int)                   { return 0, 0 }
+func (p *mutationGoldenPaneData) CursorHidden() bool                      { return true }
+func (p *mutationGoldenPaneData) HasCursorBlock() bool                    { return false }
+func (p *mutationGoldenPaneData) ID() uint32                              { return p.id }
+func (p *mutationGoldenPaneData) Name() string                            { return p.name }
+func (p *mutationGoldenPaneData) TrackedPRs() []proto.TrackedPR           { return nil }
+func (p *mutationGoldenPaneData) TrackedIssues() []proto.TrackedIssue     { return nil }
+func (p *mutationGoldenPaneData) Issue() string                           { return "" }
+func (p *mutationGoldenPaneData) Host() string                            { return mux.DefaultHost }
+func (p *mutationGoldenPaneData) Task() string                            { return "" }
+func (p *mutationGoldenPaneData) Color() string                           { return p.color }
+func (p *mutationGoldenPaneData) Idle() bool                              { return true }
+func (p *mutationGoldenPaneData) IsLead() bool                            { return p.lead }
+func (p *mutationGoldenPaneData) ConnStatus() string                      { return "" }
+func (p *mutationGoldenPaneData) InCopyMode() bool                        { return false }
+func (p *mutationGoldenPaneData) CopyModeSearch() string                  { return "" }
+
+func newMutationGoldenHarness(t *testing.T) *mutationGoldenHarness {
+	t.Helper()
+	h := &mutationGoldenHarness{
+		t:      t,
+		panes:  make(map[uint32]*mutationGoldenPaneData),
+		nextID: 1,
+	}
+	first := h.newPane()
+	h.window = mux.NewWindow(first, mutationGoldenWidth, mutationGoldenHeight-render.GlobalBarHeight)
+	return h
+}
+
+func (h *mutationGoldenHarness) newPane() *mux.Pane {
+	id := h.nextID
+	h.nextID++
+	name := fmt.Sprintf("pane-%d", id)
+	color := config.AccentColor(id - 1)
+	h.panes[id] = &mutationGoldenPaneData{id: id, name: name, color: color}
+	return &mux.Pane{
+		ID: id,
+		Meta: mux.PaneMeta{
+			Name:  name,
+			Host:  mux.DefaultHost,
+			Color: color,
+		},
+	}
+}
+
+func (h *mutationGoldenHarness) splitV() {
+	h.t.Helper()
+	h.mustPane(h.window.Split(mux.SplitVertical, h.newPane()))
+}
+
+func (h *mutationGoldenHarness) splitH() {
+	h.t.Helper()
+	h.mustPane(h.window.Split(mux.SplitHorizontal, h.newPane()))
+}
+
+func (h *mutationGoldenHarness) splitRootV() {
+	h.t.Helper()
+	h.mustPane(h.window.SplitRoot(mux.SplitVertical, h.newPane()))
+}
+
+func (h *mutationGoldenHarness) focus(id uint32) {
+	h.t.Helper()
+	pane, err := h.window.ResolvePane(fmt.Sprintf("%d", id))
+	if err != nil {
+		h.t.Fatalf("resolve pane %d: %v", id, err)
+	}
+	h.window.FocusPane(pane)
+}
+
+func (h *mutationGoldenHarness) setLead(id uint32) {
+	h.t.Helper()
+	if err := h.window.SetLead(id); err != nil {
+		h.t.Fatalf("set lead pane-%d: %v", id, err)
+	}
+}
+
+func (h *mutationGoldenHarness) closePane(id uint32) {
+	h.t.Helper()
+	if err := h.window.ClosePane(id); err != nil {
+		h.t.Fatalf("close pane-%d: %v", id, err)
+	}
+}
+
+func (h *mutationGoldenHarness) movePane(paneID, targetPaneID uint32, before bool) {
+	h.t.Helper()
+	if err := h.window.MovePane(paneID, targetPaneID, before); err != nil {
+		h.t.Fatalf("move pane-%d relative to pane-%d: %v", paneID, targetPaneID, err)
+	}
+}
+
+func (h *mutationGoldenHarness) moveToColumn(paneID, targetPaneID uint32) {
+	h.t.Helper()
+	if err := h.window.MovePaneToColumn(paneID, targetPaneID); err != nil {
+		h.t.Fatalf("move pane-%d to column pane-%d: %v", paneID, targetPaneID, err)
+	}
+}
+
+func (h *mutationGoldenHarness) moveUp(id uint32) {
+	h.t.Helper()
+	if err := h.window.MovePaneUp(id); err != nil {
+		h.t.Fatalf("move-up pane-%d: %v", id, err)
+	}
+}
+
+func (h *mutationGoldenHarness) moveDown(id uint32) {
+	h.t.Helper()
+	if err := h.window.MovePaneDown(id); err != nil {
+		h.t.Fatalf("move-down pane-%d: %v", id, err)
+	}
+}
+
+func (h *mutationGoldenHarness) swapForward() {
+	h.t.Helper()
+	if err := h.window.SwapPaneForward(); err != nil {
+		h.t.Fatalf("swap forward: %v", err)
+	}
+}
+
+func (h *mutationGoldenHarness) swapBackward() {
+	h.t.Helper()
+	if err := h.window.SwapPaneBackward(); err != nil {
+		h.t.Fatalf("swap backward: %v", err)
+	}
+}
+
+func (h *mutationGoldenHarness) swapPanes(id1, id2 uint32) {
+	h.t.Helper()
+	if err := h.window.SwapPanes(id1, id2); err != nil {
+		h.t.Fatalf("swap pane-%d pane-%d: %v", id1, id2, err)
+	}
+}
+
+func (h *mutationGoldenHarness) swapTree(id1, id2 uint32) {
+	h.t.Helper()
+	if err := h.window.SwapTree(id1, id2); err != nil {
+		h.t.Fatalf("swap-tree pane-%d pane-%d: %v", id1, id2, err)
+	}
+}
+
+func (h *mutationGoldenHarness) rotate(forward bool) {
+	h.t.Helper()
+	if err := h.window.RotatePanes(forward); err != nil {
+		h.t.Fatalf("rotate forward=%t: %v", forward, err)
+	}
+}
+
+func (h *mutationGoldenHarness) resizePane(id uint32, direction string, delta int) {
+	h.t.Helper()
+	if !h.window.ResizePane(id, direction, delta) {
+		h.t.Fatalf("resize-pane pane-%d %s %d did not change layout", id, direction, delta)
+	}
+}
+
+func (h *mutationGoldenHarness) equalize(widths, heights bool) {
+	h.t.Helper()
+	if !h.window.Equalize(widths, heights) {
+		h.t.Fatalf("equalize widths=%t heights=%t did not change layout", widths, heights)
+	}
+}
+
+func (h *mutationGoldenHarness) assertGolden(name string) {
+	h.t.Helper()
+	raw := h.renderANSI()
+	frame := extractFrame(render.MaterializeGrid(raw, mutationGoldenWidth, mutationGoldenHeight), mutationGoldenSession)
+	assertGolden(h.t, name+".golden", frame)
+
+	colorMap := render.ExtractColorMap(raw, mutationGoldenWidth, mutationGoldenHeight) + "\n"
+	assertGolden(h.t, name+".color", colorMap)
+}
+
+func (h *mutationGoldenHarness) renderANSI() string {
+	comp := render.NewCompositor(mutationGoldenWidth, mutationGoldenHeight, mutationGoldenSession)
+	return comp.RenderFullWithOverlay(h.window.Root, h.window.ActivePane.ID, func(id uint32) render.PaneData {
+		pane := h.panes[id]
+		if pane == nil {
+			return nil
+		}
+		pane.lead = h.window.IsLeadPane(id)
+		return pane
+	}, render.OverlayState{}, true)
+}
+
+func (h *mutationGoldenHarness) mustPane(_ *mux.Pane, err error) {
+	h.t.Helper()
+	if err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func TestGoldenClosePaneInColumn(t *testing.T) {
+	t.Parallel()
+
+	h := newMutationGoldenHarness(t)
+	h.splitV()
+	h.splitH()
+	h.closePane(3)
+	h.focus(1)
+	h.assertGolden("close_pane_in_column")
+
+	lead := newMutationGoldenHarness(t)
+	lead.splitV()
+	lead.setLead(1)
+	lead.focus(2)
+	lead.splitH()
+	lead.closePane(3)
+	lead.focus(1)
+	lead.assertGolden("close_pane_in_column_lead")
+}
+
+func TestGoldenCloseTriggersSingleChildCollapse(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitH()
+	h.closePane(2)
+	h.focus(1)
+	h.assertGolden("close_triggers_single_child_collapse")
+}
+
+func TestGoldenSwapForwardBackward(t *testing.T) {
+	t.Parallel()
+
+	forward := newMutationGoldenHarness(t)
+	forward.splitRootV()
+	forward.splitRootV()
+	forward.focus(2)
+	forward.swapForward()
+	forward.assertGolden("swap_forward")
+
+	backward := newMutationGoldenHarness(t)
+	backward.splitRootV()
+	backward.splitRootV()
+	backward.focus(2)
+	backward.swapBackward()
+	backward.assertGolden("swap_backward")
+}
+
+func TestGoldenSwapCrossColumn(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitV()
+	h.splitH()
+	h.focus(1)
+	h.swapPanes(1, 3)
+	h.assertGolden("swap_cross_column")
+}
+
+func TestGoldenSwapTree(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitV()
+	h.focus(1)
+	h.splitH()
+	h.focus(1)
+	h.swapTree(1, 2)
+	h.assertGolden("swap_tree")
+}
+
+func TestGoldenMoveBeforeAfter(t *testing.T) {
+	t.Parallel()
+
+	before := newMutationGoldenHarness(t)
+	before.splitRootV()
+	before.splitRootV()
+	before.movePane(3, 1, true)
+	before.focus(3)
+	before.assertGolden("move_before")
+
+	after := newMutationGoldenHarness(t)
+	after.splitRootV()
+	after.splitRootV()
+	after.focus(1)
+	after.movePane(1, 3, false)
+	after.focus(1)
+	after.assertGolden("move_after")
+}
+
+func TestGoldenMoveToColumn(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	h.focus(3)
+	h.moveToColumn(3, 2)
+	h.focus(3)
+	h.assertGolden("move_to_column")
+}
+
+func TestGoldenMoveUpDown(t *testing.T) {
+	t.Parallel()
+
+	up := newMutationGoldenHarness(t)
+	up.splitH()
+	up.splitH()
+	up.moveUp(3)
+	up.focus(3)
+	up.assertGolden("move_up")
+
+	down := newMutationGoldenHarness(t)
+	down.splitH()
+	down.splitH()
+	down.focus(1)
+	down.moveDown(1)
+	down.focus(1)
+	down.assertGolden("move_down")
+}
+
+func TestGoldenRotateForwardBackward(t *testing.T) {
+	t.Parallel()
+
+	forward := newMutationGoldenHarness(t)
+	forward.splitRootV()
+	forward.splitRootV()
+	forward.focus(1)
+	forward.rotate(true)
+	forward.assertGolden("rotate_forward")
+
+	backward := newMutationGoldenHarness(t)
+	backward.splitRootV()
+	backward.splitRootV()
+	backward.focus(1)
+	backward.rotate(false)
+	backward.assertGolden("rotate_backward")
+}
+
+func TestGoldenResizePaneHorizontalVertical(t *testing.T) {
+	t.Parallel()
+
+	horizontal := newMutationGoldenHarness(t)
+	horizontal.splitRootV()
+	horizontal.splitRootV()
+	horizontal.focus(2)
+	horizontal.resizePane(2, "right", 6)
+	horizontal.assertGolden("resize_pane_horizontal")
+
+	vertical := newMutationGoldenHarness(t)
+	vertical.splitV()
+	vertical.focus(2)
+	vertical.splitH()
+	vertical.focus(2)
+	vertical.resizePane(2, "down", 3)
+	vertical.assertGolden("resize_pane_vertical")
+}
+
+func TestGoldenEqualizeAfterManualResize(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	h.focus(1)
+	h.resizePane(1, "right", 6)
+	h.equalize(true, false)
+	h.focus(1)
+	h.assertGolden("equalize_after_manual_resize")
+}
+
+func TestGoldenEqualizeLeadPreservesUserIntent(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitV()
+	h.setLead(1)
+	h.resizePane(2, "left", 8)
+	h.splitRootV()
+	h.focus(1)
+	h.assertGolden("equalize_lead_preserves_user_intent")
 }
 
 // ---------------------------------------------------------------------------
