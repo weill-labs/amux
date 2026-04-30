@@ -243,13 +243,7 @@ func (w *Window) equalizeWidths(logical *LayoutCell) {
 }
 
 func (w *Window) shouldEqualizeAnchoredLeadAfterRootSplit(parent *LayoutCell, parentIdx int, dir SplitDir, wrapped bool) bool {
-	if dir != SplitVertical || !w.hasAnchoredLead() || parent != w.Root || parentIdx != 1 {
-		return false
-	}
-	if wrapped {
-		return true
-	}
-	return !w.anchoredLeadColumnsWidthChanged()
+	return dir == SplitVertical && w.hasAnchoredLead() && parent == w.Root && parentIdx == 1
 }
 
 func (w *Window) shouldEqualizeAnchoredLeadAfterClose(prevAnchoredEqual bool) bool {
