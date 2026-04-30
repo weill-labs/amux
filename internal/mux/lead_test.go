@@ -398,6 +398,61 @@ func TestSplitRootVerticalWithAnchoredLeadKeepsEqualColumnsInSameDirection(t *te
 	}
 }
 
+func TestSplitRootVerticalWithAnchoredLeadEqualizesAfterManualLeadResize(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	w := newAnchoredLeadAfterFutureLeadResize(t, 120, 21, p1, p2, p3)
+
+	gotBefore := anchoredLeadColumnWidths(t, w)
+	wantBefore := []int{60, 29, 29}
+	if !reflect.DeepEqual(gotBefore, wantBefore) {
+		t.Fatalf("anchored lead column widths before SplitRoot = %v, want %v", gotBefore, wantBefore)
+	}
+
+	if _, err := w.SplitRoot(SplitVertical, p4); err != nil {
+		t.Fatalf("SplitRoot p4: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{29, 29, 29, 30}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after manual lead resize and SplitRoot = %v, want %v", got, want)
+	}
+}
+
+func TestSplitRootVerticalWithAnchoredLeadEqualizesAfterManualLogicalResize(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	w := newAnchoredLeadColumnsWindow(t, 120, p1, p2, p3)
+	if !w.ResizePane(p2.ID, "right", 10) {
+		t.Fatal("ResizePane should grow the first logical column")
+	}
+
+	gotBefore := anchoredLeadColumnWidths(t, w)
+	wantBefore := []int{39, 49, 30}
+	if !reflect.DeepEqual(gotBefore, wantBefore) {
+		t.Fatalf("anchored lead column widths before SplitRoot = %v, want %v", gotBefore, wantBefore)
+	}
+
+	if _, err := w.SplitRoot(SplitVertical, p4); err != nil {
+		t.Fatalf("SplitRoot p4: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{29, 29, 29, 30}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after manual logical resize and SplitRoot = %v, want %v", got, want)
+	}
+}
+
 func TestClosePaneWithAnchoredLeadEqualizesRemainingTwoColumns(t *testing.T) {
 	t.Parallel()
 
@@ -534,6 +589,31 @@ func TestMovePaneToRootEdgeWithAnchoredLeadComposesCloseAndSplitEqualize(t *test
 	}
 }
 
+func TestMovePaneToRootEdgeWithAnchoredLeadEqualizesAfterManualLeadResize(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	w := newAnchoredLeadAfterFutureLeadResize(t, 120, 31, p1, p2, p3, p4)
+
+	gotBefore := anchoredLeadColumnWidths(t, w)
+	if gotBefore[0] != 60 {
+		t.Fatalf("lead column width before MovePaneToRootEdge = %d, want 60", gotBefore[0])
+	}
+
+	if err := w.MovePaneToRootEdge(p2.ID, SplitVertical, false); err != nil {
+		t.Fatalf("MovePaneToRootEdge: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	want := []int{29, 29, 29, 30}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after manual lead resize and MovePaneToRootEdge = %v, want %v", got, want)
+	}
+}
+
 func newAnchoredLeadColumnsWindow(t *testing.T, width int, panes ...*Pane) *Window {
 	t.Helper()
 	if len(panes) < 2 {
@@ -545,6 +625,27 @@ func newAnchoredLeadColumnsWindow(t *testing.T, width int, panes ...*Pane) *Wind
 		if _, err := w.SplitRoot(SplitVertical, pane); err != nil {
 			t.Fatalf("SplitRoot pane-%d: %v", pane.ID, err)
 		}
+	}
+	if err := w.SetLead(panes[0].ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+	return w
+}
+
+func newAnchoredLeadAfterFutureLeadResize(t *testing.T, width, delta int, panes ...*Pane) *Window {
+	t.Helper()
+	if len(panes) < 2 {
+		t.Fatalf("newAnchoredLeadAfterFutureLeadResize needs at least 2 panes, got %d", len(panes))
+	}
+
+	w := NewWindow(panes[0], width, 24)
+	for _, pane := range panes[1:] {
+		if _, err := w.SplitRoot(SplitVertical, pane); err != nil {
+			t.Fatalf("SplitRoot pane-%d: %v", pane.ID, err)
+		}
+	}
+	if !w.ResizePane(panes[0].ID, "right", delta) {
+		t.Fatalf("ResizePane pane-%d right %d should grow the future lead column", panes[0].ID, delta)
 	}
 	if err := w.SetLead(panes[0].ID); err != nil {
 		t.Fatalf("SetLead: %v", err)

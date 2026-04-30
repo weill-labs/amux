@@ -908,6 +908,13 @@ func (h *mutationGoldenHarness) resizePane(id uint32, direction string, delta in
 	}
 }
 
+func (h *mutationGoldenHarness) resizeBorder(x, y, delta int) {
+	h.t.Helper()
+	if !h.window.ResizeBorder(x, y, delta) {
+		h.t.Fatalf("resize-border %d,%d %d did not change layout", x, y, delta)
+	}
+}
+
 func (h *mutationGoldenHarness) equalize(widths, heights bool) {
 	h.t.Helper()
 	if !h.window.Equalize(widths, heights) {
@@ -1125,6 +1132,19 @@ func TestGoldenEqualizeLeadPreservesUserIntent(t *testing.T) {
 	h.splitRootV()
 	h.focus(1)
 	h.assertGolden("equalize_lead_preserves_user_intent")
+}
+
+func TestGoldenRootVerticalSplitAfterManualResizeLead(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	h.setLead(1)
+	h.resizeBorder(h.window.Root.Children[0].W, 0, 14)
+	h.splitRootV()
+	h.focus(1)
+	h.assertGolden("splitroot_after_manual_resize_lead")
 }
 
 // ---------------------------------------------------------------------------
