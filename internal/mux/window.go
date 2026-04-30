@@ -86,7 +86,7 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 	equalizeAnchoredLeadAfterSplit := false
 
 	if !targetRoot.IsLeaf() && targetRoot.Dir == dir {
-		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, false)
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir)
 		// Same direction: add as sibling, redistribute equally
 		newLeaf.Parent = targetRoot
 		targetRoot.Children = append(targetRoot.Children, newLeaf)
@@ -140,7 +140,7 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 			parent.Children[parentIdx] = newRoot
 			newRoot.Parent = parent
 		}
-		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, true)
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir)
 	}
 
 	if equalizeAnchoredLeadAfterSplit {

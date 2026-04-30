@@ -242,7 +242,7 @@ func (w *Window) equalizeWidths(logical *LayoutCell) {
 	logical.equalizeAxisRecursive(SplitVertical)
 }
 
-func (w *Window) shouldEqualizeAnchoredLeadAfterRootSplit(parent *LayoutCell, parentIdx int, dir SplitDir, wrapped bool) bool {
+func (w *Window) shouldEqualizeAnchoredLeadAfterRootSplit(parent *LayoutCell, parentIdx int, dir SplitDir) bool {
 	return dir == SplitVertical && w.hasAnchoredLead() && parent == w.Root && parentIdx == 1
 }
 
