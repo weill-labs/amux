@@ -218,7 +218,7 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 	equalizeAnchoredLeadAfterSplit := false
 
 	if !root.IsLeaf() && root.Dir == dir {
-		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, false)
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir)
 		newLeaf.Parent = root
 		if insertFirst {
 			root.Children = append([]*LayoutCell{newLeaf}, root.Children...)
@@ -273,7 +273,7 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		} else {
 			parent.Children[parentIdx] = newRoot
 		}
-		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir, true)
+		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir)
 	}
 
 	if equalizeAnchoredLeadAfterSplit {
