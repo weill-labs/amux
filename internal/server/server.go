@@ -131,8 +131,8 @@ type Session struct {
 	// (last client disconnected, last pane exited). The event loop checks
 	// this after each event and triggers shutdown asynchronously — never
 	// from inside the handler, which would deadlock.
-	wantShutdown    bool
-	scrollbackLines int
+	wantShutdown bool
+	scrollback   ScrollbackConfig
 }
 
 type processEnviron struct{}
@@ -470,13 +470,18 @@ func listenForSession(sessionName string) (net.Listener, string, *os.File, error
 }
 
 func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Logger) *Session {
+	return newSessionWithScrollbackConfigLogger(name, NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConfig, logger *charmlog.Logger) *Session {
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
+	scrollback = NewScrollbackConfig(scrollback.DefaultLines, scrollback.HostLines)
 	sess := &Session{
 		Name:               name,
 		startedAt:          time.Now(),
-		scrollbackLines:    scrollbackLines,
+		scrollback:         scrollback,
 		logger:             logger,
 		launchColorProfile: defaultSessionLaunchColorProfile(),
 		clientState:        newClientManager(),
@@ -495,6 +500,13 @@ func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Log
 	return sess
 }
 
+func (s *Session) scrollbackLinesForHost(host string) int {
+	if s == nil {
+		return mux.DefaultScrollbackLines
+	}
+	return s.scrollback.LinesForHost(host)
+}
+
 func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	return newSessionWithLogger(name, scrollbackLines, nil)
 }
@@ -502,6 +514,10 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 // NewServerWithScrollback creates a new server with an explicit retained
 // scrollback limit for all panes in the session.
 func newServerWithScrollbackLogger(sessionName string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	return newServerWithScrollbackConfigLogger(sessionName, NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func newServerWithScrollbackConfigLogger(sessionName string, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
@@ -511,7 +527,7 @@ func newServerWithScrollbackLogger(sessionName string, scrollbackLines int, logg
 		return nil, err
 	}
 
-	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
+	sess := newSessionWithScrollbackConfigLogger(sessionName, scrollback, logger.With("session", sessionName))
 
 	s := &Server{
 		listener:     listener,
@@ -534,12 +550,20 @@ func NewServerWithScrollbackLogger(sessionName string, scrollbackLines int, logg
 	return newServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
 }
 
+func NewServerWithScrollbackConfigLogger(sessionName string, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
+	return newServerWithScrollbackConfigLogger(sessionName, scrollback, logger)
+}
+
 func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener net.Listener, sockPath string, sessionLock *os.File, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	return newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName, listener, sockPath, sessionLock, cp, crashPath, NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName string, listener net.Listener, sockPath string, sessionLock *os.File, cp *checkpoint.CrashCheckpoint, crashPath string, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
 	restoreStarted := time.Now()
-	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
+	sess := newSessionWithScrollbackConfigLogger(sessionName, scrollback, logger.With("session", sessionName))
 	sess.startedAt = cp.Timestamp
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
@@ -568,7 +592,7 @@ func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener
 			// The remote manager will re-establish the SSH connection.
 			meta := ps.Meta
 			meta.Remote = string(proto.Reconnecting)
-			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLines,
+			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLinesForHost(meta.Host),
 				onOutput, onExit,
 				sess.remoteWriteOverride(ps.ID),
 			))
@@ -577,7 +601,7 @@ func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener
 			meta := ps.Meta
 			meta.Dir = ps.Cwd // set cwd for the new shell
 			var newErr error
-			pane, newErr = mux.NewPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sessionName, sess.scrollbackLines,
+			pane, newErr = mux.NewPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sessionName, sess.scrollbackLinesForHost(meta.Host),
 				onOutput, onExit,
 			)
 			if newErr != nil {
@@ -659,12 +683,16 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 }
 
 func NewServerFromCrashCheckpointWithScrollbackLogger(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	return NewServerFromCrashCheckpointWithScrollbackConfigLogger(sessionName, cp, crashPath, NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func NewServerFromCrashCheckpointWithScrollbackConfigLogger(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
 	listener, sockPath, sessionLock, err := listenForSession(sessionName)
 	if err != nil {
 		return nil, err
 	}
 
-	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, sessionLock, cp, crashPath, scrollbackLines, logger)
+	return newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName, listener, sockPath, sessionLock, cp, crashPath, scrollback, logger)
 }
 
 func NewServerFromCrashCheckpointWithListenerFdLogger(sessionName string, listenerFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
@@ -672,6 +700,10 @@ func NewServerFromCrashCheckpointWithListenerFdLogger(sessionName string, listen
 }
 
 func NewServerFromCrashCheckpointWithListenerAndLockFdLogger(sessionName string, listenerFd, sessionLockFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	return NewServerFromCrashCheckpointWithScrollbackConfigListenerAndLockFdLogger(sessionName, listenerFd, sessionLockFd, cp, crashPath, NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func NewServerFromCrashCheckpointWithScrollbackConfigListenerAndLockFdLogger(sessionName string, listenerFd, sessionLockFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
 	listener, err := restoreListenerFromFD(listenerFd)
 	if err != nil {
 		return nil, fmt.Errorf("restoring listener: %w", err)
@@ -681,7 +713,7 @@ func NewServerFromCrashCheckpointWithListenerAndLockFdLogger(sessionName string,
 		listener.Close()
 		return nil, err
 	}
-	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, SocketPath(sessionName), sessionLock, cp, crashPath, scrollbackLines, logger)
+	return newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName, listener, SocketPath(sessionName), sessionLock, cp, crashPath, scrollback, logger)
 }
 
 // Run accepts client connections in a loop.

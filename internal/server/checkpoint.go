@@ -210,6 +210,10 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 }
 
 func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	return NewServerFromCheckpointWithScrollbackConfigLogger(cp, NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerCheckpoint, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
@@ -225,7 +229,7 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 		return nil, err
 	}
 
-	sess := newSessionWithLogger(cp.SessionName, scrollbackLines, logger.With("session", cp.SessionName))
+	sess := newSessionWithScrollbackConfigLogger(cp.SessionName, scrollback, logger.With("session", cp.SessionName))
 	if !cp.StartedAt.IsZero() {
 		sess.startedAt = cp.StartedAt
 	}
@@ -256,13 +260,13 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 			// The remote manager will re-establish the SSH connection.
 			meta := pc.Meta
 			meta.Remote = string(proto.Reconnecting)
-			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLines,
+			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLinesForHost(meta.Host),
 				onOutput, onExit,
 				sess.remoteWriteOverride(pc.ID),
 			))
 		} else {
 			var restoreErr error
-			pane, restoreErr = mux.RestorePaneWithScrollback(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows, sess.scrollbackLines,
+			pane, restoreErr = mux.RestorePaneWithScrollback(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows, sess.scrollbackLinesForHost(pc.Meta.Host),
 				onOutput, onExit,
 			)
 			if restoreErr != nil {

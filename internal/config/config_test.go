@@ -262,6 +262,51 @@ func TestLoadScrollbackLines(t *testing.T) {
 	}
 }
 
+func TestLoadHostScrollbackLines(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `
+scrollback_lines = 2048
+
+[hosts.local]
+type = "local"
+scrollback_lines = 1024
+
+[hosts.builder]
+type = "remote"
+address = "builder.example"
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	local := cfg.Hosts["local"]
+	if local.ScrollbackLines == nil || *local.ScrollbackLines != 1024 {
+		t.Fatalf("local.ScrollbackLines = %v, want 1024", local.ScrollbackLines)
+	}
+	if got := cfg.EffectiveScrollbackLinesForHost("local"); got != 1024 {
+		t.Fatalf("EffectiveScrollbackLinesForHost(local) = %d, want 1024", got)
+	}
+	if got := cfg.EffectiveScrollbackLinesForHost("builder"); got != 2048 {
+		t.Fatalf("EffectiveScrollbackLinesForHost(builder) = %d, want global 2048", got)
+	}
+
+	hostLines := cfg.EffectiveHostScrollbackLines()
+	if got, ok := hostLines["local"]; !ok || got != 1024 {
+		t.Fatalf("EffectiveHostScrollbackLines()[local] = %d, %v; want 1024, true", got, ok)
+	}
+	if _, ok := hostLines["builder"]; ok {
+		t.Fatalf("EffectiveHostScrollbackLines()[builder] present, want omitted")
+	}
+}
+
 func TestLoadDebugPprof(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +410,15 @@ func TestLoadRejectsZeroScrollbackLines(t *testing.T) {
 			name:    "zero scrollback",
 			content: "scrollback_lines = 0\n",
 			wantErr: "scrollback_lines must be >= 1",
+		},
+		{
+			name: "zero host scrollback",
+			content: `
+[hosts.local]
+type = "local"
+scrollback_lines = 0
+`,
+			wantErr: "hosts.local.scrollback_lines must be >= 1",
 		},
 		{
 			name: "keys section",

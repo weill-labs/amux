@@ -4,7 +4,7 @@ import "image/color"
 
 // DefaultScrollbackLines is the retained history limit used by amux for pane
 // scrollback on both server and client emulators.
-const DefaultScrollbackLines = 10000
+const DefaultScrollbackLines = 5000
 
 // MouseTrackingMode is the pane's current application mouse-tracking mode.
 type MouseTrackingMode int

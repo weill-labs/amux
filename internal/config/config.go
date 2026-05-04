@@ -97,6 +97,7 @@ type Host struct {
 	GPU                 string   `toml:"gpu"`
 	Color               string   `toml:"color"`  // hex color, auto-assigned if empty
 	Deploy              *bool    `toml:"deploy"` // auto-deploy binary; nil = true (opt-out with false)
+	ScrollbackLines     *int     `toml:"scrollback_lines"`
 }
 
 type DebugConfig struct {
@@ -167,6 +168,11 @@ func Load(path string) (*Config, error) {
 	if _, err := ResolveScrollbackLines(cfg.ScrollbackLines); err != nil {
 		return nil, err
 	}
+	for name, host := range cfg.Hosts {
+		if _, err := resolveScrollbackLinesField("hosts."+name+".scrollback_lines", host.ScrollbackLines); err != nil {
+			return nil, err
+		}
+	}
 	if _, err := ResolveLocalEchoMode(cfg.Client.LocalEcho); err != nil {
 		return nil, err
 	}
@@ -199,11 +205,15 @@ func hasLegacyKeysConfig(undecoded []toml.Key) bool {
 // ResolveScrollbackLines validates a configured scrollback limit and returns
 // the effective value. Zero means "use the built-in default".
 func ResolveScrollbackLines(lines *int) (int, error) {
+	return resolveScrollbackLinesField("scrollback_lines", lines)
+}
+
+func resolveScrollbackLinesField(field string, lines *int) (int, error) {
 	switch {
 	case lines == nil:
 		return proto.DefaultScrollbackLines, nil
 	case *lines < 1:
-		return 0, fmt.Errorf("scrollback_lines must be >= 1")
+		return 0, fmt.Errorf("%s must be >= 1", field)
 	default:
 		return *lines, nil
 	}
@@ -220,6 +230,40 @@ func (c *Config) EffectiveScrollbackLines() int {
 		return proto.DefaultScrollbackLines
 	}
 	return lines
+}
+
+func (c *Config) EffectiveScrollbackLinesForHost(hostname string) int {
+	if c == nil {
+		return proto.DefaultScrollbackLines
+	}
+	if host, ok := c.Hosts[hostname]; ok && host.ScrollbackLines != nil {
+		lines, err := ResolveScrollbackLines(host.ScrollbackLines)
+		if err == nil {
+			return lines
+		}
+	}
+	return c.EffectiveScrollbackLines()
+}
+
+func (c *Config) EffectiveHostScrollbackLines() map[string]int {
+	if c == nil {
+		return nil
+	}
+	out := make(map[string]int)
+	for name, host := range c.Hosts {
+		if host.ScrollbackLines == nil {
+			continue
+		}
+		lines, err := ResolveScrollbackLines(host.ScrollbackLines)
+		if err != nil {
+			continue
+		}
+		out[name] = lines
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (c *Config) PprofEnabled() bool {
