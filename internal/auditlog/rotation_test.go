@@ -1,6 +1,7 @@
 package auditlog
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -117,7 +118,7 @@ func TestRotatingFileWriterRejectsWriteAfterClose(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
-	if _, err := w.Write([]byte("after close")); !os.IsNotExist(err) && err != os.ErrClosed {
+	if _, err := w.Write([]byte("after close")); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("Write after Close error = %v, want os.ErrClosed", err)
 	}
 }
