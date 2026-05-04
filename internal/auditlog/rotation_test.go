@@ -21,6 +21,34 @@ func TestDefaultRotationOptionsBoundsTotalToHundredMiB(t *testing.T) {
 	}
 }
 
+func TestRotationOptionsNormalizeDefaults(t *testing.T) {
+	t.Parallel()
+
+	opts := normalizeRotationOptions(RotationOptions{MaxBackups: -1})
+	if opts.MaxBytes != defaultMaxLogBytes {
+		t.Fatalf("MaxBytes = %d, want default %d", opts.MaxBytes, defaultMaxLogBytes)
+	}
+	if opts.MaxBackups != defaultLogBackups {
+		t.Fatalf("MaxBackups = %d, want default %d", opts.MaxBackups, defaultLogBackups)
+	}
+}
+
+func TestNewRotatingFileWriterReportsPathErrors(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	parentFile := filepath.Join(dir, "not-a-dir")
+	if err := os.WriteFile(parentFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile parent: %v", err)
+	}
+	if _, err := NewRotatingFileWriter(filepath.Join(parentFile, "main.log"), RotationOptions{MaxBytes: 8}); err == nil {
+		t.Fatal("NewRotatingFileWriter with file parent error = nil, want error")
+	}
+	if _, err := NewRotatingFileWriter(dir, RotationOptions{MaxBytes: 8}); err == nil {
+		t.Fatal("NewRotatingFileWriter with directory path error = nil, want error")
+	}
+}
+
 func TestRotatingFileWriterBoundsTotalLogBytes(t *testing.T) {
 	t.Parallel()
 
@@ -49,6 +77,63 @@ func TestRotatingFileWriterBoundsTotalLogBytes(t *testing.T) {
 	}
 	if _, err := os.Stat(logPath + ".3"); !os.IsNotExist(err) {
 		t.Fatalf("unexpected third backup stat error = %v", err)
+	}
+}
+
+func TestRotatingFileWriterReportsBackupRemoveError(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "main.log")
+	w, err := NewRotatingFileWriter(logPath, RotationOptions{
+		MaxBytes:   4,
+		MaxBackups: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewRotatingFileWriter: %v", err)
+	}
+	backupDir := logPath + ".1"
+	if err := os.Mkdir(backupDir, 0o700); err != nil {
+		t.Fatalf("Mkdir backup dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, "child"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile backup child: %v", err)
+	}
+
+	if _, err := w.Write([]byte("12345")); err == nil {
+		t.Fatal("Write rotating over non-empty backup dir error = nil, want error")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestRotatingFileWriterReportsRenameError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "main.log")
+	w, err := NewRotatingFileWriter(logPath, RotationOptions{
+		MaxBytes:   4,
+		MaxBackups: 2,
+	})
+	if err != nil {
+		t.Fatalf("NewRotatingFileWriter: %v", err)
+	}
+	if err := os.WriteFile(logPath+".1", []byte("old"), 0o600); err != nil {
+		t.Fatalf("WriteFile backup: %v", err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod read-only dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(dir, 0o700)
+	})
+
+	if _, err := w.Write([]byte("12345")); err == nil {
+		t.Fatal("Write rotating in read-only dir error = nil, want error")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 }
 
@@ -176,6 +261,16 @@ func TestInstallProcessLogRotationDoesNotTeeRegularStderr(t *testing.T) {
 	if len(data) != 0 {
 		t.Fatalf("regular stderr duplicate = %q, want empty", data)
 	}
+}
+
+func TestTeeFileForFDInvalidFD(t *testing.T) {
+	t.Parallel()
+
+	if file := teeFileForFD(-1); file != nil {
+		_ = file.Close()
+		t.Fatalf("teeFileForFD(-1) = %v, want nil", file)
+	}
+	closeTeeFile(nil)
 }
 
 func totalRegularFileSize(t *testing.T, paths ...string) int64 {
