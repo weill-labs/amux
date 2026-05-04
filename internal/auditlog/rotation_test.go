@@ -124,6 +124,7 @@ func TestRotatingFileWriterRejectsWriteAfterClose(t *testing.T) {
 }
 
 func TestInstallProcessLogRotationWritesFileAndForegroundStderr(t *testing.T) {
+	// Not parallel: redirects the process-global stderr file descriptor.
 	logPath := filepath.Join(t.TempDir(), "main.log")
 	readPipe, writePipe, restore := redirectStderrToPipe(t)
 	defer readPipe.Close()
@@ -152,6 +153,7 @@ func TestInstallProcessLogRotationWritesFileAndForegroundStderr(t *testing.T) {
 }
 
 func TestInstallProcessLogRotationDoesNotTeeRegularStderr(t *testing.T) {
+	// Not parallel: redirects the process-global stderr file descriptor.
 	logPath := filepath.Join(t.TempDir(), "main.log")
 	stderrPath, restore := redirectStderrToRegularFile(t)
 	defer restore()
