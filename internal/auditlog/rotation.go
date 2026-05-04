@@ -49,9 +49,10 @@ func NewRotatingFileWriter(path string, opts RotationOptions) (io.WriteCloser, e
 }
 
 // InstallProcessLogRotation redirects stdout and stderr through a rotating
-// writer and also returns that writer for synchronous logger writes. It is
-// intended for daemon/server process bootstrap.
-func InstallProcessLogRotation(path string, opts RotationOptions) (io.WriteCloser, func(), error) {
+// writer and also returns a synchronous logger writer. Foreground invocations
+// keep receiving stderr output, but inherited regular log files are not teed
+// because that would recreate the unbounded file this rotation avoids.
+func InstallProcessLogRotation(path string, opts RotationOptions) (io.Writer, func(), error) {
 	writer, err := NewRotatingFileWriter(path, opts)
 	if err != nil {
 		return nil, nil, err
@@ -78,10 +79,16 @@ func InstallProcessLogRotation(path string, opts RotationOptions) (io.WriteClose
 		_ = writer.Close()
 		return nil, nil, err
 	}
+	teeFile := teeFileForFD(oldStderr)
+	logWriter := &lockedWriter{w: writer}
+	if teeFile != nil {
+		logWriter.w = io.MultiWriter(writer, teeFile)
+	}
 
 	if err := unix.Dup2(int(writePipe.Fd()), int(os.Stdout.Fd())); err != nil {
 		_ = unix.Close(oldStdout)
 		_ = unix.Close(oldStderr)
+		closeTeeFile(teeFile)
 		_ = readPipe.Close()
 		_ = writePipe.Close()
 		_ = writer.Close()
@@ -91,6 +98,7 @@ func InstallProcessLogRotation(path string, opts RotationOptions) (io.WriteClose
 		_ = unix.Dup2(oldStdout, int(os.Stdout.Fd()))
 		_ = unix.Close(oldStdout)
 		_ = unix.Close(oldStderr)
+		closeTeeFile(teeFile)
 		_ = readPipe.Close()
 		_ = writePipe.Close()
 		_ = writer.Close()
@@ -99,7 +107,7 @@ func InstallProcessLogRotation(path string, opts RotationOptions) (io.WriteClose
 
 	done := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(writer, readPipe)
+		_, _ = io.Copy(logWriter, readPipe)
 		_ = readPipe.Close()
 		close(done)
 	}()
@@ -114,9 +122,42 @@ func InstallProcessLogRotation(path string, opts RotationOptions) (io.WriteClose
 			_ = writePipe.Close()
 			<-done
 			_ = writer.Close()
+			closeTeeFile(teeFile)
 		})
 	}
-	return writer, cleanup, nil
+	return logWriter, cleanup, nil
+}
+
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (w *lockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.Write(p)
+}
+
+func teeFileForFD(fd int) *os.File {
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return nil
+	}
+	if stat.Mode&unix.S_IFMT == unix.S_IFREG {
+		return nil
+	}
+	teeFD, err := unix.Dup(fd)
+	if err != nil {
+		return nil
+	}
+	return os.NewFile(uintptr(teeFD), "amux-log-stderr")
+}
+
+func closeTeeFile(file *os.File) {
+	if file != nil {
+		_ = file.Close()
+	}
 }
 
 type rotatingFileWriter struct {
