@@ -48,79 +48,25 @@ func NewRotatingFileWriter(path string, opts RotationOptions) (io.WriteCloser, e
 	return w, nil
 }
 
-// InstallProcessLogRotation redirects stdout and stderr through a rotating
-// writer and also returns a synchronous logger writer. Foreground invocations
-// keep receiving stderr output, but inherited regular log files are not teed
-// because that would recreate the unbounded file this rotation avoids.
+// InstallProcessLogRotation returns a synchronous logger writer backed by a
+// rotating file. Foreground invocations keep receiving stderr output, but
+// inherited regular log files are not teed because that would recreate the
+// unbounded file this rotation avoids.
 func InstallProcessLogRotation(path string, opts RotationOptions) (io.Writer, func(), error) {
 	writer, err := NewRotatingFileWriter(path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	readPipe, writePipe, err := os.Pipe()
-	if err != nil {
-		_ = writer.Close()
-		return nil, nil, err
-	}
-
-	oldStdout, err := unix.Dup(int(os.Stdout.Fd()))
-	if err != nil {
-		_ = readPipe.Close()
-		_ = writePipe.Close()
-		_ = writer.Close()
-		return nil, nil, err
-	}
-	oldStderr, err := unix.Dup(int(os.Stderr.Fd()))
-	if err != nil {
-		_ = unix.Close(oldStdout)
-		_ = readPipe.Close()
-		_ = writePipe.Close()
-		_ = writer.Close()
-		return nil, nil, err
-	}
-	teeFile := teeFileForFD(oldStderr)
+	teeFile := teeFileForFD(int(os.Stderr.Fd()))
 	logWriter := &lockedWriter{w: writer}
 	if teeFile != nil {
 		logWriter.w = io.MultiWriter(writer, teeFile)
 	}
 
-	if err := unix.Dup2(int(writePipe.Fd()), int(os.Stdout.Fd())); err != nil {
-		_ = unix.Close(oldStdout)
-		_ = unix.Close(oldStderr)
-		closeTeeFile(teeFile)
-		_ = readPipe.Close()
-		_ = writePipe.Close()
-		_ = writer.Close()
-		return nil, nil, err
-	}
-	if err := unix.Dup2(int(writePipe.Fd()), int(os.Stderr.Fd())); err != nil {
-		_ = unix.Dup2(oldStdout, int(os.Stdout.Fd()))
-		_ = unix.Close(oldStdout)
-		_ = unix.Close(oldStderr)
-		closeTeeFile(teeFile)
-		_ = readPipe.Close()
-		_ = writePipe.Close()
-		_ = writer.Close()
-		return nil, nil, err
-	}
-
-	done := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(logWriter, readPipe)
-		_ = readPipe.Close()
-		close(done)
-	}()
-
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
-			_ = unix.Dup2(oldStdout, int(os.Stdout.Fd()))
-			_ = unix.Dup2(oldStderr, int(os.Stderr.Fd()))
-			_ = unix.Close(oldStdout)
-			_ = unix.Close(oldStderr)
-			_ = writePipe.Close()
-			<-done
 			_ = writer.Close()
 			closeTeeFile(teeFile)
 		})
