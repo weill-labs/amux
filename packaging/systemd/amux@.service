@@ -1,0 +1,16 @@
+[Unit]
+Description=amux server for session %i
+Documentation=https://github.com/weill-labs/amux/blob/main/docs/operations.md
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env amux _server %i
+OOMScoreAdjust=-500
+MemoryHigh=2G
+MemoryMax=4G
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=default.target
