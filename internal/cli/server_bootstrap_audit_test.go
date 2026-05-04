@@ -135,7 +135,8 @@ func TestServerBootstrapLogsServerStart(t *testing.T) {
 		t.Fatalf("cmd.Wait(): %v\noutput:\n%s", err, out.String())
 	}
 
-	output := out.String()
+	logData, _ := os.ReadFile(filepath.Join(server.SocketDir(), session+".log"))
+	output := out.String() + string(logData)
 	if !strings.Contains(output, `"event":"server_start"`) {
 		t.Fatalf("output missing server_start event:\n%s", output)
 	}

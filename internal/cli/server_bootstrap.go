@@ -3,8 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,12 +26,24 @@ import (
 )
 
 func newBootstrapLogger() *charmlog.Logger {
-	return auditlog.New(os.Stderr, auditlog.Options{
+	return newBootstrapLoggerWithWriter(os.Stderr)
+}
+
+func newBootstrapLoggerWithWriter(w io.Writer) *charmlog.Logger {
+	if w == nil {
+		w = os.Stderr
+	}
+	return auditlog.New(w, auditlog.Options{
 		Format:          auditlog.FormatAuto,
 		Level:           charmlog.InfoLevel,
 		Prefix:          "amux",
 		ReportTimestamp: true,
 	})
+}
+
+func installServerLogRotation(sessionName string) (io.Writer, func(), error) {
+	logPath := filepath.Join(server.SocketDir(), sessionName+".log")
+	return auditlog.InstallProcessLogRotation(logPath, auditlog.DefaultRotationOptions())
 }
 
 func exitBootstrapError(logger *charmlog.Logger, sessionName, msg string, err error) {
@@ -112,7 +126,18 @@ func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollb
 
 func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 	server.BuildVersion = buildVersion
-	logger := newBootstrapLogger()
+	logWriter, cleanupLogRotation, logRotationErr := installServerLogRotation(sessionName)
+	if cleanupLogRotation != nil {
+		defer cleanupLogRotation()
+	}
+	logger := newBootstrapLoggerWithWriter(logWriter)
+	if logRotationErr != nil {
+		logger.Warn("log rotation unavailable; using inherited stderr",
+			"event", "log_rotation",
+			"session", sessionName,
+			"error", logRotationErr,
+		)
+	}
 
 	if err := terminfo.Install(); err != nil {
 		exitBootstrapError(logger, sessionName, "server bootstrap failed", err)

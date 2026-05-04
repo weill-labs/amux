@@ -55,6 +55,12 @@ func TestPrependReloadExecPathArgLeavesArgsUnchangedOnResolverError(t *testing.T
 func TestMainCheckpointReloadStartsServerWithoutSubcommand(t *testing.T) {
 	t.Parallel()
 
+	session := hermeticMainSession(t.Name())
+	logPath := filepath.Join(server.SocketDir(), session+".log")
+	t.Cleanup(func() {
+		_ = os.Remove(logPath)
+	})
+
 	cmd := newHermeticMainCmd(t)
 	cmd.Env = append(cmd.Env, "AMUX_CHECKPOINT=/definitely/missing")
 
@@ -64,7 +70,8 @@ func TestMainCheckpointReloadStartsServerWithoutSubcommand(t *testing.T) {
 		t.Fatalf("exit code = %d, want 1\n%s", exitErr.ExitCode(), out)
 	}
 
-	output := string(out)
+	logData, _ := os.ReadFile(logPath)
+	output := string(out) + string(logData)
 	if !strings.Contains(output, `"event":"checkpoint_restore"`) || !strings.Contains(output, `"msg":"reading reload checkpoint failed"`) {
 		t.Fatalf("expected checkpoint reload to route into server startup, got:\n%s", output)
 	}
