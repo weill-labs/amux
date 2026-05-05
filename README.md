@@ -186,7 +186,7 @@ amux capture --history --format json pane-1
 amux capture --history --rewrap 120 --format json pane-1
 ```
 
-`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. `capture --history --rewrap WIDTH pane-1` best-effort reconstructs narrow-pane rows at a wider width, which is useful when agent output was captured in dense layouts. The JSON form keeps history and visible content separate as `history` and `content`, and `--rewrap` applies there too. By default amux retains up to `10000` scrollback lines per pane; override that with `scrollback_lines` in `config.toml`. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
+`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. `capture --history --rewrap WIDTH pane-1` best-effort reconstructs narrow-pane rows at a wider width, which is useful when agent output was captured in dense layouts. The JSON form keeps history and visible content separate as `history` and `content`, and `--rewrap` applies there too. By default amux retains up to `5000` scrollback lines per pane; override that with `scrollback_lines` in `config.toml` or on a specific host. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
 
 `--rewrap` is exact for live rows captured in the current process lifetime, where amux tracks the width each scrollback row was wrapped at. Restored/base history from attach bootstrap, reload checkpoints, and crash checkpoints is still stored as raw text rows, so rewrap can only improve live rows and current visible content. Hard newlines that happened exactly at pane width remain ambiguous without tmux-style wrapped-line metadata.
 
@@ -429,7 +429,7 @@ with `AMUX_CLIENT_CAPABILITIES`. Use a comma-separated list of capability names:
 ### Session
 
 ```toml
-scrollback_lines = 10000   # optional: retained history per pane (default: 10000, must be >= 1)
+scrollback_lines = 5000    # optional: retained history per pane (default: 5000, must be >= 1)
 ```
 
 ### Debugging
@@ -474,10 +474,12 @@ identity_file = "~/.ssh/id_ed25519"
 project_dir = "~/Project"
 gpu = "A100"
 color = "f38ba8"            # Catppuccin Red — optional, auto-assigned if omitted
+scrollback_lines = 2000     # optional: retained history for panes on this host
 
 [hosts.macbook]
 type = "local"
 color = "a6e3a1"            # Catppuccin Green
+scrollback_lines = 10000    # optional: override the session default for this host
 ```
 
 ### Remote Transports

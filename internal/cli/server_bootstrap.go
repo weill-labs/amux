@@ -70,9 +70,13 @@ func RestoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLin
 }
 
 func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollbackLines int, logger *charmlog.Logger) (*server.Server, error) {
+	return restoreServerFromReloadCheckpointWithScrollbackConfigLogger(sessionName, cpPath, server.NewScrollbackConfig(scrollbackLines, nil), logger)
+}
+
+func restoreServerFromReloadCheckpointWithScrollbackConfigLogger(sessionName, cpPath string, scrollback server.ScrollbackConfig, logger *charmlog.Logger) (*server.Server, error) {
 	cp, err := checkpoint.Read(cpPath)
 	if err == nil {
-		return server.NewServerFromCheckpointWithScrollbackLogger(cp, scrollbackLines, logger)
+		return server.NewServerFromCheckpointWithScrollbackConfigLogger(cp, scrollback, logger)
 	}
 
 	var versionErr checkpoint.UnsupportedServerCheckpointVersionError
@@ -107,7 +111,7 @@ func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollb
 		"path", crashPath,
 		"error", err,
 	)
-	return server.NewServerFromCrashCheckpointWithListenerAndLockFdLogger(restoreSessionName, cp.ListenerFd, cp.SessionLockFd, crashCP, crashPath, scrollbackLines, logger)
+	return server.NewServerFromCrashCheckpointWithScrollbackConfigListenerAndLockFdLogger(restoreSessionName, cp.ListenerFd, cp.SessionLockFd, crashCP, crashPath, scrollback, logger)
 }
 
 func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
@@ -130,11 +134,11 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 		)
 		cfg = &config.Config{Hosts: make(map[string]config.Host)}
 	}
-	scrollbackLines := cfg.EffectiveScrollbackLines()
+	scrollback := server.NewScrollbackConfig(cfg.EffectiveScrollbackLines(), cfg.EffectiveHostScrollbackLines())
 
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
-		s, err = restoreServerFromReloadCheckpointLogger(sessionName, cpPath, scrollbackLines, logger)
+		s, err = restoreServerFromReloadCheckpointWithScrollbackConfigLogger(sessionName, cpPath, scrollback, logger)
 		if err != nil {
 			logger.Error("reading reload checkpoint failed",
 				"event", "checkpoint_restore",
@@ -156,7 +160,7 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 				"error", readErr,
 			)
 			_ = checkpoint.RemoveCrashFile(crashPath)
-			s, err = server.NewServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
+			s, err = server.NewServerWithScrollbackConfigLogger(sessionName, scrollback, logger)
 			if err != nil {
 				exitBootstrapError(logger, sessionName, "creating server failed", err)
 			}
@@ -167,7 +171,7 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 				"checkpoint_kind", "crash",
 				"path", crashPath,
 			)
-			s, err = server.NewServerFromCrashCheckpointWithScrollbackLogger(sessionName, crashCP, crashPath, scrollbackLines, logger)
+			s, err = server.NewServerFromCrashCheckpointWithScrollbackConfigLogger(sessionName, crashCP, crashPath, scrollback, logger)
 			if err != nil {
 				logger.Error("crash recovery failed",
 					"event", "checkpoint_restore",
@@ -180,7 +184,7 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 			}
 		}
 	} else {
-		s, err = server.NewServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
+		s, err = server.NewServerWithScrollbackConfigLogger(sessionName, scrollback, logger)
 		if err != nil {
 			exitBootstrapError(logger, sessionName, "creating server failed", err)
 		}

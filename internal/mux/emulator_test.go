@@ -74,6 +74,26 @@ func TestVTEmulatorCloseResponsePipeNilReceiver(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorRespectsScrollbackLimitUnderFlood(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(20, 2, 3)
+	for i := 1; i <= 12; i++ {
+		mustWrite(t, emu, []byte(fmt.Sprintf("flood-%02d\r\n", i)))
+	}
+
+	got := EmulatorScrollbackLines(emu)
+	want := []string{"flood-09", "flood-10", "flood-11"}
+	if len(got) != len(want) {
+		t.Fatalf("scrollback len = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("scrollback[%d] = %q, want %q; full scrollback=%#v", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestVTEmulatorResizeWiderReflowsVisibleRows(t *testing.T) {
 	t.Parallel()
 

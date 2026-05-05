@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,40 @@ func TestCapturePaneHistoryJSON(t *testing.T) {
 	}
 	if strings.Join(pane.Content, "\n") == "" {
 		t.Fatal("content should not be empty")
+	}
+}
+
+func TestCaptureHistoryUsesLocalHostScrollbackOverride(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessWithConfig(t, 80, 8, `
+scrollback_lines = 20
+
+[hosts.local]
+type = "local"
+scrollback_lines = 3
+`)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-local-history-limit-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 20); do echo \"LOCALHIST-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "LOCALHIST-20")
+
+	out := h.runCmd("capture", "--history", "--format", "json", "pane-1")
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, out)
+	}
+	got := linesWithPrefix(pane.History, "LOCALHIST-")
+	if len(got) != 3 {
+		t.Fatalf("history markers = %#v, want exactly 3 retained host-local lines\nfull history=%#v\ncontent=%#v", got, pane.History, pane.Content)
+	}
+	if slices.Contains(got, "LOCALHIST-01") {
+		t.Fatalf("oldest marker should be trimmed by host-local cap, got %#v", got)
 	}
 }
 

@@ -279,7 +279,7 @@ func (rs *RemoteSession) newProxyPane(s *Session, pane proto.PaneSnapshot) (*mux
 		meta,
 		DefaultTermCols,
 		mux.PaneContentHeight(DefaultTermRows),
-		s.scrollbackLines,
+		s.scrollbackLinesForHost(meta.Host),
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
 		s.remoteWriteOverride(localPaneID),

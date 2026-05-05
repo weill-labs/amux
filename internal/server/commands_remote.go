@@ -131,7 +131,7 @@ func (ctx remoteCommandContext) InjectProxy(hostName string) commandpkg.Result {
 		Host:  hostName,
 		Color: config.AccentColor(0),
 	}
-	proxyPane := ctx.Sess.ownPane(mux.NewProxyPaneWithScrollback(id, meta, w.Width/2, mux.PaneContentHeight(w.Height), ctx.Sess.scrollbackLines,
+	proxyPane := ctx.Sess.ownPane(mux.NewProxyPaneWithScrollback(id, meta, w.Width/2, mux.PaneContentHeight(w.Height), ctx.Sess.scrollbackLinesForHost(meta.Host),
 		ctx.Sess.paneOutputCallback(),
 		ctx.Sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },

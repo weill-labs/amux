@@ -132,7 +132,7 @@ func (s *Session) newLocalPaneBuildRequest(id uint32, meta mux.PaneMeta, cols, r
 		cols:            cols,
 		rows:            rows,
 		sessionName:     s.Name,
-		scrollbackLines: s.scrollbackLines,
+		scrollbackLines: s.scrollbackLinesForHost(meta.Host),
 		colorProfile:    colorProfile,
 		onOutput:        s.paneOutputCallback(),
 		onExit:          s.paneExitCallback(),
@@ -153,7 +153,7 @@ func (s *Session) preparePendingLocalPane(srv *Server, meta mux.PaneMeta, cols, 
 		colorProfile = s.paneLaunchColorProfile(nil)
 	}
 
-	pane, err := mux.NewPendingPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines, s.paneOutputCallback(), s.paneExitCallback())
+	pane, err := mux.NewPendingPaneWithScrollback(id, meta, cols, rows, s.scrollbackLinesForHost(meta.Host), s.paneOutputCallback(), s.paneExitCallback())
 	if err != nil {
 		return nil, localPaneBuildRequest{}, err
 	}
@@ -513,7 +513,7 @@ func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane,
 	}
 
 	// Create the proxy pane with a writeOverride that routes to the remote manager
-	pane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines,
+	pane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLinesForHost(meta.Host),
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
 		s.remoteWriteOverride(id),
