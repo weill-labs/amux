@@ -25,6 +25,17 @@ PATH that includes `~/.local/bin`, which matches the default `make install` and
 release installer location. If amux is installed somewhere else, add a user
 drop-in that adjusts `PATH` or `ExecStart`.
 
+On a standard Linux install, the cgroup memory controls are the enforceable
+protection in this user unit. `MemoryHigh=2G` and `MemoryMax=4G` are applied by
+systemd through the user slice on cgroup v2 systems. `OOMScoreAdjust=-500` is
+included as the preferred process-level protection, but setting a negative
+`oom_score_adj` requires `CAP_SYS_RESOURCE`. Most `systemd --user` managers do
+not have that capability, so systemd may log `Failed to set OOM score adjust`
+and continue starting amux without applying the negative score. If that setting
+must be enforced, run amux from a system-scope unit or delegate the capability
+through site-specific policy; otherwise rely on the documented user-unit memory
+limits and restart behavior.
+
 Useful commands:
 
 ```bash
@@ -58,6 +69,9 @@ server log and the newest crash checkpoint:
 ls -lh /tmp/amux-$(id -u)/main.log*
 ls -lt ~/.local/state/amux/*_main.json
 ```
+
+If `XDG_STATE_HOME` is set, crash checkpoints live under
+`$XDG_STATE_HOME/amux/` instead of `~/.local/state/amux/`.
 
 The server log should include `checkpoint_kind:"crash"` records for successful
 crash checkpoint writes and restore attempts. If the systemd unit is installed,

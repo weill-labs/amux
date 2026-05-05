@@ -12,6 +12,7 @@ func TestSystemdUnitAndOperationsPlaybook(t *testing.T) {
 	service := readRepoFile(t, "packaging/systemd/amux@.service")
 	for _, want := range []string{
 		"[Service]",
+		"Environment=PATH=%h/.local/bin:",
 		"ExecStart=/usr/bin/env amux _server %i",
 		"OOMScoreAdjust=-500",
 		"MemoryHigh=2G",
@@ -31,6 +32,7 @@ func TestSystemdUnitAndOperationsPlaybook(t *testing.T) {
 		"systemctl --user enable --now amux@main.service",
 		"grep -E 'Out of memory|oom-reaper|oom-invocation' /var/log/kern.log",
 		`checkpoint_kind:"crash"`,
+		"CAP_SYS_RESOURCE",
 		"internal/reload/reload.go",
 		"LAB-1594",
 		"/bin/bash",
