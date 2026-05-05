@@ -99,7 +99,7 @@ func normalizeIdleIcon(line string) string {
 
 // isStatusLine returns true if the line contains a pane status indicator.
 func isStatusLine(line string) bool {
-	return strings.Contains(line, "[pane-")
+	return strings.Contains(line, "[pane-") || strings.Contains(line, "[w-LAB-")
 }
 
 var timeRe = regexp.MustCompile(`\d{2}:\d{2}`)
