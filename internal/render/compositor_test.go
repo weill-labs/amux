@@ -2,15 +2,19 @@ package render
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -19,6 +23,7 @@ import (
 type fakePaneData struct {
 	id           uint32
 	name         string
+	color        string
 	screen       string
 	cursorHidden bool
 	copyOverlay  *proto.ViewportOverlay
@@ -70,13 +75,18 @@ func (f *fakePaneData) TrackedIssues() []proto.TrackedIssue { return nil }
 func (f *fakePaneData) Issue() string                       { return "" }
 func (f *fakePaneData) Host() string                        { return "local" }
 func (f *fakePaneData) Task() string                        { return "" }
-func (f *fakePaneData) Color() string                       { return "f5e0dc" }
-func (f *fakePaneData) Idle() bool                          { return true }
-func (f *fakePaneData) IsLead() bool                        { return false }
-func (f *fakePaneData) ConnStatus() string                  { return "" }
-func (f *fakePaneData) InCopyMode() bool                    { return false }
-func (f *fakePaneData) CopyModeSearch() string              { return "" }
-func (f *fakePaneData) HasCursorBlock() bool                { return false }
+func (f *fakePaneData) Color() string {
+	if f.color != "" {
+		return f.color
+	}
+	return config.AccentColor(0)
+}
+func (f *fakePaneData) Idle() bool             { return true }
+func (f *fakePaneData) IsLead() bool           { return false }
+func (f *fakePaneData) ConnStatus() string     { return "" }
+func (f *fakePaneData) InCopyMode() bool       { return false }
+func (f *fakePaneData) CopyModeSearch() string { return "" }
+func (f *fakePaneData) HasCursorBlock() bool   { return false }
 func (f *fakePaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return f.copyOverlay
 }
@@ -221,6 +231,251 @@ func TestPaneContentRowCellsAppliesCopyModeOverlay(t *testing.T) {
 	}
 	if row[3].Style.Attrs&uv.AttrReverse == 0 {
 		t.Fatalf("cursor cell = %+v, want reverse-video cursor", row[3])
+	}
+}
+
+func TestRenderDiffRepaintsMovedPaneHeaders(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width  = 490
+		height = 87
+	)
+
+	panes := lab1610PaneData()
+	lookup := func(paneID uint32) PaneData { return panes[paneID] }
+	c := NewCompositor(width, height, "lab-1610")
+	c.TimeNow = func() time.Time { return time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC) }
+
+	first := c.RenderDiffWithOverlayDirty(lab1610StaleHeaderLayout(), 869, lookup, OverlayState{}, nil, true)
+	second := c.RenderDiffWithOverlayDirty(lab1610ExpectedHeaderLayout(), 869, lookup, OverlayState{}, map[uint32]struct{}{
+		869:  {},
+		329:  {},
+		1042: {},
+		1055: {},
+		1060: {},
+		1059: {},
+		1062: {},
+	}, false)
+
+	got := parseCUPHeaderDraws(second)
+	want := map[string]screenPos{
+		"[pane-869]":   {row: 1, col: 1},
+		"[pane-329]":   {row: 1, col: 99},
+		"[w-LAB-1604]": {row: 30, col: 99},
+		"[w-LAB-1608]": {row: 59, col: 99},
+		"[w-LAB-1588]": {row: 1, col: 197},
+		"[w-LAB-1605]": {row: 44, col: 197},
+		"[pane-1055]":  {row: 1, col: 295},
+		"[w-LAB-1606]": {row: 44, col: 295},
+		"[pane-1059]":  {row: 1, col: 393},
+		"[w-LAB-1607]": {row: 44, col: 393},
+	}
+	for header, pos := range want {
+		draws := got[header]
+		if len(draws) != 1 {
+			t.Errorf("%s draws = %v, want exactly one draw at %+v", header, draws, pos)
+			continue
+		}
+		if draws[0] != pos {
+			t.Errorf("%s draw = %+v, want %+v", header, draws[0], pos)
+		}
+	}
+	for header, draws := range got {
+		if _, ok := want[header]; !ok {
+			t.Errorf("unexpected header draw %s at %v", header, draws)
+		}
+	}
+
+	display := MaterializeGrid(first+second, width, height)
+	lines := strings.Split(display, "\n")
+	staleLine := lines[44]
+	if strings.Contains(staleLine, "[w-LAB-1608]") {
+		t.Errorf("stale [w-LAB-1608] header remained at row 45: %q", staleLine)
+	}
+}
+
+type screenPos struct {
+	row int
+	col int
+}
+
+type visibleRune struct {
+	text string
+	pos  screenPos
+}
+
+var paneHeaderPattern = regexp.MustCompile(`\[(?:pane-\d+|w-LAB-\d+)\]`)
+
+func parseCUPHeaderDraws(stream string) map[string][]screenPos {
+	row, col := 1, 1
+	visible := make([]visibleRune, 0, len(stream))
+
+	for i := 0; i < len(stream); {
+		if stream[i] == '\x1b' {
+			if i+1 < len(stream) && stream[i+1] == '[' {
+				params, final, end := CSIParams(stream, i+2)
+				if end == 0 {
+					i++
+					continue
+				}
+				if final == 'H' || final == 'f' {
+					row, col = ParseCUP(params)
+				}
+				i = end
+				continue
+			}
+			next := skipANSISequence(stream, i)
+			if next == i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
+
+		switch stream[i] {
+		case '\r':
+			col = 1
+			i++
+			continue
+		case '\n':
+			row++
+			i++
+			continue
+		}
+		if stream[i] < 0x20 {
+			i++
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(stream[i:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		text := string(r)
+		visible = append(visible, visibleRune{text: text, pos: screenPos{row: row, col: col}})
+		w := runewidth.RuneWidth(r)
+		if w < 1 {
+			w = 1
+		}
+		col += w
+		i += size
+	}
+
+	var plain strings.Builder
+	for _, r := range visible {
+		plain.WriteString(r.text)
+	}
+	text := plain.String()
+	draws := make(map[string][]screenPos)
+	for _, loc := range paneHeaderPattern.FindAllStringIndex(text, -1) {
+		runeIndex := utf8.RuneCountInString(text[:loc[0]])
+		if runeIndex >= len(visible) {
+			continue
+		}
+		header := text[loc[0]:loc[1]]
+		pos := visible[runeIndex].pos
+		pos.col -= 2 // status headers start after the icon and following space
+		draws[header] = append(draws[header], pos)
+	}
+	return draws
+}
+
+func lab1610PaneData() map[uint32]*fakePaneData {
+	names := map[uint32]string{
+		869:  "pane-869",
+		329:  "pane-329",
+		1056: "w-LAB-1604",
+		1062: "w-LAB-1608",
+		1042: "w-LAB-1588",
+		1058: "w-LAB-1605",
+		1055: "pane-1055",
+		1060: "w-LAB-1606",
+		1059: "pane-1059",
+		1061: "w-LAB-1607",
+	}
+	panes := make(map[uint32]*fakePaneData, len(names))
+	i := uint32(0)
+	for id, name := range names {
+		panes[id] = &fakePaneData{
+			id:           id,
+			name:         name,
+			color:        config.AccentColor(i),
+			cursorHidden: true,
+		}
+		i++
+	}
+	return panes
+}
+
+func lab1610ExpectedHeaderLayout() *mux.LayoutCell {
+	return mux.RebuildLayout(splitSnapshot(mux.SplitVertical, 0, 0, 490, 86,
+		leafSnapshot(869, 0, 0, 97, 86),
+		splitSnapshot(mux.SplitHorizontal, 98, 0, 97, 86,
+			leafSnapshot(329, 98, 0, 97, 28),
+			leafSnapshot(1056, 98, 29, 97, 28),
+			leafSnapshot(1062, 98, 58, 97, 28),
+		),
+		splitSnapshot(mux.SplitHorizontal, 196, 0, 97, 86,
+			leafSnapshot(1042, 196, 0, 97, 42),
+			leafSnapshot(1058, 196, 43, 97, 43),
+		),
+		splitSnapshot(mux.SplitHorizontal, 294, 0, 97, 86,
+			leafSnapshot(1055, 294, 0, 97, 42),
+			leafSnapshot(1060, 294, 43, 97, 43),
+		),
+		splitSnapshot(mux.SplitHorizontal, 392, 0, 98, 86,
+			leafSnapshot(1059, 392, 0, 98, 42),
+			leafSnapshot(1061, 392, 43, 98, 43),
+		),
+	))
+}
+
+func lab1610StaleHeaderLayout() *mux.LayoutCell {
+	return mux.RebuildLayout(splitSnapshot(mux.SplitVertical, 0, 0, 490, 86,
+		leafSnapshot(1056, 0, 0, 97, 86),
+		splitSnapshot(mux.SplitHorizontal, 98, 0, 97, 86,
+			leafSnapshot(1058, 98, 0, 97, 28),
+			leafSnapshot(1061, 98, 29, 97, 28),
+			leafSnapshot(1042, 98, 58, 97, 28),
+		),
+		splitSnapshot(mux.SplitHorizontal, 196, 0, 97, 86,
+			leafSnapshot(869, 196, 0, 97, 43),
+			leafSnapshot(1062, 196, 44, 97, 42),
+		),
+		splitSnapshot(mux.SplitHorizontal, 294, 0, 97, 86,
+			leafSnapshot(1059, 294, 0, 97, 42),
+			leafSnapshot(1055, 294, 43, 97, 43),
+		),
+		splitSnapshot(mux.SplitHorizontal, 392, 0, 98, 86,
+			leafSnapshot(329, 392, 0, 98, 42),
+			leafSnapshot(1060, 392, 43, 98, 43),
+		),
+	))
+}
+
+func splitSnapshot(dir mux.SplitDir, x, y, w, h int, children ...proto.CellSnapshot) proto.CellSnapshot {
+	return proto.CellSnapshot{
+		X:        x,
+		Y:        y,
+		W:        w,
+		H:        h,
+		IsLeaf:   false,
+		Dir:      int(dir),
+		Children: children,
+	}
+}
+
+func leafSnapshot(paneID uint32, x, y, w, h int) proto.CellSnapshot {
+	return proto.CellSnapshot{
+		X:      x,
+		Y:      y,
+		W:      w,
+		H:      h,
+		IsLeaf: true,
+		Dir:    -1,
+		PaneID: paneID,
 	}
 }
 
