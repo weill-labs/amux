@@ -1,6 +1,7 @@
 package render
 
 import (
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -42,9 +43,10 @@ type Compositor struct {
 	cachedBorderH    int
 
 	// Previous frame's grid for diff rendering. Nil forces full paint.
-	prevGrid     *ScreenGrid
-	prevCursor   cursorRenderState
-	colorProfile termenv.Profile
+	prevGrid          *ScreenGrid
+	prevGridLayoutKey string
+	prevCursor        cursorRenderState
+	colorProfile      termenv.Profile
 }
 
 type cursorRenderState struct {
@@ -93,6 +95,7 @@ func (c *Compositor) Resize(width, height int) {
 	c.cachedBorderRoot = nil
 	c.cachedBorderH = 0
 	c.prevGrid = nil // force full repaint
+	c.prevGridLayoutKey = ""
 	c.prevCursor = cursorRenderState{}
 }
 
@@ -108,6 +111,7 @@ func (c *Compositor) SetColorProfile(profile termenv.Profile) {
 	}
 	c.colorProfile = profile
 	c.prevGrid = nil
+	c.prevGridLayoutKey = ""
 	c.prevCursor = cursorRenderState{}
 }
 
@@ -264,10 +268,12 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	dirtyPanes map[uint32]struct{},
 	fullRedraw bool,
 ) (string, RenderStats) {
+	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
+	layoutKey := c.layoutReuseKey(root, activePaneID, layoutHeight)
 	newGrid, panesComposited := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid
-	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
+	c.prevGridLayoutKey = layoutKey
 	nextCursor := c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight)
 	cursorChanged := !c.prevCursor.equal(nextCursor)
 	c.prevCursor = nextCursor
@@ -307,7 +313,32 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
 func (c *Compositor) ClearPrevGrid() {
 	c.prevGrid = nil
+	c.prevGridLayoutKey = ""
 	c.prevCursor = cursorRenderState{}
+}
+
+func (c *Compositor) layoutReuseKey(root *mux.LayoutCell, activePaneID uint32, layoutHeight int) string {
+	if root == nil {
+		return ""
+	}
+	var b strings.Builder
+	appendLayoutKeyInt(&b, c.width)
+	appendLayoutKeyInt(&b, c.height)
+	appendLayoutKeyInt(&b, layoutHeight)
+	appendLayoutKeyInt(&b, int(activePaneID))
+	root.Walk(func(cell *mux.LayoutCell) {
+		appendLayoutKeyInt(&b, int(cell.CellPaneID()))
+		appendLayoutKeyInt(&b, cell.X)
+		appendLayoutKeyInt(&b, cell.Y)
+		appendLayoutKeyInt(&b, cell.W)
+		appendLayoutKeyInt(&b, cell.H)
+	})
+	return b.String()
+}
+
+func appendLayoutKeyInt(b *strings.Builder, v int) {
+	b.WriteString(strconv.Itoa(v))
+	b.WriteByte(';')
 }
 
 // PrevGridText returns the previous frame's grid as plain text (no ANSI).
