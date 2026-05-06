@@ -3,9 +3,11 @@ package server
 import (
 	"net"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -110,6 +112,71 @@ func TestCaptureServerEnvFullSessionStillForwardsInStepOne(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for forwarded capture request")
+	}
+}
+
+func TestCaptureLocallyRejectsFullSessionDirectCall(t *testing.T) {
+	t.Parallel()
+
+	res := captureLocally(&CommandContext{}, nil)
+	if got, want := res.CmdErr, "server-side full-session capture is not implemented"; got != want {
+		t.Fatalf("captureLocally CmdErr = %q, want %q", got, want)
+	}
+}
+
+func TestCaptureSinglePaneLocallyRejectsInvalidScreenFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		req  caputil.Request
+		want string
+	}{
+		{
+			name: "mutually exclusive formats",
+			req: caputil.Request{
+				PaneRef:     "pane-1",
+				IncludeANSI: true,
+				FormatJSON:  true,
+			},
+			want: "--ansi, --colors, and --format json are mutually exclusive",
+		},
+		{
+			name: "pane color map",
+			req: caputil.Request{
+				PaneRef:  "pane-1",
+				ColorMap: true,
+			},
+			want: "--colors is only supported for full screen capture",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res := captureSinglePaneLocally(&CommandContext{}, tt.req)
+			if got := res.CmdErr; got != tt.want {
+				t.Fatalf("captureSinglePaneLocally CmdErr = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCaptureSinglePaneLocallyReturnsResolveError(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	res := captureSinglePaneLocally(&CommandContext{Sess: sess}, caputil.Request{PaneRef: "missing"})
+	if got := res.CmdErr; !strings.Contains(got, "not found") {
+		t.Fatalf("captureSinglePaneLocally CmdErr = %q, want pane not found", got)
 	}
 }
 
