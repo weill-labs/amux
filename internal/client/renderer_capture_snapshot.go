@@ -12,17 +12,17 @@ import (
 )
 
 type paneRenderSnapshot struct {
-	cursorCol        int
-	cursorRow        int
-	cursorHidden     bool
-	terminal         proto.TerminalState
-	rendered         string
-	renderedNoCursor string
-	scrollback       []paneBufferLine
-	screen           []paneBufferLine
-	cursorBlockCol   int
-	cursorBlockRow   int
-	hasCursorBlock   bool
+	width          int
+	height         int
+	cursorCol      int
+	cursorRow      int
+	cursorHidden   bool
+	terminal       proto.TerminalState
+	scrollback     []paneBufferLine
+	screen         []paneBufferLine
+	cursorBlockCol int
+	cursorBlockRow int
+	hasCursorBlock bool
 }
 
 func capturePaneRenderSnapshot(emu mux.TerminalEmulator) paneRenderSnapshot {
@@ -45,14 +45,14 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator) paneRenderSnapshot {
 	}
 
 	snap := paneRenderSnapshot{
-		cursorCol:        cursorCol,
-		cursorRow:        cursorRow,
-		cursorHidden:     emu.CursorHidden(),
-		terminal:         cloneTerminalState(emu.TerminalState()),
-		rendered:         emu.Render(),
-		renderedNoCursor: emu.RenderWithoutCursorBlock(),
-		scrollback:       scrollback,
-		screen:           screen,
+		width:        width,
+		height:       height,
+		cursorCol:    cursorCol,
+		cursorRow:    cursorRow,
+		cursorHidden: emu.CursorHidden(),
+		terminal:     cloneTerminalState(emu.TerminalState()),
+		scrollback:   scrollback,
+		screen:       screen,
 	}
 	if col, row, ok := emu.CursorBlockPosition(); ok {
 		snap.cursorBlockCol = col
@@ -157,11 +157,7 @@ type snapshotPaneData struct {
 }
 
 func (p *snapshotPaneData) RenderScreen(active bool) string {
-	rendered := p.pane.rendered
-	if !active && p.pane.hasCursorBlock {
-		rendered = p.pane.renderedNoCursor
-	}
-	return filterRenderedANSI(rendered, p.caps)
+	return filterRenderedANSI(render.RenderPaneViewportANSI(p.pane.width, p.pane.height, active, p), p.caps)
 }
 
 func (p *snapshotPaneData) CellAt(col, row int, active bool) render.ScreenCell {
@@ -216,7 +212,8 @@ func (p *snapshotPaneData) CopyModeSearch() string {
 }
 
 func (p paneRenderSnapshot) ansiString(caps proto.ClientCapabilities) string {
-	return filterRenderedANSI(p.rendered, caps)
+	data := snapshotPaneData{pane: p, caps: caps}
+	return data.RenderScreen(true)
 }
 
 func (p paneRenderSnapshot) textString() string {
