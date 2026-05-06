@@ -8,6 +8,7 @@ import (
 )
 
 const paneHistoryChunkThreshold = 4 * 1024 * 1024
+const paneHistoryBinaryFrameHeaderSize = 9
 
 func chunkPaneHistoryMessages(paneID uint32, history []proto.StyledLine, maxChunkSize int, binaryPaneHistory bool) ([]*Message, error) {
 	if len(history) == 0 {
@@ -25,6 +26,26 @@ func chunkPaneHistoryMessages(paneID uint32, history []proto.StyledLine, maxChun
 		}
 		messages = append(messages, newPaneHistoryMessage(paneID, history[start:end]))
 		start = end
+	}
+	return messages, nil
+}
+
+func chunkPaneHistoryMessagesWithCache(paneID uint32, history []proto.StyledLine, maxChunkSize int, binaryPaneHistory bool, cache *proto.PaneHistoryPayloadCache, version uint64) ([]*Message, error) {
+	if len(history) == 0 {
+		return nil, nil
+	}
+	if binaryPaneHistory && cache != nil {
+		if payloadLen, ok := cache.PayloadLen(version); ok && payloadLen+paneHistoryBinaryFrameHeaderSize <= maxChunkSize {
+			return []*Message{newPaneHistoryMessageWithCache(paneID, history, cache, version)}, nil
+		}
+	}
+
+	messages, err := chunkPaneHistoryMessages(paneID, history, maxChunkSize, binaryPaneHistory)
+	if err != nil {
+		return nil, err
+	}
+	if len(messages) == 1 {
+		messages[0].SetPaneHistoryPayloadCache(cache, version)
 	}
 	return messages, nil
 }
@@ -58,6 +79,14 @@ func newPaneHistoryMessage(paneID uint32, history []proto.StyledLine) *Message {
 		History:       proto.StyledLineText(history),
 		StyledHistory: append([]proto.StyledLine(nil), history...),
 	}
+}
+
+func newPaneHistoryMessageWithCache(paneID uint32, history []proto.StyledLine, cache *proto.PaneHistoryPayloadCache, version uint64) *Message {
+	msg := newPaneHistoryMessage(paneID, history)
+	if cache != nil {
+		msg.SetPaneHistoryPayloadCache(cache, version)
+	}
+	return msg
 }
 
 func estimatePaneHistoryMessageSize(msg *Message, binaryPaneHistory bool) (int, error) {

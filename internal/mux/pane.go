@@ -15,6 +15,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/debugowner"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/termprofile"
 )
 
@@ -97,6 +98,8 @@ type Pane struct {
 	suppressExit  atomic.Bool
 
 	outputSeq        atomic.Uint64
+	paneHistorySeq   atomic.Uint64
+	paneHistoryCache proto.PaneHistoryPayloadCache
 	baseHistory      atomic.Pointer[paneBaseHistory]
 	scrollbackWidths []int
 	scrollbackLines  int
@@ -912,6 +915,7 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 		storeUnixTime(&p.idleSinceUnix, time.Time{})
 		p.liveCwd = dir
 		p.Meta.Dir = dir
+		p.paneHistorySeq.Add(1)
 		wireScrollbackCallbacks(p)
 	})
 	return nil

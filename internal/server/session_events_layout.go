@@ -356,8 +356,10 @@ func (ctx *MutationContext) ensureClientManager() *clientManager {
 }
 
 type paneHistoryUpdate struct {
-	paneID  uint32
-	history []proto.StyledLine
+	paneID         uint32
+	history        []proto.StyledLine
+	historyVersion uint64
+	historyCache   *proto.PaneHistoryPayloadCache
 }
 
 func windowPaneHistories(w *mux.Window) []paneHistoryUpdate {
@@ -369,13 +371,15 @@ func windowPaneHistories(w *mux.Window) []paneHistoryUpdate {
 		if cell == nil || cell.Pane == nil {
 			return
 		}
-		history := cell.Pane.StyledHistorySnapshot()
+		history, historyVersion, historyCache := cell.Pane.StyledHistorySnapshotWithCache()
 		if len(history) == 0 {
 			return
 		}
 		histories = append(histories, paneHistoryUpdate{
-			paneID:  cell.Pane.ID,
-			history: history,
+			paneID:         cell.Pane.ID,
+			history:        history,
+			historyVersion: historyVersion,
+			historyCache:   historyCache,
 		})
 	})
 	return histories
@@ -482,10 +486,10 @@ func (e commandMutationEvent) handle(s *Session) {
 			res.broadcastLayout = false
 		}
 		for _, ph := range deferredHistories {
-			s.broadcastPaneHistoryNow(ph.paneID, ph.history)
+			s.broadcastPaneHistoryNow(ph)
 		}
 		for _, ph := range res.paneHistories {
-			s.broadcastPaneHistoryNow(ph.paneID, ph.history)
+			s.broadcastPaneHistoryNow(ph)
 		}
 		res.paneHistories = nil
 		for _, pr := range res.paneRenders {

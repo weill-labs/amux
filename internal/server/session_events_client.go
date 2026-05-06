@@ -8,10 +8,12 @@ import (
 )
 
 type attachPaneSnapshot struct {
-	paneID        uint32
-	styledHistory []proto.StyledLine
-	screen        []byte
-	outputSeq     uint64
+	paneID         uint32
+	styledHistory  []proto.StyledLine
+	historyVersion uint64
+	historyCache   *proto.PaneHistoryPayloadCache
+	screen         []byte
+	outputSeq      uint64
 }
 
 type attachResult struct {
@@ -400,8 +402,10 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	for _, p := range s.Panes {
 		snapshot := attachPaneSnapshot{paneID: p.ID}
 		if _, ok := activePaneIDs[p.ID]; ok {
-			history, screen, seq := p.StyledHistoryScreenSnapshot()
+			history, screen, seq, historyVersion, historyCache := p.StyledHistoryScreenSnapshotWithCache()
 			snapshot.styledHistory = history
+			snapshot.historyVersion = historyVersion
+			snapshot.historyCache = historyCache
 			snapshot.screen = []byte(screen)
 			snapshot.outputSeq = seq
 		} else {
