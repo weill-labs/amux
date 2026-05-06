@@ -114,7 +114,7 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 		oldX, oldY := oldRoot.X, oldRoot.Y
 		oldW, oldH := oldRoot.W, oldRoot.H
 		children := []*LayoutCell{oldRoot, newLeaf}
-		sizes, ok := equalSubtreeSplitSizes(children, dir, oldRoot.axisSize(dir))
+		sizes, ok := frontLoadedSubtreeSplitSizes(children, dir, oldRoot.axisSize(dir))
 		if !ok {
 			return nil, fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(targetRoot, dir), required)
 		}

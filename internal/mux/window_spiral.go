@@ -250,7 +250,7 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		if insertFirst {
 			children = []*LayoutCell{newLeaf, oldRoot}
 		}
-		sizes, ok := equalSubtreeSplitSizes(children, dir, oldRoot.axisSize(dir))
+		sizes, ok := frontLoadedSubtreeSplitSizes(children, dir, oldRoot.axisSize(dir))
 		if !ok {
 			return nil, fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(root, dir), required)
 		}

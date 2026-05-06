@@ -373,6 +373,39 @@ func equalSubtreeSplitSizes(children []*LayoutCell, axis SplitDir, total int) ([
 	return sizes, true
 }
 
+func frontLoadedSubtreeSplitSizes(children []*LayoutCell, axis SplitDir, total int) ([]int, bool) {
+	sizes := frontLoadedSplitSizes(total, len(children))
+	if len(sizes) == 0 {
+		return nil, false
+	}
+
+	minimums := make([]int, len(children))
+	for i, child := range children {
+		minimums[i] = child.minSubtreeSize(axis)
+	}
+	if !raiseSizesToMinimums(sizes, minimums) {
+		return nil, false
+	}
+	return sizes, true
+}
+
+func frontLoadedSplitSizes(total, count int) []int {
+	if count <= 0 {
+		return nil
+	}
+	seps := count - 1
+	available := total - seps
+	each := available / count
+	sizes := make([]int, count)
+	for i := range sizes {
+		sizes[i] = each
+	}
+	for i := 0; i < available-each*count; i++ {
+		sizes[i]++
+	}
+	return sizes
+}
+
 func raiseSizesToMinimums(sizes, minimums []int) bool {
 	deficit := 0
 	for i := range sizes {
