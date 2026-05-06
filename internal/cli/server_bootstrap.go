@@ -42,7 +42,11 @@ func newBootstrapLoggerWithWriter(w io.Writer) *charmlog.Logger {
 }
 
 func installServerLogRotation(sessionName string) (io.Writer, func(), error) {
-	logPath := filepath.Join(server.SocketDir(), sessionName+".log")
+	logDir := os.Getenv("AMUX_LOG_DIR")
+	if logDir == "" {
+		logDir = server.SocketDir()
+	}
+	logPath := filepath.Join(logDir, sessionName+".log")
 	return auditlog.InstallProcessLogRotation(logPath, auditlog.DefaultRotationOptions())
 }
 

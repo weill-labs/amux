@@ -28,6 +28,7 @@ import (
 
 type testSSHServerOptions struct {
 	preloadAmux bool
+	sessionName string
 }
 
 type testSSHServer struct {
@@ -126,6 +127,10 @@ func buildTestSSHExecEnv(homeDir string, opts testSSHServerOptions) []string {
 		execEnv = removeEnv(execEnv, key)
 	}
 	execEnv = upsertEnv(execEnv, "HOME", homeDir)
+	execEnv = upsertEnv(execEnv, "AMUX_LOG_DIR", testLogDir(homeDir))
+	if opts.sessionName != "" {
+		execEnv = upsertEnv(execEnv, "AMUX_SESSION", opts.sessionName)
+	}
 
 	if !opts.preloadAmux {
 		// Keep only base system tools on PATH so the remote starts without any
@@ -547,6 +552,9 @@ func setupTestSSHNoPreload(t *testing.T) testSSHFixture {
 
 func setupTestSSHWithOptions(t *testing.T, opts testSSHServerOptions) testSSHFixture {
 	t.Helper()
+	if opts.sessionName == "" {
+		opts.sessionName = randomTestSessionName(t)
+	}
 	pubKey, privPEM := generateTestKeyPair(t)
 	server := startTestSSHServer(t, pubKey, opts)
 

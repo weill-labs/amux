@@ -51,7 +51,7 @@ func newAmuxHarnessWithConfig(t *testing.T, configContent string) *AmuxHarness {
 
 	t.Cleanup(func() {
 		// Best-effort detach (only works with default prefix).
-		_ = exec.Command(amuxBin, "-s", inner, "list").Run()
+		_ = newHermeticAmuxCommand(t, "-s", inner, "list").Run()
 		out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", inner)).Output()
 		for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if pid != "" {

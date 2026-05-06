@@ -1,43 +1,49 @@
 package test
 
 import (
-	"os"
+	"context"
+	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/testenv"
 )
 
 func hermeticMainEnv() []string {
-	env := append([]string{}, os.Environ()...)
-	for _, key := range []string{
-		"AMUX_MAIN_HELPER",
-		"AMUX_PANE",
-		"AMUX_SESSION",
-		"TMUX",
-		"SSH_CONNECTION",
-		"SSH_CLIENT",
-		"SSH_TTY",
-		"TERM",
-	} {
-		env = removeEnvKey(env, key)
-	}
-	return append(env,
-		"AMUX_MAIN_HELPER=1",
-		"TERM=xterm-256color",
-	)
+	return testenv.HermeticMainEnv()
 }
 
-func removeEnvKey(env []string, key string) []string {
-	prefix := key + "="
-	filtered := env[:0]
-	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			continue
-		}
-		filtered = append(filtered, entry)
+func hermeticAmuxEnv() []string {
+	return testenv.HermeticAmuxEnv()
+}
+
+func newHermeticAmuxCommand(tb testing.TB, args ...string) *exec.Cmd {
+	if tb != nil {
+		tb.Helper()
 	}
-	return filtered
+	return newHermeticAmuxCommandContext(tb, context.Background(), args...)
+}
+
+func newHermeticAmuxCommandContext(tb testing.TB, ctx context.Context, args ...string) *exec.Cmd {
+	if tb != nil {
+		tb.Helper()
+	}
+	return newHermeticAmuxCommandWithBinContext(tb, ctx, amuxBin, args...)
+}
+
+func newHermeticAmuxCommandWithBin(tb testing.TB, binPath string, args ...string) *exec.Cmd {
+	if tb != nil {
+		tb.Helper()
+	}
+	return newHermeticAmuxCommandWithBinContext(tb, context.Background(), binPath, args...)
+}
+
+func newHermeticAmuxCommandWithBinContext(tb testing.TB, ctx context.Context, binPath string, args ...string) *exec.Cmd {
+	if tb != nil {
+		tb.Helper()
+	}
+	return testenv.NewCommandContext(ctx, binPath, args...)
 }
 
 func repoRoot(tb testing.TB) string {
@@ -54,4 +60,8 @@ func repoPath(tb testing.TB, rel string) string {
 	tb.Helper()
 
 	return filepath.Join(repoRoot(tb), filepath.FromSlash(rel))
+}
+
+func testLogDir(home string) string {
+	return filepath.Join(home, ".local", "state", "amux", "logs")
 }

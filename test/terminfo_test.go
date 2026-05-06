@@ -1,7 +1,6 @@
 package test
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,8 +12,8 @@ func TestInstallTerminfoCommand(t *testing.T) {
 
 	home := t.TempDir()
 	for i := 0; i < 2; i++ {
-		cmd := exec.Command(amuxBin, "install-terminfo")
-		cmd.Env = upsertEnv(os.Environ(), "HOME", home)
+		cmd := newHermeticAmuxCommand(t, "install-terminfo")
+		cmd.Env = upsertEnv(cmd.Env, "HOME", home)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("install-terminfo run %d failed: %v\n%s", i+1, err, out)
@@ -35,8 +34,8 @@ func TestInstallTerminfoCommandFailsWithoutTic(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
-	cmd := exec.Command(amuxBin, "install-terminfo")
-	cmd.Env = upsertEnv(upsertEnv(os.Environ(), "HOME", home), "PATH", t.TempDir())
+	cmd := newHermeticAmuxCommand(t, "install-terminfo")
+	cmd.Env = upsertEnv(upsertEnv(cmd.Env, "HOME", home), "PATH", t.TempDir())
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("install-terminfo unexpectedly succeeded:\n%s", out)
@@ -50,8 +49,8 @@ func TestServerBootstrapFailsWithoutTic(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
-	cmd := exec.Command(amuxBin, "_server", "terminfo-fail")
-	cmd.Env = upsertEnv(upsertEnv(os.Environ(), "HOME", home), "PATH", t.TempDir())
+	cmd := newHermeticAmuxCommand(t, "_server", "terminfo-fail")
+	cmd.Env = upsertEnv(upsertEnv(cmd.Env, "HOME", home), "PATH", t.TempDir())
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("server bootstrap unexpectedly succeeded:\n%s", out)

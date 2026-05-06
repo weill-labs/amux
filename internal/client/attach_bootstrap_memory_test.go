@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/testenv"
 )
 
 const attachBootstrapPeakHeapSubprocessEnv = "AMUX_TEST_ATTACH_BOOTSTRAP_PEAK_HEAP"
@@ -25,8 +25,8 @@ func TestReadAttachBootstrapKeepsPeakHeapUnderBound(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestReadAttachBootstrapKeepsPeakHeapUnderBound$", "-test.parallel=1")
-	cmd.Env = append(os.Environ(), attachBootstrapPeakHeapSubprocessEnv+"=1")
+	cmd := testenv.NewCommand(os.Args[0], "-test.run=^TestReadAttachBootstrapKeepsPeakHeapUnderBound$", "-test.parallel=1")
+	cmd.Env = append(testenv.HermeticAmuxEnv(), attachBootstrapPeakHeapSubprocessEnv+"=1")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("peak-heap subprocess failed: %v\n%s", err, output)

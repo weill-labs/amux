@@ -1,7 +1,6 @@
 package test
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 
 func TestVersionCommand(t *testing.T) {
 	t.Parallel()
-	out, err := exec.Command(amuxBin, "version").CombinedOutput()
+	out, err := newHermeticAmuxCommand(t, "version").CombinedOutput()
 	if err != nil {
 		t.Fatalf("amux version failed: %v\n%s", err, out)
 	}

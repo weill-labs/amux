@@ -171,17 +171,19 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		tb.Fatalf("creating shutdown pipe: %v", err)
 	}
 
-	cmd := exec.Command(amuxBin, "_server", session)
+	cmd := newHermeticAmuxCommand(tb, "_server", session)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
 	if home == "" {
 		home = newTestHome(tb)
 	}
-	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
+	logDir := testLogDir(home)
+	env := removeEnv(cmd.Env, "AMUX_EXIT_UNATTACHED")
 	for key := range harnessBlockedEnvKeys {
 		env = removeEnv(env, key)
 	}
 	env = upsertEnv(env, "HOME", home)
+	env = upsertEnv(env, "AMUX_LOG_DIR", logDir)
 	env = upsertEnv(env, "AMUX_COLOR_PROFILE", "TrueColor")
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
 	if exitUnattached {
@@ -212,7 +214,6 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	}
 	cmd.Env = env
 
-	logDir := server.SocketDir()
 	mustMkdirAll(tb, logDir, 0700)
 	logPath := filepath.Join(logDir, session+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
@@ -395,7 +396,9 @@ func (h *ServerHarness) cleanup() {
 	}
 	socketDir := server.SocketDir()
 	os.Remove(filepath.Join(socketDir, h.session))
-	os.Remove(filepath.Join(socketDir, h.session+".log"))
+	if h.logPath != "" {
+		os.Remove(h.logPath)
+	}
 	if h.home != "" {
 		_ = os.RemoveAll(h.home)
 		h.home = ""
@@ -483,12 +486,13 @@ func (h *ServerHarness) diagnosticState() (wait, cmd string) {
 
 func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) *exec.Cmd {
 	cmdArgs := append([]string{"-s", h.session}, args...)
-	cmd := exec.CommandContext(ctx, amuxBin, cmdArgs...)
-	env := os.Environ()
+	cmd := newHermeticAmuxCommandContext(h.tb, ctx, cmdArgs...)
+	env := cmd.Env
 	for key := range harnessBlockedEnvKeys {
 		env = removeEnv(env, key)
 	}
 	env = upsertEnv(env, "HOME", h.home)
+	env = upsertEnv(env, "AMUX_LOG_DIR", testLogDir(h.home))
 	if h.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}

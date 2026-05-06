@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/server"
+	"github.com/weill-labs/amux/internal/testenv"
 )
 
 func TestRunServerDoesNotLateSetLogger(t *testing.T) {
@@ -89,7 +89,7 @@ func TestServerBootstrapLogsServerStart(t *testing.T) {
 	defer shutdownRead.Close()
 
 	cmdArgs := []string{"-test.run=TestMainCLISubprocessHelper", "--", "_server", session}
-	cmd := exec.CommandContext(ctx, os.Args[0], cmdArgs...)
+	cmd := testenv.NewCommandContext(ctx, os.Args[0], cmdArgs...)
 	cmd.ExtraFiles = []*os.File{readyWrite, shutdownWrite}
 	cmd.Env = append(hermeticMainEnv(),
 		"HOME="+t.TempDir(),

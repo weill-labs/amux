@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -494,9 +493,11 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 		t.Fatalf("creating shutdown pipe: %v", err)
 	}
 
-	cmd := exec.Command(amuxBin, "_server", session)
+	cmd := newHermeticAmuxCommand(t, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe}
-	env := upsertEnv(os.Environ(), "HOME", home)
+	logDir := testLogDir(home)
+	env := upsertEnv(cmd.Env, "HOME", home)
+	env = upsertEnv(env, "AMUX_LOG_DIR", logDir)
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1", "AMUX_DISABLE_META_REFRESH=1")
 
 	// Per-test cover dir
@@ -510,7 +511,6 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	}
 	cmd.Env = env
 
-	logDir := server.SocketDir()
 	mustMkdirAll(t, logDir, 0700)
 	logPath := filepath.Join(logDir, session+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)

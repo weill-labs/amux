@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/server"
+	"github.com/weill-labs/amux/internal/testenv"
 )
 
 func TestMainCLISubprocessHelper(t *testing.T) {
@@ -81,7 +82,7 @@ func newHermeticMainCmdContext(t *testing.T, ctx context.Context, args ...string
 
 	session := hermeticMainSession(t.Name())
 	cmdArgs := append([]string{"-test.run=TestMainCLISubprocessHelper", "--", "-s", session}, args...)
-	cmd := exec.CommandContext(ctx, os.Args[0], cmdArgs...)
+	cmd := testenv.NewCommandContext(ctx, os.Args[0], cmdArgs...)
 	cmd.Env = hermeticMainEnv()
 	return cmd
 }
@@ -107,36 +108,7 @@ func hermeticMainSession(testName string) string {
 }
 
 func hermeticMainEnv() []string {
-	env := append([]string{}, os.Environ()...)
-	for _, key := range []string{
-		"AMUX_MAIN_HELPER",
-		"AMUX_PANE",
-		"AMUX_SESSION",
-		"TMUX",
-		"SSH_CONNECTION",
-		"SSH_CLIENT",
-		"SSH_TTY",
-		"TERM",
-	} {
-		env = removeEnvKey(env, key)
-	}
-	env = append(env,
-		"AMUX_MAIN_HELPER=1",
-		"TERM=xterm-256color",
-	)
-	return env
-}
-
-func removeEnvKey(env []string, key string) []string {
-	prefix := key + "="
-	filtered := env[:0]
-	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
+	return testenv.HermeticMainEnv()
 }
 
 func hermeticMainSocketPath(t *testing.T) string {

@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -194,8 +193,7 @@ func TestDebugCommandUsesServerSession(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, amuxBin, "-s", h.session, "debug", "goroutines")
-	cmd.Env = h.commandWithContext(ctx).Env
+	cmd := h.commandWithContext(ctx, "debug", "goroutines")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("amux -s %s debug goroutines: %v\n%s", h.session, err, out)

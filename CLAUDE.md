@@ -114,7 +114,7 @@ When a change adds a new test or modifies an existing test, run that targeted te
 
 **Fix flaky tests by finding the root cause.** Never make tests serial to avoid a flake — that hides the bug (shared state, resource contention, missing synchronization) instead of fixing it. If tests deadlock under `-count=3 -parallel=2`, the fix is in the code, not the test runner flags.
 
-**Root CLI subprocess tests must use the shared hermetic helper.** Do not open-code `exec.Command(os.Args[0], ...)` or inherit ambient `AMUX_SESSION` / `TMUX` state in root package tests; route those tests through the shared helper so they always run with an isolated session and scrubbed env.
+**CLI subprocess tests must use the shared hermetic helper.** Do not open-code `exec.Command(os.Args[0], ...)` or `exec.Command(amuxBin, ...)`, and do not inherit ambient `AMUX_SESSION` / `TMUX` state in root or `test/` package tests. Route those tests through the shared helper, for example `newHermeticAmuxCommand(t, "-s", session, "list")`, so they always run with an isolated session and scrubbed env.
 
 **Changes to `main.go` CLI dispatch need direct unit coverage on the touched lines.** Keep the hermetic subprocess tests for end-to-end CLI behavior, but when a change touches the dispatch branches in `main.go`, add direct unit coverage (for example in `main_test.go`) for those specific lines too. Codecov patch coverage measures the changed `main.go` lines directly and may miss coverage that only arrives through subprocess tests.
 

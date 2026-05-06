@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"golang.org/x/sys/unix"
@@ -53,10 +55,12 @@ func NewRotatingFileWriter(path string, opts RotationOptions) (io.WriteCloser, e
 // inherited regular log files are not teed because that would recreate the
 // unbounded file this rotation avoids.
 func InstallProcessLogRotation(path string, opts RotationOptions) (io.Writer, func(), error) {
+	MarkSocketLogFDsCloseOnExec(filepath.Dir(path))
 	writer, err := NewRotatingFileWriter(path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
+	MarkSocketLogFDsCloseOnExec(filepath.Dir(path))
 
 	teeFile := teeFileForFD(int(os.Stderr.Fd()))
 	logWriter := &lockedWriter{w: writer}
@@ -97,7 +101,41 @@ func teeFileForFD(fd int) *os.File {
 	if err != nil {
 		return nil
 	}
+	unix.CloseOnExec(teeFD)
 	return os.NewFile(uintptr(teeFD), "amux-log-stderr")
+}
+
+func MarkSocketLogFDsCloseOnExec(logDir string) {
+	if logDir == "" {
+		return
+	}
+	fdDir := "/proc/self/fd"
+	entries, err := os.ReadDir(fdDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil || fd <= 2 {
+			continue
+		}
+		target, err := os.Readlink(filepath.Join(fdDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if isSocketLogFDTarget(logDir, target) {
+			unix.CloseOnExec(fd)
+		}
+	}
+}
+
+func isSocketLogFDTarget(logDir, target string) bool {
+	cleanDir := filepath.Clean(logDir)
+	target = strings.TrimSuffix(target, " (deleted)")
+	if filepath.Dir(target) != cleanDir {
+		return false
+	}
+	return strings.Contains(filepath.Base(target), ".log")
 }
 
 func closeTeeFile(file *os.File) {
