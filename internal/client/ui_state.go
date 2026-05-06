@@ -15,6 +15,7 @@ type clientUIState struct {
 	windowTabDrag      *windowTabDragOverlayState
 	chooser            *chooserState
 	windowRenamePrompt *windowRenamePromptState
+	paneRenamePrompt   *paneRenamePromptState
 	helpBar            *helpBarState
 	message            string
 	inputIdle          bool
@@ -79,6 +80,12 @@ type uiActionShowWindowRenamePrompt struct {
 }
 
 type uiActionHideWindowRenamePrompt struct{}
+
+type uiActionShowPaneRenamePrompt struct {
+	prompt *paneRenamePromptState
+}
+
+type uiActionHidePaneRenamePrompt struct{}
 
 type uiActionShowHelpBar struct {
 	bar *helpBarState
@@ -178,6 +185,15 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		st.windowRenamePrompt = nil
 		st.dirty = true
 		return clientUIResult{}
+	case uiActionShowPaneRenamePrompt:
+		return st.reduceShowPaneRenamePrompt(action)
+	case uiActionHidePaneRenamePrompt:
+		if st.paneRenamePrompt == nil {
+			return clientUIResult{}
+		}
+		st.paneRenamePrompt = nil
+		st.dirty = true
+		return clientUIResult{}
 	case uiActionShowHelpBar:
 		return st.reduceShowHelpBar(action)
 	case uiActionHideHelpBar:
@@ -231,6 +247,9 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 		if st.windowRenamePrompt != nil {
 			st.windowRenamePrompt = nil
 		}
+		if st.paneRenamePrompt != nil {
+			st.paneRenamePrompt = nil
+		}
 		if st.helpBar != nil {
 			st.helpBar = nil
 		}
@@ -268,6 +287,9 @@ func (st *clientUIState) reduceShowChooser(action uiActionShowChooser) clientUIR
 	if st.windowRenamePrompt != nil {
 		st.windowRenamePrompt = nil
 	}
+	if st.paneRenamePrompt != nil {
+		st.paneRenamePrompt = nil
+	}
 	if st.helpBar != nil {
 		st.helpBar = nil
 	}
@@ -299,7 +321,34 @@ func (st *clientUIState) reduceShowWindowRenamePrompt(action uiActionShowWindowR
 	if st.helpBar != nil {
 		st.helpBar = nil
 	}
+	if st.paneRenamePrompt != nil {
+		st.paneRenamePrompt = nil
+	}
 	st.windowRenamePrompt = action.prompt
+	st.dirty = true
+	return result
+}
+
+func (st *clientUIState) reduceShowPaneRenamePrompt(action uiActionShowPaneRenamePrompt) clientUIResult {
+	result := clientUIResult{}
+	if st.displayPanes != nil {
+		st.displayPanes = nil
+		result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
+	}
+	if st.paneDrag != nil {
+		st.paneDrag = nil
+	}
+	if st.chooser != nil {
+		result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
+		st.chooser = nil
+	}
+	if st.windowRenamePrompt != nil {
+		st.windowRenamePrompt = nil
+	}
+	if st.helpBar != nil {
+		st.helpBar = nil
+	}
+	st.paneRenamePrompt = action.prompt
 	st.dirty = true
 	return result
 }
@@ -316,6 +365,9 @@ func (st *clientUIState) reduceShowHelpBar(action uiActionShowHelpBar) clientUIR
 	}
 	if st.windowRenamePrompt != nil {
 		st.windowRenamePrompt = nil
+	}
+	if st.paneRenamePrompt != nil {
+		st.paneRenamePrompt = nil
 	}
 	if st.paneDrag != nil {
 		st.paneDrag = nil
@@ -350,6 +402,8 @@ func (st *clientUIState) captureUI() *proto.CaptureUI {
 	prompt := ""
 	if st.windowRenamePrompt != nil {
 		prompt = st.windowRenamePrompt.title()
+	} else if st.paneRenamePrompt != nil {
+		prompt = st.paneRenamePrompt.title()
 	}
 	return &proto.CaptureUI{
 		CopyMode:     len(st.copyModes) > 0,

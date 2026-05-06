@@ -409,6 +409,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a c` | Create new window |
 | `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
 | `Ctrl-a ;` | Last active window |
+| `Ctrl-a .` | Rename active pane |
 | `Ctrl-a q` | Show pane labels for quick jump |
 | `Ctrl-a ?` | Toggle keybinding help bar |
 | `Ctrl-a 1-9` | Select window by number |

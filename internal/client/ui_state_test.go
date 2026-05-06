@@ -45,6 +45,8 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 	prompt := ""
 	if st.windowRenamePrompt != nil {
 		prompt = st.windowRenamePrompt.title()
+	} else if st.paneRenamePrompt != nil {
+		prompt = st.paneRenamePrompt.title()
 	}
 
 	return clientUIStateSnapshot{
@@ -302,6 +304,26 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			},
 		},
 		{
+			name: "show pane rename prompt hides chooser and display panes",
+			setup: func(st *clientUIState) {
+				st.displayPanes = &displayPanesState{}
+				st.chooser = &chooserState{mode: chooserModeWindow}
+			},
+			action: uiActionShowPaneRenamePrompt{
+				prompt: &paneRenamePromptState{paneRef: "pane-1", input: bubblesutil.TextInputState{Value: "agent-1", Cursor: 7}},
+			},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				prompt:          "rename-pane",
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
+			wantEvents: []string{
+				proto.UIEventDisplayPanesHidden,
+				proto.UIEventChooseWindowHidden,
+			},
+		},
+		{
 			name: "show help bar hides chooser display panes prompt and pane drag",
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
@@ -341,6 +363,18 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
 			},
 			action: uiActionHideWindowRenamePrompt{},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
+		},
+		{
+			name: "hide pane rename prompt clears prompt state",
+			setup: func(st *clientUIState) {
+				st.paneRenamePrompt = &paneRenamePromptState{paneRef: "pane-1", input: bubblesutil.TextInputState{Value: "agent-1", Cursor: 7}}
+			},
+			action: uiActionHidePaneRenamePrompt{},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				copyModePaneIDs: []uint32{},

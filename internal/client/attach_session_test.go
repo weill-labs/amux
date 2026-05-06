@@ -1344,12 +1344,19 @@ func TestRunSessionRenamePanePromptEscapeCancels(t *testing.T) {
 	h.output.waitContains(t, "rename-pane")
 
 	h.send(t, &proto.Message{Type: proto.MsgTypeTypeKeys, Input: []byte("agent-1\x1b")})
-	h.send(t, &proto.Message{Type: proto.MsgTypeCaptureRequest, CmdArgs: []string{"--format", "json"}})
-	capture := h.waitMessage(t, func(msg *proto.Message) bool {
-		return msg.Type == proto.MsgTypeCaptureResponse
-	})
-	if strings.Contains(capture.CmdOutput, `"prompt": "rename-pane"`) {
-		t.Fatalf("capture output = %q, want rename-pane prompt hidden after escape", capture.CmdOutput)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.send(t, &proto.Message{Type: proto.MsgTypeCaptureRequest, CmdArgs: []string{"--format", "json"}})
+		capture := h.waitMessage(t, func(msg *proto.Message) bool {
+			return msg.Type == proto.MsgTypeCaptureResponse
+		})
+		if !strings.Contains(capture.CmdOutput, `"prompt": "rename-pane"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("capture output = %q, want rename-pane prompt hidden after escape", capture.CmdOutput)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 
 	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
