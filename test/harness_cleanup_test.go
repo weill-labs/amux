@@ -69,3 +69,27 @@ func TestHasOtherActiveTestRunRemovesStaleLocks(t *testing.T) {
 		t.Fatalf("stale lock %s should be removed, stat err=%v", filepath.Base(lockPath), err)
 	}
 }
+
+func TestIsTestSessionAcceptsExpandedEntropy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		session string
+		want    bool
+	}{
+		{name: "legacy eight hex", session: "t-0123abcd", want: true},
+		{name: "expanded sixteen hex", session: "t-0123456789abcdef", want: true},
+		{name: "too short", session: "t-1234", want: false},
+		{name: "non hex", session: "t-0123456789abcdeg", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isTestSession(tt.session); got != tt.want {
+				t.Fatalf("isTestSession(%q) = %t, want %t", tt.session, got, tt.want)
+			}
+		})
+	}
+}
