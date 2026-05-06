@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -476,6 +477,62 @@ func (s *stubNamedTransport) EnsureServer(context.Context, transport.Target, str
 	return nil
 }
 func (s *stubNamedTransport) Close() error { return nil }
+
+type closeTrackedTransport struct {
+	stubNamedTransport
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (s *closeTrackedTransport) Close() error {
+	s.once.Do(func() {
+		close(s.closed)
+	})
+	return nil
+}
+
+func TestHostConnClosesLateConnectOutcomeAfterClose(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test", config.Host{}, "", nil, nil, nil)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	returned := make(chan struct{})
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	tr := &closeTrackedTransport{closed: make(chan struct{})}
+	reply := make(chan error, 1)
+	testInActor(hc, func(hc *HostConn) {
+		hc.startConnect(reply, func() (*connectOutcome, error) {
+			close(started)
+			<-release
+			close(returned)
+			return &connectOutcome{amuxConn: clientConn, tr: tr}, nil
+		})
+	})
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("connect goroutine did not start")
+	}
+
+	hc.Close()
+	close(release)
+
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("connect goroutine did not return")
+	}
+	select {
+	case <-tr.closed:
+	case <-time.After(time.Second):
+		t.Fatal("late connect outcome transport was not closed after HostConn.Close")
+	}
+}
 
 func TestCloseConns(t *testing.T) {
 	t.Parallel()
