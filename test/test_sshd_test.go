@@ -577,6 +577,40 @@ identity_file = "%s"
 `, user, host, port, identityFile)
 }
 
+func TestTestSSHServerExportsHermeticAmuxSession(t *testing.T) {
+	t.Setenv("AMUX_SESSION", "main")
+
+	fixture := setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true})
+	_, port, _ := net.SplitHostPort(fixture.Addr)
+	cmd := exec.Command(
+		"ssh",
+		"-i", fixture.KeyFile,
+		"-p", port,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"127.0.0.1",
+		`printf 'AMUX_SESSION=%s\n' "$AMUX_SESSION"`,
+	)
+	cmd.Env = hermeticMainEnv()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ssh env probe failed: %v\n%s", err, out)
+	}
+	got := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.HasPrefix(line, "AMUX_SESSION=") {
+			got = strings.TrimSpace(line)
+		}
+	}
+	if got == "AMUX_SESSION=" || got == "AMUX_SESSION=main" {
+		t.Fatalf("remote SSH fixture AMUX_SESSION = %q, want isolated non-main session", got)
+	}
+	if got == "" {
+		t.Fatalf("remote SSH fixture did not report AMUX_SESSION\n%s", out)
+	}
+}
+
 func currentUser() string {
 	u, err := user.Current()
 	if err != nil {
