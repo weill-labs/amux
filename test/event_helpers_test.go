@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net"
-	"os"
 	"os/exec"
 	"sync"
 	"testing"
@@ -83,9 +82,9 @@ func startEventsCLI(t *testing.T, h *ServerHarness, env []string, args ...string
 	t.Helper()
 
 	cmdArgs := append([]string{"-s", h.session, "events"}, args...)
-	cmd := exec.Command(amuxBin, cmdArgs...)
+	cmd := newHermeticAmuxCommand(t, cmdArgs...)
 
-	envVars := upsertEnv(os.Environ(), "HOME", h.home)
+	envVars := upsertEnv(cmd.Env, "HOME", h.home)
 	if h.coverDir != "" {
 		envVars = upsertEnv(envVars, "GOCOVERDIR", h.coverDir)
 	}
@@ -182,6 +181,13 @@ func mustReadEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) 
 		t.Fatal("timeout reading event")
 	}
 	return ev
+}
+
+func mustReadEventType(t *testing.T, scanner *bufio.Scanner, eventType string, timeout time.Duration) eventJSON {
+	t.Helper()
+	return mustReadMatchingEvent(t, scanner, timeout, eventType+" event", func(ev eventJSON) bool {
+		return ev.Type == eventType
+	})
 }
 
 func mustReadMatchingEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration, description string, match func(eventJSON) bool) eventJSON {

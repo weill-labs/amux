@@ -43,8 +43,8 @@ func newPTYClientHarnessWithReadyOutput(tb testing.TB, server *ServerHarness, re
 func newPTYClientHarnessForSession(tb testing.TB, session, home, coverDir string, envVars ...string) *ptyClientHarness {
 	tb.Helper()
 
-	cmd := exec.Command(amuxBin, "-s", session)
-	env := os.Environ()
+	cmd := newHermeticAmuxCommand(tb, "-s", session)
+	env := cmd.Env
 	for _, key := range []string{
 		"AMUX_COLOR_PROFILE",
 		"AMUX_PANE",

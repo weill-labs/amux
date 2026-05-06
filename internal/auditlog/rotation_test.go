@@ -273,6 +273,71 @@ func TestTeeFileForFDInvalidFD(t *testing.T) {
 	closeTeeFile(nil)
 }
 
+func TestTeeFileForFDSetsCloseOnExec(t *testing.T) {
+	t.Parallel()
+
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	defer readPipe.Close()
+	defer writePipe.Close()
+
+	tee := teeFileForFD(int(writePipe.Fd()))
+	if tee == nil {
+		t.Fatal("teeFileForFD(pipe) = nil, want file")
+	}
+	defer tee.Close()
+
+	assertCloseOnExec(t, int(tee.Fd()))
+}
+
+func TestMarkSocketLogFDsCloseOnExecMarksInheritedLogs(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	logFile, err := os.OpenFile(filepath.Join(dir, "main.log"), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile log: %v", err)
+	}
+	defer logFile.Close()
+
+	dupFD, err := unix.Dup(int(logFile.Fd()))
+	if err != nil {
+		t.Fatalf("Dup log fd: %v", err)
+	}
+	defer unix.Close(dupFD)
+	clearCloseOnExec(t, dupFD)
+
+	MarkSocketLogFDsCloseOnExec(dir)
+
+	assertCloseOnExec(t, dupFD)
+}
+
+func clearCloseOnExec(t *testing.T, fd int) {
+	t.Helper()
+
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatalf("F_GETFD: %v", err)
+	}
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags&^unix.FD_CLOEXEC); err != nil {
+		t.Fatalf("F_SETFD clear close-on-exec: %v", err)
+	}
+}
+
+func assertCloseOnExec(t *testing.T, fd int) {
+	t.Helper()
+
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatalf("F_GETFD: %v", err)
+	}
+	if flags&unix.FD_CLOEXEC == 0 {
+		t.Fatalf("fd %d missing FD_CLOEXEC", fd)
+	}
+}
+
 func totalRegularFileSize(t *testing.T, paths ...string) int64 {
 	t.Helper()
 

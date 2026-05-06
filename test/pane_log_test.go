@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	serverpkg "github.com/weill-labs/amux/internal/server"
 	listingcmd "github.com/weill-labs/amux/internal/server/commands/listing"
 )
 
@@ -157,8 +156,7 @@ func TestLogPanesSnapshotsExitContext(t *testing.T) {
 	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
 	listOut := waitForListMetadata(t, h, wantListCwd)
 	if !strings.Contains(listOut, wantListCwd) {
-		logPath := filepath.Join(serverpkg.SocketDir(), h.session+".log")
-		logData, _ := os.ReadFile(logPath)
+		logData, _ := os.ReadFile(h.logPath)
 		t.Fatalf("list did not report cached cwd %q after idle refresh\n%s\nserver log:\n%s", wantListCwd, listOut, string(logData))
 	}
 

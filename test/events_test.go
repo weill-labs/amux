@@ -2,7 +2,6 @@ package test
 
 import (
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -130,16 +129,10 @@ func TestEventsIdleBusyTransition(t *testing.T) {
 	// Generate activity — should trigger busy transition
 	h.sendKeys("pane-1", "echo activity", "Enter")
 
-	ev = mustReadEvent(t, scanner, 5*time.Second)
-	if ev.Type != "busy" {
-		t.Errorf("after activity: got %q, want busy", ev.Type)
-	}
+	mustReadEventType(t, scanner, "busy", 5*time.Second)
 
 	// Wait for idle timeout — should trigger idle transition
-	ev = mustReadEvent(t, scanner, config.VTIdleSettle+3*time.Second)
-	if ev.Type != "idle" {
-		t.Errorf("after quiet: got %q, want idle", ev.Type)
-	}
+	mustReadEventType(t, scanner, "idle", config.VTIdleSettle+3*time.Second)
 }
 
 func TestEventsExitedInitialSnapshot(t *testing.T) {
@@ -751,9 +744,9 @@ func TestEventsThrottleNonOutputPassthrough(t *testing.T) {
 // underlying dial error for initial stream setup.
 func TestEventsCLIConnectError(t *testing.T) {
 	t.Parallel()
-	cmd := exec.Command(amuxBin, "-s", "nonexistent-session-xyz", "events")
+	cmd := newHermeticAmuxCommand(t, "-s", "nonexistent-session-xyz", "events")
 	if gocoverDir != "" {
-		cmd.Env = append(os.Environ(), "GOCOVERDIR="+gocoverDir)
+		cmd.Env = upsertEnv(cmd.Env, "GOCOVERDIR", gocoverDir)
 	}
 	out, err := cmd.CombinedOutput()
 	if err == nil {

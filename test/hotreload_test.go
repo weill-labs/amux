@@ -123,8 +123,9 @@ func rewriteBinaryAtomic(binPath string) error {
 func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session string, args ...string) string {
 	tb.Helper()
 	cmdArgs := append([]string{"-s", session}, args...)
-	cmd := exec.Command(binPath, cmdArgs...)
-	env := upsertEnv(os.Environ(), "HOME", home)
+	cmd := newHermeticAmuxCommandWithBin(tb, binPath, cmdArgs...)
+	env := upsertEnv(cmd.Env, "HOME", home)
+	env = upsertEnv(env, "AMUX_LOG_DIR", testLogDir(home))
 	if coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", coverDir)
 	}

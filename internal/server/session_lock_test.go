@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/testenv"
 )
 
 const (
@@ -155,8 +156,8 @@ func TestNewServerWithScrollbackConcurrentStartsYieldSingleWinner(t *testing.T) 
 func startSessionLockHelper(t *testing.T, mode, session string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
-	cmd.Env = append(os.Environ(),
+	cmd := testenv.NewCommand(os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
+	cmd.Env = append(testenv.HermeticAmuxEnv(),
 		sessionLockHelperModeEnv+"="+mode,
 		sessionLockHelperSessionEnv+"="+session,
 	)

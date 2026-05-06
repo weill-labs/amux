@@ -9,6 +9,7 @@ import "os"
 type ServerEnv struct {
 	ExitUnattached bool // AMUX_EXIT_UNATTACHED=1
 	NoWatch        bool // AMUX_NO_WATCH=1
+	LogDir         string
 }
 
 // ReadServerEnv reads all server-only env vars and unsets them from the
@@ -17,9 +18,11 @@ func ReadServerEnv() ServerEnv {
 	env := ServerEnv{
 		ExitUnattached: os.Getenv("AMUX_EXIT_UNATTACHED") == "1",
 		NoWatch:        os.Getenv("AMUX_NO_WATCH") == "1",
+		LogDir:         os.Getenv("AMUX_LOG_DIR"),
 	}
 	os.Unsetenv("AMUX_EXIT_UNATTACHED")
 	os.Unsetenv("AMUX_NO_WATCH")
+	os.Unsetenv("AMUX_LOG_DIR")
 	return env
 }
 
@@ -32,6 +35,9 @@ func (e ServerEnv) Export() []string {
 	}
 	if e.NoWatch {
 		out = append(out, "AMUX_NO_WATCH=1")
+	}
+	if e.LogDir != "" {
+		out = append(out, "AMUX_LOG_DIR="+e.LogDir)
 	}
 	return out
 }

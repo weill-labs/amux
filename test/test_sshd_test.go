@@ -28,6 +28,7 @@ import (
 
 type testSSHServerOptions struct {
 	preloadAmux bool
+	sessionName string
 }
 
 type testSSHServer struct {
@@ -126,6 +127,10 @@ func buildTestSSHExecEnv(homeDir string, opts testSSHServerOptions) []string {
 		execEnv = removeEnv(execEnv, key)
 	}
 	execEnv = upsertEnv(execEnv, "HOME", homeDir)
+	execEnv = upsertEnv(execEnv, "AMUX_LOG_DIR", testLogDir(homeDir))
+	if opts.sessionName != "" {
+		execEnv = upsertEnv(execEnv, "AMUX_SESSION", opts.sessionName)
+	}
 
 	if !opts.preloadAmux {
 		// Keep only base system tools on PATH so the remote starts without any
@@ -547,6 +552,9 @@ func setupTestSSHNoPreload(t *testing.T) testSSHFixture {
 
 func setupTestSSHWithOptions(t *testing.T, opts testSSHServerOptions) testSSHFixture {
 	t.Helper()
+	if opts.sessionName == "" {
+		opts.sessionName = randomTestSessionName(t)
+	}
 	pubKey, privPEM := generateTestKeyPair(t)
 	server := startTestSSHServer(t, pubKey, opts)
 
@@ -575,6 +583,40 @@ user = "%s"
 address = "%s:%s"
 identity_file = "%s"
 `, user, host, port, identityFile)
+}
+
+func TestTestSSHServerExportsHermeticAmuxSession(t *testing.T) {
+	t.Setenv("AMUX_SESSION", "main")
+
+	fixture := setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true})
+	_, port, _ := net.SplitHostPort(fixture.Addr)
+	cmd := exec.Command(
+		"ssh",
+		"-i", fixture.KeyFile,
+		"-p", port,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"127.0.0.1",
+		`printf 'AMUX_SESSION=%s\n' "$AMUX_SESSION"`,
+	)
+	cmd.Env = hermeticMainEnv()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ssh env probe failed: %v\n%s", err, out)
+	}
+	got := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.HasPrefix(line, "AMUX_SESSION=") {
+			got = strings.TrimSpace(line)
+		}
+	}
+	if got == "AMUX_SESSION=" || got == "AMUX_SESSION=main" {
+		t.Fatalf("remote SSH fixture AMUX_SESSION = %q, want isolated non-main session", got)
+	}
+	if got == "" {
+		t.Fatalf("remote SSH fixture did not report AMUX_SESSION\n%s", out)
+	}
 }
 
 func currentUser() string {
