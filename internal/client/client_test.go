@@ -359,6 +359,29 @@ func TestClientRendererCapture(t *testing.T) {
 	}
 }
 
+func TestClientRendererCaptureDoesNotClearScreen(t *testing.T) {
+	t.Parallel()
+	cr := buildTestRenderer(t)
+
+	const clearScreen = "\x1b[2J"
+	for _, tt := range []struct {
+		name string
+		out  string
+	}{
+		{name: "ansi", out: cr.Capture(false)},
+		{name: "colors", out: cr.CaptureColorMap()},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if strings.Contains(tt.out, clearScreen) {
+				prefixLen := min(len(tt.out), len("\x1b[?25l\x1b[2J\x1b[H\x1b[m"))
+				t.Fatalf("%s capture contains clear-screen escape; prefix %q", tt.name, tt.out[:prefixLen])
+			}
+		})
+	}
+}
+
 func TestClientRendererCaptureJSON(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
