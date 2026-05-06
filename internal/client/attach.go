@@ -378,6 +378,18 @@ func showWindowRenamePromptOnRenderLoop(cr *ClientRenderer, msgCh chan<- *Render
 	})
 }
 
+func showPaneRenamePromptOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg) bool {
+	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if !cr.ShowPaneRenamePrompt() {
+			return localRenderResult{value: false}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   true,
+		}
+	})
+}
+
 func handleChooserInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, raw []byte) chooserInputResult {
 	return callLocalRenderAction[chooserInputResult](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
 		if !cr.ChooserActive() {
@@ -402,6 +414,18 @@ func handleWindowRenamePromptInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- 
 		return localRenderResult{
 			effects: overlayRenderNowResult().effects,
 			value:   cr.HandleWindowRenamePromptInput(raw),
+		}
+	})
+}
+
+func handlePaneRenamePromptInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, raw []byte) promptCommand {
+	return callLocalRenderAction[promptCommand](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if !cr.PaneRenamePromptActive() {
+			return localRenderResult{value: promptCommand{}}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   cr.HandlePaneRenamePromptInput(raw),
 		}
 	})
 }
@@ -830,6 +854,10 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					if !showWindowRenamePromptOnRenderLoop(cr, msgCh) {
 						_ = writeOutput("\a")
 					}
+				case "rename-pane":
+					if !showPaneRenamePromptOnRenderLoop(cr, msgCh) {
+						_ = writeOutput("\a")
+					}
 				case "split":
 					handleSplitBinding(cr, sender, binding, stdout)
 				case "compat-bell":
@@ -1159,6 +1187,19 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 
 				if cr.WindowRenamePromptActive() {
 					action := handleWindowRenamePromptInputOnRenderLoop(cr, msgCh, normalized)
+					if action.bell {
+						if err := writeOutput("\a"); err != nil {
+							return true
+						}
+					}
+					if action.command != "" {
+						sender.Command(action.command, action.args)
+					}
+					return false
+				}
+
+				if cr.PaneRenamePromptActive() {
+					action := handlePaneRenamePromptInputOnRenderLoop(cr, msgCh, normalized)
 					if action.bell {
 						if err := writeOutput("\a"); err != nil {
 							return true

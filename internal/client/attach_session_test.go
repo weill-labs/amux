@@ -1282,6 +1282,89 @@ func TestRunSessionRenameWindowPromptHandlesTypeKeys(t *testing.T) {
 	}
 }
 
+func TestRunSessionRenamePanePromptHandlesTypeKeys(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv, so t.Parallel() would panic.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.writeInput(t, []byte{0x01, '.'})
+	h.output.waitContains(t, "rename-pane")
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeCaptureRequest, CmdArgs: []string{"--format", "json"}})
+	capture := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeCaptureResponse
+	})
+	if !strings.Contains(capture.CmdOutput, `"prompt": "rename-pane"`) {
+		t.Fatalf("capture output = %q, want rename-pane prompt state", capture.CmdOutput)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeTypeKeys, Input: []byte("agent-1\r")})
+	h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeCommand &&
+			msg.CmdName == "rename" &&
+			len(msg.CmdArgs) == 2 &&
+			msg.CmdArgs[0] == "pane-1" &&
+			msg.CmdArgs[1] == "agent-1"
+	})
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
+func TestRunSessionRenamePanePromptEscapeCancels(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv, so t.Parallel() would panic.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.writeInput(t, []byte{0x01, '.'})
+	h.output.waitContains(t, "rename-pane")
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeTypeKeys, Input: []byte("agent-1\x1b")})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.send(t, &proto.Message{Type: proto.MsgTypeCaptureRequest, CmdArgs: []string{"--format", "json"}})
+		capture := h.waitMessage(t, func(msg *proto.Message) bool {
+			return msg.Type == proto.MsgTypeCaptureResponse
+		})
+		if !strings.Contains(capture.CmdOutput, `"prompt": "rename-pane"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("capture output = %q, want rename-pane prompt hidden after escape", capture.CmdOutput)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
 func TestRunSessionRenameWindowPromptBellPaths(t *testing.T) {
 	// Not parallel: the subtests below use newRunSessionHarness, so t.Parallel() would panic.
 	t.Run("prefix binding bells when no active window can be resolved", func(t *testing.T) {

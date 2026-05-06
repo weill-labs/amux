@@ -47,6 +47,7 @@ func DefaultKeybindings() *Keybindings {
 			'p': {Action: "prev-window"},
 			';': {Action: "last-window"},
 			',': {Action: "rename-window"},
+			'.': {Action: "rename-pane"},
 			'q': {Action: "display-panes"},
 			'?': {Action: "help"},
 			's': {Action: "choose-tree"},

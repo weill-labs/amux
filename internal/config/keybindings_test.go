@@ -69,6 +69,11 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "rename-window"},
 		},
 		{
+			name: "period opens rename pane prompt",
+			key:  '.',
+			want: Binding{Action: "rename-pane"},
+		},
+		{
 			name: "semicolon toggles the last window",
 			key:  ';',
 			want: Binding{Action: "last-window"},

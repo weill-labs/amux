@@ -12,7 +12,10 @@ func TestHelpBarShowsAndDismisses(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.sendClientKeys("C-a", "?")
-	if !h.waitFor("? close", 3*time.Second) || !h.waitFor("q panes", 3*time.Second) || !h.waitFor("root-vsplit", 3*time.Second) {
+	if !h.waitFor("? close", 3*time.Second) ||
+		!h.waitFor("q panes", 3*time.Second) ||
+		!h.waitFor(". rename-pane", 3*time.Second) ||
+		!h.waitFor("root-vsplit", 3*time.Second) {
 		t.Fatalf("expected bottom help bar, got:\n%s", h.captureOuter())
 	}
 	screen := h.captureOuter()
