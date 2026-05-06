@@ -802,6 +802,51 @@ func TestPrevGridText(t *testing.T) {
 	}
 }
 
+func TestPrevGridText_WidePaneStatusGlyphPreservesColumns(t *testing.T) {
+	t.Parallel()
+
+	const (
+		leftW  = 29
+		rightW = 31
+		width  = leftW + 1 + rightW
+		height = 6
+	)
+	totalH := height + GlobalBarHeight
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, leftW, height),
+		mux.NewLeafByID(2, leftW+1, 0, rightW, height),
+	)
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &statusPaneData{
+				id:           1,
+				name:         "row2-12345678901234567",
+				task:         "⌛",
+				color:        config.TextColorHex,
+				idle:         true,
+				cursorHidden: true,
+			}
+		case 2:
+			return &statusPaneData{
+				id:           2,
+				name:         "pane-2",
+				color:        config.TextColorHex,
+				cursorHidden: true,
+			}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	comp.RenderDiff(root, 2, lookup)
+	got := comp.PrevGridText()
+	want := MaterializeGrid(comp.RenderFull(root, 2, lookup, true), width, totalH)
+	if got != want {
+		t.Fatalf("PrevGridText mismatch with wide status glyph:\n--- display ---\n%s\n--- full ---\n%s", got, want)
+	}
+}
+
 func TestPrevGridText_CursorAssembledGraphemeClusters(t *testing.T) {
 	t.Parallel()
 
