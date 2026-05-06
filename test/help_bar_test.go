@@ -29,22 +29,6 @@ func TestHelpBarShowsAndDismisses(t *testing.T) {
 	}
 }
 
-func TestHelpBarExpandedViewIncludesRenamePane(t *testing.T) {
-	t.Parallel()
-
-	h := newAmuxHarness(t)
-	gen := h.generation()
-	h.outer.runCmd("resize-window", "160", "40")
-	h.waitLayout(gen)
-
-	h.sendClientKeys("C-a", "?")
-	if !h.waitFor("? close", 3*time.Second) ||
-		!h.waitFor(". rename-pane", 3*time.Second) ||
-		!h.waitFor("root-vsplit", 3*time.Second) {
-		t.Fatalf("expected expanded help bar to include pane rename, got:\n%s", h.captureOuter())
-	}
-}
-
 func TestHelpBarConsumesDismissKeyOnly(t *testing.T) {
 	t.Parallel()
 

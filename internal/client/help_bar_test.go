@@ -70,6 +70,9 @@ func TestHelpBarReflowsAcrossRows(t *testing.T) {
 	if len(wide.Rows) >= len(narrow.Rows) {
 		t.Fatalf("wide help bar rows = %d, want fewer than narrow rows = %d", len(wide.Rows), len(narrow.Rows))
 	}
+	if !strings.Contains(strings.Join(wide.Rows, "\n"), ". rename-pane") {
+		t.Fatalf("wide help bar rows = %q, want pane rename binding", wide.Rows)
+	}
 }
 
 func TestHelpBarDisplayOnlyAndDismiss(t *testing.T) {
