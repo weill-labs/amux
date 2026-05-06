@@ -39,6 +39,8 @@ func ParseArgs(args []string) Request {
 			req.HistoryMode = true
 		case "--rewrap":
 			req.RewrapSpecified = true
+			req.RewrapRaw = ""
+			req.RewrapWidth = 0
 			if i+1 < len(args) {
 				req.RewrapRaw = args[i+1]
 				if width, err := strconv.Atoi(args[i+1]); err == nil {
