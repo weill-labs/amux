@@ -280,6 +280,32 @@ func BenchmarkRendererHandlePaneOutputVisibility(b *testing.B) {
 	})
 }
 
+func BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB(b *testing.B) {
+	const (
+		width           = 80
+		height          = 24
+		scrollbackLines = mux.DefaultScrollbackLines
+		payloadSize     = 1024
+	)
+
+	emu := mux.NewVTEmulatorWithScrollback(width, height, scrollbackLines)
+	defer emu.Close()
+	if _, err := emu.Write(benchScrollbackPayload(1, scrollbackLines+height)); err != nil {
+		b.Fatalf("preload scrollback: %v", err)
+	}
+	payload := benchTerminalPayload(payloadSize)
+
+	b.SetBytes(payloadSize)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := emu.Write(payload); err != nil {
+			b.Fatalf("write payload: %v", err)
+		}
+		_ = capturePaneRenderSnapshot(emu)
+	}
+}
+
 func BenchmarkCaptureJSON(b *testing.B) {
 	for _, panes := range []int{2, 4, 8, 16} {
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
