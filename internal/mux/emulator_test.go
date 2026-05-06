@@ -681,9 +681,9 @@ func TestScrollbackCellAt(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	cell := emu.ScrollbackCellAt(0, 0)
-	if cell == nil {
-		t.Fatal("ScrollbackCellAt(0, 0) = nil, want styled cell")
+	cell, ok := emu.ScrollbackCellAt(0, 0)
+	if !ok {
+		t.Fatal("ScrollbackCellAt(0, 0) ok = false, want styled cell")
 	}
 	if cell.Content != "r" {
 		t.Fatalf("ScrollbackCellAt(0, 0).Content = %q, want %q", cell.Content, "r")
@@ -697,11 +697,11 @@ func TestScrollbackCellAt(t *testing.T) {
 		t.Fatalf("ScrollbackCellAt(0, 0).Style.Fg = (%d,%d,%d,%d), want (%d,%d,%d,%d)",
 			gotR, gotG, gotB, gotA, wantR, wantG, wantB, wantA)
 	}
-	if got := emu.ScrollbackCellAt(99, 0); got != nil {
-		t.Fatalf("ScrollbackCellAt(99, 0) = %#v, want nil", got)
+	if got, ok := emu.ScrollbackCellAt(99, 0); ok {
+		t.Fatalf("ScrollbackCellAt(99, 0) = %#v, true; want false", got)
 	}
-	if got := emu.ScrollbackCellAt(-1, 0); got != nil {
-		t.Fatalf("ScrollbackCellAt(-1, 0) = %#v, want nil", got)
+	if got, ok := emu.ScrollbackCellAt(-1, 0); ok {
+		t.Fatalf("ScrollbackCellAt(-1, 0) = %#v, true; want false", got)
 	}
 }
 

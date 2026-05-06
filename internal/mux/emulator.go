@@ -64,8 +64,8 @@ type TerminalEmulator interface {
 	ScrollbackLineText(y int) string
 
 	// ScrollbackCellAt returns the raw cell at (col, row) in retained
-	// scrollback (0=oldest row). Returns nil for out-of-bounds.
-	ScrollbackCellAt(col, row int) *uv.Cell
+	// scrollback (0=oldest row). ok is false for out-of-bounds.
+	ScrollbackCellAt(col, row int) (cell uv.Cell, ok bool)
 
 	// RenderWithoutCursorBlock renders the screen with the cursor cell's
 	// reverse-video attribute cleared. Used for inactive pane rendering so
@@ -319,17 +319,16 @@ func (v *vtEmulator) ScrollbackLineText(y int) string {
 	return buf.String()
 }
 
-func (v *vtEmulator) ScrollbackCellAt(col, row int) *uv.Cell {
+func (v *vtEmulator) ScrollbackCellAt(col, row int) (uv.Cell, bool) {
 	sb := v.emu.Scrollback()
 	if sb == nil || row < 0 || row >= sb.Len() || col < 0 {
-		return nil
+		return uv.Cell{}, false
 	}
 	line := sb.Line(row)
 	if line == nil || col >= len(line) {
-		return nil
+		return uv.Cell{}, false
 	}
-	cell := line[col]
-	return &cell
+	return line[col], true
 }
 
 // screenLineTextInner extracts plain text from screen row y across w columns.
@@ -434,10 +433,11 @@ func EmulatorScrollbackHistoryLines(emu TerminalEmulator, widths []int) []Captur
 		if y < len(widths) {
 			sourceWidth = widths[y]
 		}
+		cell, ok := emu.ScrollbackCellAt(sourceWidth-1, y)
 		lines[y] = CaptureHistoryLine{
 			Text:        emu.ScrollbackLineText(y),
 			SourceWidth: sourceWidth,
-			Filled:      lineUsesFullWidth(sourceWidth, func(x int) *uv.Cell { return emu.ScrollbackCellAt(x, y) }),
+			Filled:      lineUsesFullWidthValue(sourceWidth, cell, ok),
 		}
 	}
 	return lines
@@ -454,7 +454,8 @@ func EmulatorScrollbackStyledLines(emu TerminalEmulator) []proto.StyledLine {
 			Cells: make([]proto.Cell, width),
 		}
 		for x := 0; x < width; x++ {
-			line.Cells[x] = protoCellFromUV(emu.ScrollbackCellAt(x, y))
+			cell, ok := emu.ScrollbackCellAt(x, y)
+			line.Cells[x] = protoCellFromUVValue(cell, ok)
 		}
 		lines[y] = line
 	}
@@ -484,14 +485,25 @@ func lineUsesFullWidth(width int, cellAt func(int) *uv.Cell) bool {
 	if cell == nil {
 		return false
 	}
+	return cellUsesFullWidth(*cell)
+}
+
+func lineUsesFullWidthValue(width int, cell uv.Cell, ok bool) bool {
+	if width <= 0 || !ok {
+		return false
+	}
+	return cellUsesFullWidth(cell)
+}
+
+func cellUsesFullWidth(cell uv.Cell) bool {
 	if cell.Width == 0 {
 		return true
 	}
 	return cell.Content != "" || (!cell.IsZero() && !cell.Equal(&uv.EmptyCell))
 }
 
-func protoCellFromUV(cell *uv.Cell) proto.Cell {
-	if cell == nil {
+func protoCellFromUVValue(cell uv.Cell, ok bool) proto.Cell {
+	if !ok {
 		return proto.Cell{Char: " ", Width: 1}
 	}
 	char := cell.Content

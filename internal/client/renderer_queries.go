@@ -189,7 +189,8 @@ func trimPaneBufferStarts(baseLen, liveLen, limit int) (baseStart, liveStart int
 func captureScrollbackCells(emu mux.TerminalEmulator, row, width int) []render.ScreenCell {
 	cells := make([]render.ScreenCell, width)
 	for col := 0; col < width; col++ {
-		cells[col] = render.CellFromUV(emu.ScrollbackCellAt(col, row))
+		cell, ok := emu.ScrollbackCellAt(col, row)
+		cells[col] = render.CellFromUVValue(cell, ok)
 	}
 	return cells
 }

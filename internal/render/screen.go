@@ -222,6 +222,14 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 	if c == nil {
 		return ScreenCell{Char: " ", Width: 1}
 	}
+	return CellFromUVValue(*c, true)
+}
+
+// CellFromUVValue converts a VT library cell value to a ScreenCell.
+func CellFromUVValue(c uv.Cell, ok bool) ScreenCell {
+	if !ok {
+		return ScreenCell{Char: " ", Width: 1}
+	}
 	char := c.Content
 	if char == "" {
 		char = " "
