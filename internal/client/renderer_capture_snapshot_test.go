@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
@@ -46,4 +48,58 @@ func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
 	}
 
 	close(actorRelease)
+}
+
+func TestPaneCaptureMissingWarmSnapshotReturnsBlank(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(20, 6, 100)
+	t.Cleanup(r.Close)
+
+	r.HandleLayout(singlePane20x5())
+	r.withActor(func(st *rendererActorState) {
+		next := *st.snapshot
+		next.paneCaptures = make(map[uint32]paneRenderSnapshot)
+		st.snapshot = &next
+		r.publishSnapshot(&next)
+	})
+
+	pane, ok := r.loadSnapshot().paneCapture(1)
+	if !ok {
+		t.Fatal("paneCapture returned no snapshot for existing pane")
+	}
+	if pane.width != 20 || pane.height != 4 {
+		t.Fatalf("pane size = %dx%d, want 20x4", pane.width, pane.height)
+	}
+	if len(pane.screen) != pane.height {
+		t.Fatalf("screen lines = %d, want %d", len(pane.screen), pane.height)
+	}
+	if got, want := pane.rendered, "\n\n\n"; got != want {
+		t.Fatalf("rendered blank pane = %q, want %q", got, want)
+	}
+	if !pane.cursorHidden {
+		t.Fatal("blank pane cursor should be hidden")
+	}
+}
+
+func TestCapturePaneTextActorFallbackUsesCurrentCapabilities(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, 100)
+	t.Cleanup(r.Close)
+
+	r.SetCapabilities(proto.ClientCapabilities{Hyperlinks: true})
+	r.HandleLayout(singlePane20x3())
+	r.HandlePaneOutput(1, []byte("\033]8;;https://example.com\033\\test-link\033]8;;\033\\"))
+	r.withActor(func(st *rendererActorState) {
+		next := *st.snapshot
+		next.paneCaptures = make(map[uint32]paneRenderSnapshot)
+		st.snapshot = &next
+		r.publishSnapshot(&next)
+	})
+
+	ansi := r.CapturePaneText(1, true)
+	if !strings.Contains(ansi, "\033]8;") {
+		t.Fatalf("actor fallback should use current hyperlink capability, got %q", ansi)
+	}
 }
