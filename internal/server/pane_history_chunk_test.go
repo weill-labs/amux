@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -106,6 +107,35 @@ func TestNewPaneHistoryMessageCopiesStyledLineHeaders(t *testing.T) {
 	}
 }
 
+func TestPaneHistoryBinaryEncodingDeterministicForIdlePane(t *testing.T) {
+	t.Parallel()
+
+	pane := newProxyPane(9, mux.PaneMeta{
+		Name:  "pane-9",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 4, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	t.Cleanup(func() {
+		if err := pane.Close(); err != nil {
+			t.Fatalf("Close pane: %v", err)
+		}
+		if err := pane.WaitClosed(); err != nil {
+			t.Fatalf("WaitClosed pane: %v", err)
+		}
+	})
+
+	pane.FeedOutput([]byte("\x1b[31mred\x1b[0m line\r\nplain line\r\n\x1b[1;34mbold blue\x1b[0m\r\nidle"))
+
+	firstHistory := pane.StyledHistorySnapshot()
+	secondHistory := pane.StyledHistorySnapshot()
+	first := encodePaneHistoryBinaryForTest(t, newPaneHistoryMessage(pane.ID, firstHistory))
+	second := encodePaneHistoryBinaryForTest(t, newPaneHistoryMessage(pane.ID, secondHistory))
+
+	if !bytes.Equal(first, second) {
+		t.Fatal("consecutive binary pane history encodes for an idle pane differed")
+	}
+}
+
 func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 	t.Parallel()
 
@@ -192,6 +222,18 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("handleAttach did not exit after detach")
 	}
+}
+
+func encodePaneHistoryBinaryForTest(t *testing.T, msg *Message) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := proto.NewWriter(&buf)
+	writer.SetBinaryPaneHistory(true)
+	if err := writer.WriteMsg(msg); err != nil {
+		t.Fatalf("WriteMsg: %v", err)
+	}
+	return append([]byte(nil), buf.Bytes()...)
 }
 
 func largeHistoryLines(lineCount, lineWidth int) []string {

@@ -99,9 +99,9 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 	s.triggerCrashCheckpoint()
 }
 
-func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []proto.StyledLine) {
+func (s *Session) broadcastPaneHistoryNow(update paneHistoryUpdate) {
 	clients := s.ensureClientManager().snapshotClients()
-	msg := newPaneHistoryMessage(paneID, history)
+	msg := newPaneHistoryMessageWithCache(update.paneID, update.history, update.historyCache, update.historyVersion)
 	for _, c := range clients {
 		c.sendPaneMessage(msg)
 	}

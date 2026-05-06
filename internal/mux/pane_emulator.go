@@ -25,6 +25,7 @@ func wireScrollbackCallbacks(p *Pane) {
 func (p *Pane) ReplayScreen(data string) {
 	p.withActor(func() {
 		_, _ = p.emulator.Write([]byte(data))
+		p.paneHistorySeq.Add(1)
 	})
 }
 
@@ -56,6 +57,7 @@ func (p *Pane) drainResponses(emulator TerminalEmulator, ptmx *os.File, done cha
 func (p *Pane) applyOutput(data []byte) uint64 {
 	return paneActorValue(p, func() uint64 {
 		_, _ = p.emulator.Write(data)
+		p.paneHistorySeq.Add(1)
 		return p.outputSeq.Add(1)
 	})
 }
@@ -81,6 +83,7 @@ func (p *Pane) Resize(cols, rows int) error {
 			p.emulator.Resize(cols, rows)
 		}
 		if sizeChanged {
+			p.paneHistorySeq.Add(1)
 			if err := p.resizePTY(cols, rows); err != nil {
 				return err
 			}
@@ -148,6 +151,15 @@ func (p *Pane) StyledHistorySnapshot() (history []proto.StyledLine) {
 	return history
 }
 
+func (p *Pane) StyledHistorySnapshotWithCache() (history []proto.StyledLine, version uint64, cache *proto.PaneHistoryPayloadCache) {
+	p.withActor(func() {
+		history = p.styledHistorySnapshot()
+		version = p.paneHistorySeq.Load()
+		cache = &p.paneHistoryCache
+	})
+	return history, version, cache
+}
+
 // StyledHistoryScreenSnapshot returns retained history with frozen cell styles,
 // current screen, and the latest live-output sequence included in that state.
 func (p *Pane) StyledHistoryScreenSnapshot() (history []proto.StyledLine, screen string, seq uint64) {
@@ -157,6 +169,17 @@ func (p *Pane) StyledHistoryScreenSnapshot() (history []proto.StyledLine, screen
 		seq = p.outputSeq.Load()
 	})
 	return history, screen, seq
+}
+
+func (p *Pane) StyledHistoryScreenSnapshotWithCache() (history []proto.StyledLine, screen string, seq uint64, version uint64, cache *proto.PaneHistoryPayloadCache) {
+	p.withActor(func() {
+		history = p.styledHistorySnapshot()
+		screen = RenderWithCursor(p.emulator)
+		seq = p.outputSeq.Load()
+		version = p.paneHistorySeq.Load()
+		cache = &p.paneHistoryCache
+	})
+	return history, screen, seq, version, cache
 }
 
 func (p *Pane) terminalSnapshot() PaneTerminalSnapshot {
@@ -331,6 +354,7 @@ func (p *Pane) SetRetainedHistory(lines []string) {
 			lines = lines[len(lines)-limit:]
 		}
 		p.baseHistory.Store(&paneBaseHistory{lines: append([]string(nil), lines...)})
+		p.paneHistorySeq.Add(1)
 	})
 }
 
@@ -343,6 +367,7 @@ func (p *Pane) ResetState() {
 		if p.emulator != nil {
 			p.emulator.Reset()
 		}
+		p.paneHistorySeq.Add(1)
 	})
 }
 

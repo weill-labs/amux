@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"io"
 	"strings"
+	"sync"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -54,6 +55,59 @@ type paneHistoryStyleKey struct {
 type paneHistoryReader struct {
 	br *bufio.Reader
 	lr *io.LimitedReader
+}
+
+// PaneHistoryPayloadCache memoizes one encoded pane-history payload for a
+// pane content version. It is safe for concurrent writers serving multiple
+// attached clients.
+type PaneHistoryPayloadCache struct {
+	mu      sync.Mutex
+	version uint64
+	payload []byte
+	valid   bool
+}
+
+// SetPaneHistoryPayloadCache attaches server-local cache metadata for binary
+// pane-history encoding. The metadata is not encoded on the wire.
+func (m *Message) SetPaneHistoryPayloadCache(cache *PaneHistoryPayloadCache, version uint64) {
+	if m == nil {
+		return
+	}
+	m.paneHistoryPayloadCache = cache
+	m.paneHistoryPayloadVersion = version
+}
+
+func (c *PaneHistoryPayloadCache) get(version uint64) ([]byte, bool) {
+	if c == nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.valid || c.version != version {
+		return nil, false
+	}
+	return c.payload, true
+}
+
+// PayloadLen reports the cached payload length for version when present.
+func (c *PaneHistoryPayloadCache) PayloadLen(version uint64) (int, bool) {
+	payload, ok := c.get(version)
+	if !ok {
+		return 0, false
+	}
+	return len(payload), true
+}
+
+func (c *PaneHistoryPayloadCache) store(version uint64, payload []byte) []byte {
+	if c == nil {
+		return payload
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.version = version
+	c.payload = payload
+	c.valid = true
+	return c.payload
 }
 
 func newPaneHistoryReader(r io.Reader, limit int64) *paneHistoryReader {
@@ -137,7 +191,18 @@ func encodePaneHistoryPayload(msg *Message) ([]byte, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("nil message")
 	}
+	if payload, ok := msg.paneHistoryPayloadCache.get(msg.paneHistoryPayloadVersion); ok {
+		return payload, nil
+	}
 
+	payload, err := encodePaneHistoryPayloadFresh(msg)
+	if err != nil {
+		return nil, err
+	}
+	return msg.paneHistoryPayloadCache.store(msg.paneHistoryPayloadVersion, payload), nil
+}
+
+func encodePaneHistoryPayloadFresh(msg *Message) ([]byte, error) {
 	var payload bytes.Buffer
 	flags := byte(0)
 	if paneHistoryMatchesStyledText(msg.History, msg.StyledHistory) {

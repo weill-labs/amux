@@ -176,6 +176,10 @@ type Message struct {
 	// MsgTypePaneHistory
 	History       []string
 	StyledHistory []StyledLine
+	// paneHistoryPayloadCache is server-local encode metadata. It is
+	// intentionally unexported so gob and JSON never include it on the wire.
+	paneHistoryPayloadCache   *PaneHistoryPayloadCache
+	paneHistoryPayloadVersion uint64
 
 	// MsgTypeLayout
 	Layout *LayoutSnapshot
