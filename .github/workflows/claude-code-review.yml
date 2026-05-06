@@ -30,11 +30,18 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Install Claude Code CLI
+        id: claude-code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          echo "path=$(command -v claude)" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          path_to_claude_code_executable: ${{ steps.claude-code.outputs.path }}
           # Use the workflow token so PRs that modify this workflow can still
           # run; the default GitHub App token path rejects workflow-file diffs.
           github_token: ${{ github.token }}
