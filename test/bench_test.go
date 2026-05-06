@@ -34,7 +34,7 @@ func newTmuxBenchHarness(b *testing.B) *TmuxBenchHarness {
 		b.Skip("tmux not found, skipping tmux benchmarks")
 	}
 
-	var buf [4]byte
+	var buf [8]byte
 	mustRandRead(b, buf[:])
 	session := fmt.Sprintf("bench-%x", buf)
 

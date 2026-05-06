@@ -153,7 +153,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 
 func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows int, configContent string, exitUnattached, keepalive bool, extraEnv ...string) *ServerHarness {
 	tb.Helper()
-	var b [4]byte
+	var b [8]byte
 	if session == "" {
 		mustRandRead(tb, b[:])
 		session = fmt.Sprintf("t-%x", b)

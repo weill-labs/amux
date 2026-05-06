@@ -508,7 +508,7 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	// Per-test cover dir
 	var coverDir string
 	if gocoverDir != "" {
-		var b [4]byte
+		var b [8]byte
 		mustRandRead(t, b[:])
 		coverDir = filepath.Join(gocoverDir, fmt.Sprintf("recover-%x", b))
 		mustMkdirAll(t, coverDir, 0755)

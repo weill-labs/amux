@@ -166,9 +166,9 @@ func newTestHome(tb testing.TB) string {
 // and log files left behind by previous test runs that were killed by a
 // timeout panic.
 //
-// Only kills servers whose sockets are unresponsive (stale). Live servers
-// that accept connections are left alone, making this safe even if another
-// `go test` invocation is running concurrently.
+// A live test-run lock protects concurrent `go test` invocations. When no other
+// run owns a lock, any test server without a live test parent is stale even if
+// its socket still accepts connections.
 func cleanupStaleTestSessions() {
 	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 	if hasOtherActiveTestRun(socketDir, os.Getpid()) {
@@ -187,9 +187,6 @@ func cleanupStaleTestSessions() {
 				liveOwnedSessions[session] = true
 				continue
 			}
-			if isSocketAlive(filepath.Join(socketDir, session)) {
-				continue // server is live, don't kill
-			}
 			staleSessions[session] = true
 			killStaleServerProcess(fields[0])
 		}
@@ -203,9 +200,6 @@ func cleanupStaleTestSessions() {
 			session := fields[len(fields)-1]
 			if serverHasLiveTestParent(fields[0]) {
 				liveOwnedSessions[session] = true
-				continue
-			}
-			if isSocketAlive(filepath.Join(socketDir, session)) {
 				continue
 			}
 			staleSessions[session] = true
@@ -252,7 +246,7 @@ func cleanupStaleTestSessions() {
 		}
 		if isTestSession(base) || isBenchSession(base) {
 			sockPath := filepath.Join(socketDir, base)
-			if !isSocketAlive(sockPath) {
+			if staleSessions[base] || !isSocketAlive(sockPath) {
 				os.Remove(filepath.Join(socketDir, name))
 			}
 		}
@@ -413,22 +407,28 @@ func isSocketAlive(sockPath string) bool {
 	return true
 }
 
-// isTestSession returns true if the name matches the test session convention: t- followed by 8 hex chars.
-func isTestSession(name string) bool {
-	if len(name) != 10 || name[:2] != "t-" {
+func hasHexSuffix(name, prefix string, lengths ...int) bool {
+	if !strings.HasPrefix(name, prefix) {
 		return false
 	}
-	_, err := hex.DecodeString(name[2:])
-	return err == nil
+	suffix := strings.TrimPrefix(name, prefix)
+	for _, length := range lengths {
+		if len(suffix) == length {
+			_, err := hex.DecodeString(suffix)
+			return err == nil
+		}
+	}
+	return false
 }
 
-// isBenchSession returns true if the name matches the bench session convention: bench- followed by 8 hex chars.
+// isTestSession returns true if the name matches the test session convention.
+func isTestSession(name string) bool {
+	return hasHexSuffix(name, "t-", 8, 16)
+}
+
+// isBenchSession returns true if the name matches the bench session convention.
 func isBenchSession(name string) bool {
-	if len(name) != 14 || !strings.HasPrefix(name, "bench-") {
-		return false
-	}
-	_, err := hex.DecodeString(name[6:])
-	return err == nil
+	return hasHexSuffix(name, "bench-", 8, 16)
 }
 
 // ---------------------------------------------------------------------------
