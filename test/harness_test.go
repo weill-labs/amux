@@ -296,6 +296,9 @@ func parseAmuxServerProcessLine(line string, matchSession func(string) bool) (pi
 		return "", "", false
 	}
 	session = fields[len(fields)-1]
+	if at := strings.Index(session, "@"); at >= 0 {
+		session = session[:at]
+	}
 	if !matchSession(session) {
 		return "", "", false
 	}
