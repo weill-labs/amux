@@ -33,6 +33,33 @@ func TestMultiColumnHeaderLayoutGolden(t *testing.T) {
 	assertGolden(t, goldenName, frame)
 }
 
+func TestMultiColumnWideHeaderDisplayGolden(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width        = 151
+		height       = 13
+		sessionName  = "lab-1610-wide"
+		scrollback   = mux.DefaultScrollbackLines
+		goldenName   = "multi_column_wide_header_display.golden"
+		activePaneID = 203
+	)
+
+	cr := client.NewClientRendererWithScrollback(width, height, scrollback)
+	cr.HandleLayout(multiColumnWideHeaderLayoutSnapshot(sessionName, activePaneID))
+	if out := cr.RenderDiff(); out == "" {
+		t.Fatal("RenderDiff should populate the display capture grid")
+	}
+
+	resp := cr.HandleCaptureRequest([]string{"--display"}, nil)
+	if resp.CmdErr != "" {
+		t.Fatalf("display capture request failed: %s", resp.CmdErr)
+	}
+
+	frame := extractFrame(resp.CmdOutput, sessionName)
+	assertGolden(t, goldenName, frame)
+}
+
 func multiColumnHeaderLayoutSnapshot(sessionName string, activePaneID uint32) *proto.LayoutSnapshot {
 	root := multiColumnHeaderRoot()
 	panes := multiColumnHeaderPanes()
@@ -145,4 +172,76 @@ func headerLeafSnapshot(paneID uint32, x, y, w, h int) proto.CellSnapshot {
 		Dir:    -1,
 		PaneID: paneID,
 	}
+}
+
+func multiColumnWideHeaderLayoutSnapshot(sessionName string, activePaneID uint32) *proto.LayoutSnapshot {
+	root := multiColumnWideHeaderRoot()
+	panes := multiColumnWideHeaderPanes()
+	return &proto.LayoutSnapshot{
+		SessionName:    sessionName,
+		ActivePaneID:   activePaneID,
+		Width:          151,
+		Height:         12,
+		Root:           root,
+		Panes:          panes,
+		ActiveWindowID: 1,
+		Windows: []proto.WindowSnapshot{{
+			ID:           1,
+			Name:         "wide",
+			Index:        1,
+			ActivePaneID: activePaneID,
+			Root:         root,
+			Panes:        panes,
+		}},
+	}
+}
+
+func multiColumnWideHeaderPanes() []proto.PaneSnapshot {
+	names := []struct {
+		id     uint32
+		name   string
+		task   string
+		column int
+	}{
+		{201, "pane-⌛123456789012345", "⌛", 0},
+		{202, "pane-◇123456789012345", "⚡", 0},
+		{203, "pane-▶123456789012345", "⌛", 1},
+		{204, "pane-●123456789012345", "⚡", 1},
+		{205, "pane-○123456789012345", "⌛", 2},
+		{206, "pane-◯123456789012345", "⚡", 2},
+		{207, "pane-⌛234567890123456", "⌛", 3},
+		{208, "pane-◇234567890123456", "⚡", 3},
+		{209, "pane-▶234567890123456", "⌛", 4},
+		{210, "pane-●234567890123456", "⚡", 4},
+	}
+	panes := make([]proto.PaneSnapshot, 0, len(names))
+	for i, pane := range names {
+		panes = append(panes, proto.PaneSnapshot{
+			ID:          pane.id,
+			Name:        pane.name,
+			Host:        mux.DefaultHost,
+			Task:        pane.task,
+			Color:       config.AccentColor(uint32(i)),
+			ColumnIndex: pane.column,
+			Idle:        true,
+		})
+	}
+	return panes
+}
+
+func multiColumnWideHeaderRoot() proto.CellSnapshot {
+	return headerSplitSnapshot(mux.SplitVertical, 0, 0, 151, 12,
+		multiColumnWideHeaderColumn(0, 29, 201, 202),
+		multiColumnWideHeaderColumn(30, 29, 203, 204),
+		multiColumnWideHeaderColumn(60, 29, 205, 206),
+		multiColumnWideHeaderColumn(90, 29, 207, 208),
+		multiColumnWideHeaderColumn(120, 31, 209, 210),
+	)
+}
+
+func multiColumnWideHeaderColumn(x, w int, topPaneID, bottomPaneID uint32) proto.CellSnapshot {
+	return headerSplitSnapshot(mux.SplitHorizontal, x, 0, w, 12,
+		headerLeafSnapshot(topPaneID, x, 0, w, 5),
+		headerLeafSnapshot(bottomPaneID, x, 6, w, 6),
+	)
 }

@@ -367,6 +367,8 @@ func gridToText(g *ScreenGrid) string {
 			buf.WriteByte('\n')
 		}
 		row = row[:0]
+		// Pane status headers are column-aligned UI. Preserve wide-cell
+		// continuation slots so capture --display matches the painted grid.
 		preserveContinuations := rowHasPaneStatusHeader(g, y)
 		for x := 0; x < g.Width; x++ {
 			cell := g.Get(x, y)
