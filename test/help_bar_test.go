@@ -12,7 +12,10 @@ func TestHelpBarShowsAndDismisses(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.sendClientKeys("C-a", "?")
-	if !h.waitFor("? close", 3*time.Second) || !h.waitFor("q panes", 3*time.Second) || !h.waitFor("root-vsplit", 3*time.Second) {
+	if !h.waitFor("? close", 3*time.Second) ||
+		!h.waitFor("q panes", 3*time.Second) ||
+		!h.waitFor(". rename-pane", 3*time.Second) ||
+		!h.waitFor("root-vsplit", 3*time.Second) {
 		t.Fatalf("expected bottom help bar, got:\n%s", h.captureOuter())
 	}
 	screen := h.captureOuter()
@@ -23,6 +26,22 @@ func TestHelpBarShowsAndDismisses(t *testing.T) {
 	h.sendClientKeys("?")
 	if !waitForOuterGone(h, "? close", 3*time.Second) {
 		t.Fatalf("expected help bar to dismiss on ?\nScreen:\n%s", h.captureOuter())
+	}
+}
+
+func TestHelpBarExpandedViewIncludesRenamePane(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	gen := h.generation()
+	h.outer.runCmd("resize-window", "160", "40")
+	h.waitLayout(gen)
+
+	h.sendClientKeys("C-a", "?")
+	if !h.waitFor("? close", 3*time.Second) ||
+		!h.waitFor(". rename-pane", 3*time.Second) ||
+		!h.waitFor("root-vsplit", 3*time.Second) {
+		t.Fatalf("expected expanded help bar to include pane rename, got:\n%s", h.captureOuter())
 	}
 }
 
