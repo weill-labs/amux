@@ -92,7 +92,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "creating test-run lock: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.Remove(lockPath)
+	removeTestRunLock := func() { _ = os.Remove(lockPath) }
 
 	// Clean up orphaned test sessions from previous runs that may have
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
@@ -107,6 +107,7 @@ func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "amux-test-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
+		removeTestRunLock()
 		os.Exit(1)
 	}
 	defer os.RemoveAll(tmp)
@@ -114,6 +115,7 @@ func TestMain(m *testing.M) {
 	amuxBin = tmp + "/amux"
 	if err := buildAmux(amuxBin); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
+		removeTestRunLock()
 		os.Exit(1)
 	}
 
@@ -134,6 +136,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	removeTestRunLock()
 	os.Exit(code)
 }
 
@@ -178,32 +181,30 @@ func cleanupStaleTestSessions() {
 	staleSessions := make(map[string]bool)
 
 	// Kill orphaned amux server processes whose parent test process is gone.
-	out, _ := exec.Command("pgrep", "-fl", "amux _server t-").Output()
+	out, _ := exec.Command("pgrep", "-af", "amux _server t-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
-			session := fields[len(fields)-1]
-			if serverHasLiveTestParent(fields[0]) {
+		pid, session, ok := parseAmuxServerProcessLine(line, isTestSession)
+		if ok {
+			if serverHasLiveTestParent(pid) {
 				liveOwnedSessions[session] = true
 				continue
 			}
 			staleSessions[session] = true
-			killStaleServerProcess(fields[0])
+			killStaleServerProcess(pid)
 		}
 	}
 
 	// Also kill orphaned benchmark amux servers with the same parent check.
-	out, _ = exec.Command("pgrep", "-fl", "amux _server bench-").Output()
+	out, _ = exec.Command("pgrep", "-af", "amux _server bench-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && isBenchSession(fields[len(fields)-1]) {
-			session := fields[len(fields)-1]
-			if serverHasLiveTestParent(fields[0]) {
+		pid, session, ok := parseAmuxServerProcessLine(line, isBenchSession)
+		if ok {
+			if serverHasLiveTestParent(pid) {
 				liveOwnedSessions[session] = true
 				continue
 			}
 			staleSessions[session] = true
-			killStaleServerProcess(fields[0])
+			killStaleServerProcess(pid)
 		}
 	}
 
@@ -284,6 +285,21 @@ func hasOtherActiveTestRun(socketDir string, selfPID int) bool {
 		}
 	}
 	return false
+}
+
+func parseAmuxServerProcessLine(line string, matchSession func(string) bool) (pid, session string, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return "", "", false
+	}
+	if parsedPID, err := strconv.Atoi(fields[0]); err != nil || parsedPID <= 0 {
+		return "", "", false
+	}
+	session = fields[len(fields)-1]
+	if !matchSession(session) {
+		return "", "", false
+	}
+	return fields[0], session, true
 }
 
 func parseTestRunLockPID(name string) (int, bool) {
