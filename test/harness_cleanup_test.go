@@ -93,3 +93,19 @@ func TestIsTestSessionAcceptsExpandedEntropy(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAmuxServerProcessLineRequiresFullCommand(t *testing.T) {
+	t.Parallel()
+
+	pid, session, ok := parseAmuxServerProcessLine("498495 /tmp/amux-test/amux _server t-0123456789abcdef", isTestSession)
+	if !ok {
+		t.Fatal("parseAmuxServerProcessLine rejected a full amux server command")
+	}
+	if pid != "498495" || session != "t-0123456789abcdef" {
+		t.Fatalf("parseAmuxServerProcessLine() = (%q, %q), want (498495, t-0123456789abcdef)", pid, session)
+	}
+
+	if _, _, ok := parseAmuxServerProcessLine("498495 amux", isTestSession); ok {
+		t.Fatal("parseAmuxServerProcessLine accepted pgrep output without command arguments")
+	}
+}
