@@ -502,13 +502,6 @@ func cellUsesFullWidth(cell uv.Cell) bool {
 	return cell.Content != "" || (!cell.IsZero() && !cell.Equal(&uv.EmptyCell))
 }
 
-func protoCellFromUV(cell *uv.Cell) proto.Cell {
-	if cell == nil {
-		return proto.Cell{Char: " ", Width: 1}
-	}
-	return protoCellFromUVValue(*cell, true)
-}
-
 func protoCellFromUVValue(cell uv.Cell, ok bool) proto.Cell {
 	if !ok {
 		return proto.Cell{Char: " ", Width: 1}
