@@ -211,6 +211,10 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 			return nil, err
 		}
 	}
+	required := splitRootRequiredSize(root, dir)
+	if available := splitAvailable(root, dir); available < required {
+		return nil, fmt.Errorf("not enough space to split (%d < %d)", available, required)
+	}
 
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 	parent := root.Parent
@@ -220,50 +224,64 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 	if !root.IsLeaf() && root.Dir == dir {
 		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir)
 		newLeaf.Parent = root
+		children := append([]*LayoutCell{}, root.Children...)
 		if insertFirst {
-			root.Children = append([]*LayoutCell{newLeaf}, root.Children...)
+			children = append([]*LayoutCell{newLeaf}, children...)
 		} else {
-			root.Children = append(root.Children, newLeaf)
+			children = append(children, newLeaf)
 		}
-		root.distributeEqual()
+		sizes, ok := equalSubtreeSplitSizes(children, dir, root.axisSize(dir))
+		if !ok {
+			return nil, fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(root, dir), required)
+		}
+		root.Children = children
+		if dir == SplitVertical {
+			for i, child := range root.Children {
+				child.ResizeSubtree(sizes[i], root.H)
+			}
+		} else {
+			for i, child := range root.Children {
+				child.ResizeSubtree(root.W, sizes[i])
+			}
+		}
 	} else {
 		oldRoot := root
+		children := []*LayoutCell{oldRoot, newLeaf}
+		if insertFirst {
+			children = []*LayoutCell{newLeaf, oldRoot}
+		}
+		sizes, ok := frontLoadedSubtreeSplitSizes(children, dir, oldRoot.axisSize(dir))
+		if !ok {
+			return nil, fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(root, dir), required)
+		}
 
 		newRoot := &LayoutCell{
 			X: oldRoot.X, Y: oldRoot.Y, W: oldRoot.W, H: oldRoot.H,
-			Dir: dir,
-		}
-		if insertFirst {
-			newRoot.Children = []*LayoutCell{newLeaf, oldRoot}
-		} else {
-			newRoot.Children = []*LayoutCell{oldRoot, newLeaf}
+			Dir:      dir,
+			Children: children,
 		}
 		newLeaf.Parent = newRoot
 		oldRoot.Parent = newRoot
 
 		if dir == SplitVertical {
-			secondW := (oldRoot.W - 1) / 2
-			firstW := oldRoot.W - 1 - secondW
 			if insertFirst {
-				newLeaf.W = firstW
+				newLeaf.W = sizes[0]
 				newLeaf.H = oldRoot.H
-				oldRoot.ResizeSubtree(secondW, oldRoot.H)
+				oldRoot.ResizeSubtree(sizes[1], oldRoot.H)
 			} else {
-				newLeaf.W = secondW
+				newLeaf.W = sizes[1]
 				newLeaf.H = oldRoot.H
-				oldRoot.ResizeSubtree(firstW, oldRoot.H)
+				oldRoot.ResizeSubtree(sizes[0], oldRoot.H)
 			}
 		} else {
-			secondH := (oldRoot.H - 1) / 2
-			firstH := oldRoot.H - 1 - secondH
 			if insertFirst {
 				newLeaf.W = oldRoot.W
-				newLeaf.H = firstH
-				oldRoot.ResizeSubtree(oldRoot.W, secondH)
+				newLeaf.H = sizes[0]
+				oldRoot.ResizeSubtree(oldRoot.W, sizes[1])
 			} else {
 				newLeaf.W = oldRoot.W
-				newLeaf.H = secondH
-				oldRoot.ResizeSubtree(oldRoot.W, firstH)
+				newLeaf.H = sizes[1]
+				oldRoot.ResizeSubtree(oldRoot.W, sizes[0])
 			}
 		}
 

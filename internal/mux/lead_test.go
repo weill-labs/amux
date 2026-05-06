@@ -539,6 +539,36 @@ func TestSplitRootHorizontalWithAnchoredLeadPreservesWidths(t *testing.T) {
 	}
 }
 
+func TestSplitRootHorizontalWithAnchoredLeadPreservesOddLeadWidth(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	widthsBefore := anchoredLeadColumnWidths(t, w)
+	want := []int{40, 39}
+	if !reflect.DeepEqual(widthsBefore, want) {
+		t.Fatalf("anchored lead column widths before horizontal SplitRoot = %v, want %v", widthsBefore, want)
+	}
+
+	if _, err := w.SplitRoot(SplitHorizontal, p3); err != nil {
+		t.Fatalf("SplitRoot p3: %v", err)
+	}
+
+	got := anchoredLeadColumnWidths(t, w)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("anchored lead column widths after horizontal SplitRoot = %v, want %v", got, want)
+	}
+}
+
 func TestMovePaneToRootEdgeWithAnchoredLeadEqualizesWrappedColumns(t *testing.T) {
 	t.Parallel()
 
