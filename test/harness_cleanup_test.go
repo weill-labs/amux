@@ -109,3 +109,15 @@ func TestParseAmuxServerProcessLineRequiresFullCommand(t *testing.T) {
 		t.Fatal("parseAmuxServerProcessLine accepted pgrep output without command arguments")
 	}
 }
+
+func TestParseAmuxServerProcessLineAcceptsRemoteSessionSuffix(t *testing.T) {
+	t.Parallel()
+
+	pid, session, ok := parseAmuxServerProcessLine("2308581 /tmp/amux-test/amux _server t-01234567@hetzner-1", isTestSession)
+	if !ok {
+		t.Fatal("parseAmuxServerProcessLine rejected a remote test session")
+	}
+	if pid != "2308581" || session != "t-01234567" {
+		t.Fatalf("parseAmuxServerProcessLine() = (%q, %q), want (2308581, t-01234567)", pid, session)
+	}
+}
