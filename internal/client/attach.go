@@ -640,7 +640,13 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 				msgCh <- &RenderMsg{Typ: RenderMsgClipboard, Data: msg.PaneData}
 			case proto.MsgTypeCaptureRequest:
 				// Server is forwarding a capture request — render from
-				// client-side emulators and send the result back.
+				// client-side emulators and send the result back. Wait for the
+				// render loop to apply messages already queued by this reader so
+				// capture observes prior layout/output messages in socket order,
+				// while keeping the capture work itself off the render loop.
+				callLocalRenderAction[struct{}](cr, msgCh, func(*ClientRenderer) localRenderResult {
+					return localRenderResult{}
+				})
 				resp := cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
 				if err := sendMessage(resp); err != nil {
 					return

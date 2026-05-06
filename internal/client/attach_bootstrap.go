@@ -192,6 +192,7 @@ func readImmediateAttachCorrectionFromSource(reader attachTimedReader, cr *Clien
 		}
 		if msg.Type == proto.MsgTypeLayout {
 			cr.HandleLayout(msg.Layout)
+			deadline = time.Now().Add(timeout)
 			continue
 		}
 		bufferedMsg, ok := newAttachBootstrapMessage(msg)
