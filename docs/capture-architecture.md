@@ -43,7 +43,7 @@ Implementation is tracked in [LAB-1644](https://linear.app/weill-labs/issue/LAB-
 ```bash
 amux capture --client         # what the user sees right now
 amux capture --client pane-3  # one pane from the user's view, including overlays
-amux capture --display        # alias / current behavior; reads prevGrid
+amux capture --display        # alias for --client; target: reads prevGrid
 ```
 
 - Reads `Compositor.prevGrid` directly through an `atomic.Pointer[ScreenGrid]` snapshot mechanism.
