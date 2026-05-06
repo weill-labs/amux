@@ -306,7 +306,7 @@ type paneComposite struct {
 }
 
 func (c *Compositor) composePane(g *ScreenGrid, layoutHeight int, pane paneComposite) {
-	buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
+	buildStatusCellsPressedWithIcons(g, pane.cell, pane.isActive, pane.pressed, pane.pd, c.IconSet())
 	contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
 	// Rebuild every row for both full redraws and dirty panes. TUI full-screen
 	// recomposes can move or clear lines without producing a pane-local dirty
@@ -659,6 +659,10 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 }
 
 func buildStatusCellsPressed(g *ScreenGrid, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData) {
+	buildStatusCellsPressedWithIcons(g, cell, isActive, pressed, pd, DefaultIconSet())
+}
+
+func buildStatusCellsPressedWithIcons(g *ScreenGrid, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, icons IconSet) {
 	y := cell.Y
 	bgHex := config.Surface0Hex
 	if pressed {
@@ -668,7 +672,7 @@ func buildStatusCellsPressed(g *ScreenGrid, cell *mux.LayoutCell, isActive, pres
 	colorHex := paneStatusColorHex(pd)
 	palette := newPaneStatusGridPalette(colorHex, bg)
 	var cells []ScreenCell
-	for _, segment := range buildPaneStatusSegments(cell.W, isActive, pd) {
+	for _, segment := range buildPaneStatusSegmentsWithIcons(cell.W, isActive, pd, icons) {
 		cells = appendStyledCells(cells, segment.text, palette.style(segment.role))
 	}
 

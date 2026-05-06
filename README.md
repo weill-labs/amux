@@ -420,6 +420,11 @@ Default prefix: `Ctrl-a`.
 
 Config file: `~/.config/amux/config.toml` (or set `AMUX_CONFIG` env var).
 
+Status-line glyphs are centralized behind an internal renderer icon set. The
+current Unicode rendering stays the default; ASCII and Nerd Font presets exist
+as implementation hooks, with user-facing configuration and terminal caveat docs
+planned separately.
+
 For attach-time terminal capability negotiation, you can override auto-detection
 with `AMUX_CLIENT_CAPABILITIES`. Use a comma-separated list of capability names:
 `kitty_keyboard`, `hyperlinks`, `rich_underline`, `cursor_metadata`,

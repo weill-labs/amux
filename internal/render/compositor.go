@@ -47,6 +47,7 @@ type Compositor struct {
 	prevGridLayoutKey string
 	prevCursor        cursorRenderState
 	colorProfile      termenv.Profile
+	iconSet           IconSet
 }
 
 type cursorRenderState struct {
@@ -75,6 +76,7 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 		height:       height,
 		sessionName:  sessionName,
 		colorProfile: defaultColorProfile,
+		iconSet:      DefaultIconSet(),
 	}
 }
 
@@ -118,6 +120,23 @@ func (c *Compositor) SetColorProfile(profile termenv.Profile) {
 // ColorProfile reports the compositor's current terminal color profile.
 func (c *Compositor) ColorProfile() termenv.Profile {
 	return c.colorProfile
+}
+
+// SetIconSet updates the human-facing status glyphs used by the compositor.
+func (c *Compositor) SetIconSet(icons IconSet) {
+	icons = normalizeIconSet(icons)
+	if c.iconSet == icons {
+		return
+	}
+	c.iconSet = icons
+	c.prevGrid = nil
+	c.prevGridLayoutKey = ""
+	c.prevCursor = cursorRenderState{}
+}
+
+// IconSet reports the compositor's current human-facing status glyphs.
+func (c *Compositor) IconSet() IconSet {
+	return normalizeIconSet(c.iconSet)
 }
 
 // LayoutHeight returns the height available for the layout tree
@@ -185,7 +204,7 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 		pressed := overlay.IsPanePressed(pid)
 
 		// Per-pane status line
-		renderPaneStatusPressedWithProfile(&buf, cell, isActive, pressed, pd, c.colorProfile)
+		renderPaneStatusPressedWithProfileAndIcons(&buf, cell, isActive, pressed, pd, c.colorProfile, c.IconSet())
 
 		// Pane content (shifted down by status line)
 		c.renderPaneContentWithLayoutHeight(&buf, cell, isActive, pd, layoutHeight)
