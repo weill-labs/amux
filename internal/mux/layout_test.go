@@ -119,6 +119,61 @@ func TestSplitHorizontal(t *testing.T) {
 	}
 }
 
+func TestSubtreeSplitSizeHelpersRespectMinimumsAndEmptyInputs(t *testing.T) {
+	t.Parallel()
+
+	left := NewLeaf(fakePaneID(1), 0, 0, PaneMinSize, 10)
+	right := NewLeaf(fakePaneID(2), 0, 0, PaneMinSize, 10)
+	nested := &LayoutCell{
+		W:        5,
+		H:        10,
+		Dir:      SplitVertical,
+		Children: []*LayoutCell{left, right},
+	}
+	left.Parent = nested
+	right.Parent = nested
+	newLeaf := NewLeaf(fakePaneID(3), 0, 0, PaneMinSize, 10)
+	children := []*LayoutCell{nested, newLeaf}
+
+	for _, tt := range []struct {
+		name string
+		fn   func([]*LayoutCell, SplitDir, int) ([]int, bool)
+	}{
+		{name: "equal", fn: equalSubtreeSplitSizes},
+		{name: "front loaded", fn: frontLoadedSubtreeSplitSizes},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sizes, ok := tt.fn(children, SplitVertical, 8)
+			if !ok {
+				t.Fatal("split size helper returned ok=false, want true")
+			}
+			if want := []int{5, 2}; !reflect.DeepEqual(sizes, want) {
+				t.Fatalf("split sizes = %v, want %v", sizes, want)
+			}
+
+			if sizes, ok := tt.fn(children, SplitVertical, 7); ok || sizes != nil {
+				t.Fatalf("impossible split sizes = (%v, %t), want (nil, false)", sizes, ok)
+			}
+			if sizes, ok := tt.fn(nil, SplitVertical, 8); ok || sizes != nil {
+				t.Fatalf("empty split sizes = (%v, %t), want (nil, false)", sizes, ok)
+			}
+		})
+	}
+
+	if sizes := frontLoadedSplitSizes(8, 2); !reflect.DeepEqual(sizes, []int{4, 3}) {
+		t.Fatalf("frontLoadedSplitSizes(8, 2) = %v, want [4 3]", sizes)
+	}
+	if sizes := frontLoadedSplitSizes(8, 0); sizes != nil {
+		t.Fatalf("frontLoadedSplitSizes(8, 0) = %v, want nil", sizes)
+	}
+	if got, want := splitRootRequiredSize(nil, SplitVertical), 2*PaneMinSize+1; got != want {
+		t.Fatalf("splitRootRequiredSize(nil) = %d, want %d", got, want)
+	}
+}
+
 func TestSplitWithOrderInsertFirst(t *testing.T) {
 	t.Parallel()
 
