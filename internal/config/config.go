@@ -145,16 +145,20 @@ func DefaultPath() string {
 
 // Load reads the config from the given path. Returns an empty config if the file doesn't exist.
 func Load(path string) (*Config, error) {
-	cfg := &Config{
-		Hosts: make(map[string]Host),
-	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return &Config{Hosts: make(map[string]Host)}, nil
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
+	}
+
+	return parseConfig(data)
+}
+
+func parseConfig(data []byte) (*Config, error) {
+	cfg := &Config{
+		Hosts: make(map[string]Host),
 	}
 
 	md, err := toml.Decode(string(data), cfg)
