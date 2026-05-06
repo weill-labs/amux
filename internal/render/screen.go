@@ -124,7 +124,7 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 		if firstChanged < 0 {
 			continue
 		}
-		lastChanged = extendChangedStatusTail(next, y, firstChanged, lastChanged)
+		firstChanged, lastChanged = extendChangedStatusSpan(next, y, firstChanged, lastChanged)
 		for x := firstChanged; x <= lastChanged; x++ {
 			idx := y*next.Width + x
 			changes = append(changes, CellChange{
@@ -135,53 +135,37 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 	return changes
 }
 
-// Rows directly below a horizontal separator are pane-header rows. If a
-// header update changes earlier metadata but leaves the clipped tail
-// text/padding identical in the grid, the terminal can retain stale cells in
-// that tail from a previous partial write. Extend the rewrite through the rest
-// of the styled status-line segment so the lower-row header fully heals.
-func extendChangedStatusTail(next *ScreenGrid, y, firstChanged, lastChanged int) int {
-	if y <= 0 || !rowHasHorizontalSeparator(next, y-1) {
-		return lastChanged
+// Pane-header rows are layout-coupled overlays. If a header update changes only
+// part of the text, the terminal can retain stale cells from a previous partial
+// write. Extend the rewrite across the whole status row so the emitted ANSI
+// frame carries complete headers and clears old ones.
+func extendChangedStatusSpan(next *ScreenGrid, y, firstChanged, lastChanged int) (int, int) {
+	if !rowHasPaneStatusHeader(next, y) {
+		return firstChanged, lastChanged
 	}
-	if next.Get(firstChanged, y).Style.Bg == nil {
-		return lastChanged
-	}
-
-	end := lastChanged
-	for x := lastChanged + 1; x < next.Width; x++ {
-		cell := next.Get(x, y)
-		if cell.Width == 0 {
-			end = x
-			continue
-		}
-		if cell.Style.Bg == nil {
-			break
-		}
-		end = x
-	}
-	return end
+	return 0, next.Width - 1
 }
 
-func rowHasHorizontalSeparator(g *ScreenGrid, y int) bool {
+func rowHasPaneStatusHeader(g *ScreenGrid, y int) bool {
 	if y < 0 || y >= g.Height {
 		return false
 	}
+	hasStatusBackground := false
+	hasOpenBracket := false
+	hasCloseBracket := false
 	for x := 0; x < g.Width; x++ {
-		if isHorizontalSeparatorChar(g.Get(x, y).Char) {
-			return true
+		cell := g.Get(x, y)
+		if cell.Style.Bg != nil {
+			hasStatusBackground = true
+		}
+		switch cell.Char {
+		case "[":
+			hasOpenBracket = true
+		case "]":
+			hasCloseBracket = true
 		}
 	}
-	return false
-}
-
-func isHorizontalSeparatorChar(ch string) bool {
-	switch ch {
-	case "─", "┬", "┴", "┼", "├", "┤":
-		return true
-	default:
-		return false
-	}
+	return hasStatusBackground && hasOpenBracket && hasCloseBracket
 }
 
 // EmitDiff produces minimal ANSI output for the given cell changes.
@@ -364,13 +348,15 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	dirtyPanes map[uint32]struct{},
 	fullRedraw bool,
 ) (*ScreenGrid, int) {
-	if fullRedraw || c.prevGrid == nil {
+	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
+	layoutKey := c.layoutReuseKey(root, activePaneID, layoutHeight)
+	layoutChanged := c.prevGridLayoutKey != "" && c.prevGridLayoutKey != layoutKey
+	if fullRedraw || c.prevGrid == nil || layoutChanged {
 		return c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
 	}
 
 	g := c.prevGrid.Clone()
 	g.Debug = c.debug
-	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	paneCount := 0
 	dirtyCells := make([]paneComposite, 0, len(dirtyPanes))
