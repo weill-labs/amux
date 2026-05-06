@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -25,6 +26,8 @@ type rendererSnapshot struct {
 	windows         []proto.WindowSnapshot
 	activeWinID     uint32
 	scrollbackLines int
+	colorProfile    termenv.Profile
+	paneCaptures    map[uint32]paneRenderSnapshot
 }
 
 func newRendererSnapshot(width, height, scrollbackLines int) *rendererSnapshot {
@@ -33,6 +36,8 @@ func newRendererSnapshot(width, height, scrollbackLines int) *rendererSnapshot {
 		width:           width,
 		height:          height,
 		scrollbackLines: scrollbackLines,
+		colorProfile:    termenv.TrueColor,
+		paneCaptures:    make(map[uint32]paneRenderSnapshot),
 	}
 }
 
@@ -112,6 +117,27 @@ func (s *rendererSnapshot) paneDimensions(paneID uint32) (int, int, bool) {
 
 func cloneWindowSnapshots(src []proto.WindowSnapshot) []proto.WindowSnapshot {
 	return append([]proto.WindowSnapshot(nil), src...)
+}
+
+func clonePaneRenderSnapshots(src map[uint32]paneRenderSnapshot) map[uint32]paneRenderSnapshot {
+	if len(src) == 0 {
+		return make(map[uint32]paneRenderSnapshot)
+	}
+	dst := make(map[uint32]paneRenderSnapshot, len(src))
+	for paneID, snap := range src {
+		dst[paneID] = snap
+	}
+	return dst
+}
+
+func prunePaneRenderSnapshots(src map[uint32]paneRenderSnapshot, panes map[uint32]proto.PaneSnapshot) map[uint32]paneRenderSnapshot {
+	dst := make(map[uint32]paneRenderSnapshot, len(src))
+	for paneID, snap := range src {
+		if _, ok := panes[paneID]; ok {
+			dst[paneID] = snap
+		}
+	}
+	return dst
 }
 
 type rendererCommand struct {
@@ -239,6 +265,29 @@ func (st *rendererActorState) warmVisiblePanes(snap *rendererSnapshot, emulators
 	for paneID := range snap.visiblePaneIDs {
 		st.warmPaneOutput(paneID, emulators)
 	}
+}
+
+func (st *rendererActorState) refreshPaneCaptures(snap *rendererSnapshot, emulators map[uint32]mux.TerminalEmulator) {
+	captures := prunePaneRenderSnapshots(snap.paneCaptures, snap.paneInfo)
+	for paneID, emu := range emulators {
+		if _, ok := snap.paneInfo[paneID]; !ok || emu == nil {
+			continue
+		}
+		captures[paneID] = capturePaneRenderSnapshot(emu)
+	}
+	snap.paneCaptures = captures
+}
+
+func (r *Renderer) publishPaneCapture(st *rendererActorState, paneID uint32) {
+	emu := st.emulators[paneID]
+	if emu == nil {
+		return
+	}
+	next := *st.snapshot
+	next.paneCaptures = clonePaneRenderSnapshots(st.snapshot.paneCaptures)
+	next.paneCaptures[paneID] = capturePaneRenderSnapshot(emu)
+	st.snapshot = &next
+	r.publishSnapshot(&next)
 }
 
 func (r *Renderer) loadSnapshot() *rendererSnapshot {

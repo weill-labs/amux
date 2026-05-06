@@ -641,9 +641,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			case proto.MsgTypeCaptureRequest:
 				// Server is forwarding a capture request — render from
 				// client-side emulators and send the result back.
-				resp := callLocalRenderAction[*proto.Message](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
-					return localRenderResult{value: cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)}
-				})
+				resp := cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
 				if err := sendMessage(resp); err != nil {
 					return
 				}

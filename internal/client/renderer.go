@@ -77,6 +77,8 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			height:          prev.height,
 			activeWinID:     snap.ActiveWindowID,
 			scrollbackLines: prev.scrollbackLines,
+			colorProfile:    prev.colorProfile,
+			paneCaptures:    clonePaneRenderSnapshots(prev.paneCaptures),
 		}
 
 		allPanes := snap.Panes
@@ -136,19 +138,11 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		}
 		st.warmVisiblePanes(next, nextEmulators)
 		r.resizeSnapshotEmulators(next, nextEmulators)
+		st.refreshPaneCaptures(next, nextEmulators)
 
 		st.compositor.SetSessionName(snap.SessionName)
 		if len(snap.Windows) > 0 {
-			windows := make([]render.WindowInfo, len(snap.Windows))
-			for i, ws := range snap.Windows {
-				windows[i] = render.WindowInfo{
-					Index:    ws.Index,
-					Name:     ws.Name,
-					IsActive: ws.ID == snap.ActiveWindowID,
-					Panes:    len(ws.Panes),
-				}
-			}
-			st.compositor.SetWindows(windows)
+			st.compositor.SetWindows(windowInfoFromSnapshot(snap.Windows, snap.ActiveWindowID))
 		} else {
 			st.compositor.SetWindows(nil)
 		}
@@ -175,6 +169,12 @@ func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
 			return false
 		}
 		if !st.snapshot.paneVisible(paneID) {
+			if emu := st.emulators[paneID]; emu != nil {
+				st.warmPaneOutput(paneID, st.emulators)
+				_, _ = emu.Write(data)
+				r.publishPaneCapture(st, paneID)
+				return false
+			}
 			st.bufferPaneOutput(paneID, data)
 			return false
 		}
@@ -184,6 +184,7 @@ func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
 		}
 		st.warmPaneOutput(paneID, st.emulators)
 		_, _ = emu.Write(data)
+		r.publishPaneCapture(st, paneID)
 		return true
 	})
 }
@@ -215,6 +216,12 @@ func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor 
 			return paneOutputRenderInfo{}
 		}
 		if !st.snapshot.paneVisible(paneID) {
+			if emu := st.emulators[paneID]; emu != nil {
+				st.warmPaneOutput(paneID, st.emulators)
+				_, _ = emu.Write(data)
+				r.publishPaneCapture(st, paneID)
+				return paneOutputRenderInfo{}
+			}
 			st.bufferPaneOutput(paneID, data)
 			return paneOutputRenderInfo{}
 		}
@@ -238,6 +245,7 @@ func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor 
 		if trackCursor {
 			info.cursorChanged = before != captureTerminalCursorState(emu)
 		}
+		r.publishPaneCapture(st, paneID)
 		return info
 	})
 }
@@ -259,6 +267,7 @@ func (r *Renderer) Resize(width, height int) {
 		}
 		st.compositor.Resize(width, height)
 		r.resizeSnapshotEmulators(&next, st.emulators)
+		st.refreshPaneCaptures(&next, st.emulators)
 		st.snapshot = &next
 		r.publishSnapshot(&next)
 	})
@@ -351,20 +360,17 @@ func (r *Renderer) drainVisiblePaneScreenChanges(st *rendererActorState, root *m
 // Capture renders the full composited screen from client-side emulators.
 // If stripANSI is true, returns a plain-text grid preserving visual layout.
 func (r *Renderer) Capture(stripANSI bool) string {
-	return withRendererActorValue(r, func(st *rendererActorState) string {
-		snap := st.snapshot
-		if snap.layout == nil {
-			return ""
-		}
-		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
-		raw := st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
-			return r.paneLookupSnapshot(st, snap, paneID)
-		}, r.mergeOverlay(snap, render.OverlayState{}), false)
-		if stripANSI {
-			return render.MaterializeGrid(raw, snap.width, snap.height)
-		}
-		return raw
-	})
+	snap := r.loadSnapshot()
+	if snap.layout == nil {
+		return ""
+	}
+	comp := snap.captureCompositor()
+	root, activePaneID := snap.captureRoot(comp.LayoutHeight())
+	raw := comp.RenderFullWithOverlay(root, activePaneID, snap.paneLookupFromCaptureSnapshot, r.mergeOverlay(snap, render.OverlayState{}), false)
+	if stripANSI {
+		return render.MaterializeGrid(raw, snap.width, snap.height)
+	}
+	return raw
 }
 
 // CaptureDisplay returns what the diff renderer thinks the terminal displays.
@@ -379,17 +385,14 @@ func (r *Renderer) CaptureDisplay() string {
 
 // CaptureColorMap renders a color map from client-side emulators.
 func (r *Renderer) CaptureColorMap() string {
-	return withRendererActorValue(r, func(st *rendererActorState) string {
-		snap := st.snapshot
-		if snap.layout == nil {
-			return ""
-		}
-		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
-		raw := st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
-			return r.paneLookupSnapshot(st, snap, paneID)
-		}, r.mergeOverlay(snap, render.OverlayState{}), false)
-		return render.ExtractColorMap(raw, snap.width, snap.height) + "\n"
-	})
+	snap := r.loadSnapshot()
+	if snap.layout == nil {
+		return ""
+	}
+	comp := snap.captureCompositor()
+	root, activePaneID := snap.captureRoot(comp.LayoutHeight())
+	raw := comp.RenderFullWithOverlay(root, activePaneID, snap.paneLookupFromCaptureSnapshot, r.mergeOverlay(snap, render.OverlayState{}), false)
+	return render.ExtractColorMap(raw, snap.width, snap.height) + "\n"
 }
 
 func marshalIndented(v any) string {
@@ -404,101 +407,67 @@ func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus
 }
 
 func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]proto.StyledLine, includeHistory bool) (proto.CaptureJSON, bool) {
-	capture := proto.CaptureJSON{}
-	ok := false
-	r.withActor(func(st *rendererActorState) {
-		snap := st.snapshot
-		if snap.layout == nil {
-			ok = false
+	snap := r.loadSnapshot()
+	if snap.layout == nil {
+		return proto.CaptureJSON{}, false
+	}
+
+	root, _ := snap.captureRoot(snap.height - render.GlobalBarHeight)
+
+	capture := proto.CaptureJSON{
+		Session: snap.sessionName,
+		Width:   snap.width,
+		Height:  snap.height,
+		Notice:  snap.sessionNotice,
+	}
+	for _, ws := range snap.windows {
+		if ws.ID == snap.activeWinID {
+			capture.Window = proto.CaptureWindow{
+				ID: ws.ID, Name: ws.Name, Index: ws.Index,
+			}
+			break
+		}
+	}
+
+	type capturePaneWork struct {
+		paneID      uint32
+		position    proto.CapturePos
+		baseHistory []proto.StyledLine
+	}
+
+	paneWork := make([]capturePaneWork, 0)
+	root.Walk(func(c *mux.LayoutCell) {
+		paneID := c.CellPaneID()
+		if paneID == 0 {
 			return
 		}
-
-		root, _ := snap.captureRoot(snap.height - render.GlobalBarHeight)
-
-		capture = proto.CaptureJSON{
-			Session: snap.sessionName,
-			Width:   snap.width,
-			Height:  snap.height,
-			Notice:  snap.sessionNotice,
-		}
-		for _, ws := range snap.windows {
-			if ws.ID == snap.activeWinID {
-				capture.Window = proto.CaptureWindow{
-					ID: ws.ID, Name: ws.Name, Index: ws.Index,
-				}
-				break
-			}
-		}
-
-		type capturePaneWork struct {
-			paneID      uint32
-			position    proto.CapturePos
-			baseHistory []proto.StyledLine
-		}
-
-		paneWork := make([]capturePaneWork, 0)
-		root.Walk(func(c *mux.LayoutCell) {
-			paneID := c.CellPaneID()
-			if paneID == 0 {
-				return
-			}
-			paneWork = append(paneWork, capturePaneWork{
-				paneID:      paneID,
-				position:    proto.CapturePos{X: c.X, Y: c.Y, Width: c.W, Height: c.H},
-				baseHistory: baseHistory[paneID],
-			})
+		paneWork = append(paneWork, capturePaneWork{
+			paneID:      paneID,
+			position:    proto.CapturePos{X: c.X, Y: c.Y, Width: c.W, Height: c.H},
+			baseHistory: baseHistory[paneID],
 		})
-
-		emulators := make([]mux.TerminalEmulator, len(paneWork))
-		// Pre-warm serially so the fan-out only performs read-only access across
-		// the emulator and snapshot maps.
-		for i, work := range paneWork {
-			emulators[i] = st.ensurePaneEmulator(work.paneID)
-			if emulators[i] == nil {
-				continue
-			}
-			st.warmPaneOutput(work.paneID, st.emulators)
-		}
-
-		ordered := make([]proto.CapturePane, len(paneWork))
-		orderedOK := make([]bool, len(paneWork))
-		var wg sync.WaitGroup
-		for i, work := range paneWork {
-			emu := emulators[i]
-			if emu == nil {
-				continue
-			}
-			wg.Add(1)
-			go func(i int, work capturePaneWork, emu mux.TerminalEmulator) {
-				defer wg.Done()
-
-				cp, ok := r.buildCapturePaneFromEmulator(emu, snap, work.paneID, agentStatus, includeHistory, work.baseHistory)
-				if !ok {
-					return
-				}
-				cp.Position = &proto.CapturePos{
-					X:      work.position.X,
-					Y:      work.position.Y,
-					Width:  work.position.Width,
-					Height: work.position.Height,
-				}
-				ordered[i] = cp
-				orderedOK[i] = true
-			}(i, work, emu)
-		}
-		wg.Wait()
-
-		capture.Panes = make([]proto.CapturePane, 0, len(ordered))
-		for i := range ordered {
-			if !orderedOK[i] {
-				continue
-			}
-			capture.Panes = append(capture.Panes, ordered[i])
-		}
-
-		ok = true
 	})
-	return capture, ok
+
+	capture.Panes = make([]proto.CapturePane, 0, len(paneWork))
+	for _, work := range paneWork {
+		pane, ok := snap.paneCapture(work.paneID)
+		if !ok {
+			continue
+		}
+		cp, ok := r.buildCapturePaneFromPaneSnapshot(pane, snap, work.paneID, agentStatus, includeHistory, work.baseHistory)
+		if !ok {
+			continue
+		}
+		cp.Position = &proto.CapturePos{
+			X:      work.position.X,
+			Y:      work.position.Y,
+			Width:  work.position.Width,
+			Height: work.position.Height,
+		}
+		capture.Panes = append(capture.Panes, cp)
+	}
+
+	return capture, true
 }
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
@@ -521,6 +490,18 @@ func (r *Renderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgent
 
 // CapturePaneText returns a single pane's content from client-side emulators.
 func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
+	snap := r.loadSnapshot()
+	pane, ok := snap.paneCaptures[paneID]
+	if !ok {
+		return r.capturePaneTextFromActor(paneID, includeANSI)
+	}
+	if includeANSI {
+		return pane.ansiString(snap.capabilities)
+	}
+	return pane.textString()
+}
+
+func (r *Renderer) capturePaneTextFromActor(paneID uint32, includeANSI bool) string {
 	return withRendererActorValue(r, func(st *rendererActorState) string {
 		snap := st.snapshot
 		emu := st.ensurePaneEmulator(paneID)
@@ -528,6 +509,7 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 			return ""
 		}
 		st.warmPaneOutput(paneID, st.emulators)
+		r.publishPaneCapture(st, paneID)
 		if includeANSI {
 			return filterRenderedANSI(emu.Render(), snap.capabilities)
 		}
@@ -538,10 +520,22 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 // capturePaneValue builds the structured JSON payload for a single pane.
 // Returns false when the pane is not found.
 func (r *Renderer) capturePaneValue(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
+	snap := r.loadSnapshot()
+	pane, ok := snap.paneCaptures[paneID]
+	if !ok {
+		return r.capturePaneValueFromActor(paneID, agentStatus)
+	}
+	return r.buildCapturePaneFromPaneSnapshot(pane, snap, paneID, agentStatus, false, nil)
+}
+
+func (r *Renderer) capturePaneValueFromActor(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
 	pane := proto.CapturePane{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
 		pane, ok = r.buildCapturePane(st, st.snapshot, paneID, agentStatus, false, nil)
+		if ok {
+			r.publishPaneCapture(st, paneID)
+		}
 	})
 	return pane, ok
 }
@@ -648,6 +642,45 @@ func (r *Renderer) buildCapturePaneFromEmulator(emu mux.TerminalEmulator, snap *
 		TrackedIssues: info.TrackedIssues,
 		Cursor:        caputil.CursorFromState(col, row, emu.CursorHidden(), state),
 		Terminal:      caputil.TerminalFromState(state),
+		Content:       content,
+	}, agentStatus)
+	return cp, true
+}
+
+func (r *Renderer) buildCapturePaneFromPaneSnapshot(pane paneRenderSnapshot, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []proto.StyledLine) (proto.CapturePane, bool) {
+	info, ok := snap.paneInfo[paneID]
+	if !ok {
+		return proto.CapturePane{}, false
+	}
+	content := paneRenderSnapshotLines(pane.screen)
+	if includeHistory {
+		scrollback, screen := paneRenderSnapshotBuffer(pane, proto.CloneStyledLines(baseHistory), snap.scrollbackLines)
+		content = make([]string, 0, len(scrollback)+len(screen))
+		for _, line := range scrollback {
+			content = append(content, line.text)
+		}
+		for _, line := range screen {
+			content = append(content, line.text)
+		}
+	}
+	cp := caputil.BuildPane(caputil.PaneInput{
+		ID:            info.ID,
+		Name:          info.Name,
+		Active:        info.ID == snap.activePaneID,
+		Lead:          info.ID == snap.leadPaneID,
+		Zoomed:        info.ID == snap.zoomedPaneID,
+		Host:          info.Host,
+		Task:          info.Task,
+		Color:         info.Color,
+		ColumnIndex:   info.ColumnIndex,
+		ConnStatus:    info.ConnStatus,
+		GitBranch:     info.GitBranch,
+		PR:            info.PR,
+		KV:            info.KV,
+		TrackedPRs:    info.TrackedPRs,
+		TrackedIssues: info.TrackedIssues,
+		Cursor:        caputil.CursorFromState(pane.cursorCol, pane.cursorRow, pane.cursorHidden, pane.terminal),
+		Terminal:      caputil.TerminalFromState(pane.terminal),
 		Content:       content,
 	}, agentStatus)
 	return cp, true

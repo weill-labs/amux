@@ -7,6 +7,8 @@ import (
 )
 
 func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
+	t.Parallel()
+
 	r := NewWithScrollback(20, 4, 100)
 	t.Cleanup(r.Close)
 
