@@ -115,6 +115,36 @@ func TestCaptureServerEnvFullSessionStillForwardsInStepOne(t *testing.T) {
 	}
 }
 
+func TestCaptureServerEnvHistoryPaneStaysOnHistoryPath(t *testing.T) {
+	t.Setenv("AMUX_CAPTURE_SERVER", "1")
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	pane.SetRetainedHistory([]string{"SERVER-HISTORY"})
+	pane.FeedOutput([]byte("SERVER-VISIBLE"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	captureClient := attachCaptureClientForCommandTest(t, sess)
+
+	res := runTestCommand(t, srv, sess, "capture", "--history", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	if got, want := res.output, "SERVER-HISTORY\nSERVER-VISIBLE\n"; got != want {
+		t.Fatalf("capture output = %q, want %q", got, want)
+	}
+
+	if err := captureClient.SetReadDeadline(time.Now().Add(25 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	if msg, err := readMsgOnConn(captureClient); err == nil {
+		t.Fatalf("attached client received %v, want no client capture request", msg.Type)
+	}
+}
+
 func TestCaptureLocallyRejectsFullSessionDirectCall(t *testing.T) {
 	t.Parallel()
 
