@@ -33,8 +33,7 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator) paneRenderSnapshot {
 	scrollback := make([]paneBufferLine, emu.ScrollbackLen())
 	for row := range scrollback {
 		scrollback[row] = paneBufferLine{
-			text:  emu.ScrollbackLineText(row),
-			cells: captureScrollbackCells(emu, row, width),
+			text: emu.ScrollbackLineText(row),
 		}
 	}
 
