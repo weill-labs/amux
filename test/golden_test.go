@@ -110,7 +110,11 @@ var timeRe = regexp.MustCompile(`\d{2}:\d{2}`)
 // normalizeGlobalBar replaces the random session name with SESSION and
 // the timestamp with 00:00.
 func normalizeGlobalBar(line string, sessionName string) string {
-	line = strings.ReplaceAll(line, sessionName, "SESSION")
+	replacement := "SESSION"
+	if extra := len([]rune(sessionName)) - len("t-00000000"); extra > 0 {
+		replacement += strings.Repeat(" ", extra)
+	}
+	line = strings.ReplaceAll(line, sessionName, replacement)
 	return timeRe.ReplaceAllString(line, "00:00")
 }
 
