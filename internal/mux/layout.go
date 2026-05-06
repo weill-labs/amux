@@ -339,28 +339,7 @@ func proportionalSubtreeChildSizes(children []*LayoutCell, axis SplitDir, target
 	}
 
 	sizes := proportionalChildSizes(children, axis, target+n-1)
-	deficit := 0
-	for i := range sizes {
-		if sizes[i] < minimums[i] {
-			deficit += minimums[i] - sizes[i]
-			sizes[i] = minimums[i]
-		}
-	}
-	if deficit == 0 {
-		return sizes
-	}
-
-	for i := len(sizes) - 1; i >= 0 && deficit > 0; i-- {
-		available := sizes[i] - minimums[i]
-		if available <= 0 {
-			continue
-		}
-		if available > deficit {
-			available = deficit
-		}
-		sizes[i] -= available
-		deficit -= available
-	}
+	_ = raiseSizesToMinimums(sizes, minimums)
 	return sizes
 }
 
@@ -384,17 +363,26 @@ func equalSubtreeSplitSizes(children []*LayoutCell, axis SplitDir, total int) ([
 		return nil, false
 	}
 
-	deficit := 0
 	minimums := make([]int, len(children))
 	for i, child := range children {
 		minimums[i] = child.minSubtreeSize(axis)
+	}
+	if !raiseSizesToMinimums(sizes, minimums) {
+		return nil, false
+	}
+	return sizes, true
+}
+
+func raiseSizesToMinimums(sizes, minimums []int) bool {
+	deficit := 0
+	for i := range sizes {
 		if sizes[i] < minimums[i] {
 			deficit += minimums[i] - sizes[i]
 			sizes[i] = minimums[i]
 		}
 	}
 	if deficit == 0 {
-		return sizes, true
+		return true
 	}
 
 	for i := len(sizes) - 1; i >= 0 && deficit > 0; i-- {
@@ -408,10 +396,7 @@ func equalSubtreeSplitSizes(children []*LayoutCell, axis SplitDir, total int) ([
 		sizes[i] -= available
 		deficit -= available
 	}
-	if deficit > 0 {
-		return nil, false
-	}
-	return sizes, true
+	return deficit == 0
 }
 
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
