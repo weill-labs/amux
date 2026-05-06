@@ -450,6 +450,9 @@ func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.Pane
 
 	capture.Panes = make([]proto.CapturePane, 0, len(paneWork))
 	for _, work := range paneWork {
+		// Full-session captures are snapshot-only to keep capture off the actor.
+		// If a pane has no warm emulator in this snapshot, paneCapture returns a
+		// blank pane. Pane-specific captures still fall back to actor lazy replay.
 		pane, ok := snap.paneCapture(work.paneID)
 		if !ok {
 			continue
@@ -503,7 +506,6 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 
 func (r *Renderer) capturePaneTextFromActor(paneID uint32, includeANSI bool) string {
 	return withRendererActorValue(r, func(st *rendererActorState) string {
-		snap := st.snapshot
 		emu := st.ensurePaneEmulator(paneID)
 		if emu == nil {
 			return ""
@@ -511,7 +513,7 @@ func (r *Renderer) capturePaneTextFromActor(paneID uint32, includeANSI bool) str
 		st.warmPaneOutput(paneID, st.emulators)
 		r.publishPaneCapture(st, paneID)
 		if includeANSI {
-			return filterRenderedANSI(emu.Render(), snap.capabilities)
+			return filterRenderedANSI(emu.Render(), st.snapshot.capabilities)
 		}
 		return strings.Join(caputil.TrimOuterBlankRows(mux.EmulatorContentLines(emu)), "\n")
 	})
