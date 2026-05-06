@@ -107,6 +107,83 @@ func TestSplitRootRejectsLayoutsBelowMinimumSize(t *testing.T) {
 	}
 }
 
+func TestResizeAllPreservesNestedSubtreeMinimums(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		build      func(t *testing.T) *Window
+		width      int
+		height     int
+		violatedID uint32
+		axis       SplitDir
+	}{
+		{
+			name: "vertical shrink keeps nested column wide enough",
+			build: func(t *testing.T) *Window {
+				t.Helper()
+
+				w := NewWindow(invariantPane(1), 20, 12)
+				if _, err := w.SplitRoot(SplitVertical, invariantPane(2)); err != nil {
+					t.Fatalf("SplitRoot pane-2: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitHorizontal, invariantPane(3), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-3: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitVertical, invariantPane(4), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-4: %v", err)
+				}
+				return w
+			},
+			width:      8,
+			height:     12,
+			violatedID: 2,
+			axis:       SplitVertical,
+		},
+		{
+			name: "horizontal shrink keeps nested row tall enough",
+			build: func(t *testing.T) *Window {
+				t.Helper()
+
+				w := NewWindow(invariantPane(1), 12, 20)
+				if _, err := w.SplitRoot(SplitHorizontal, invariantPane(2)); err != nil {
+					t.Fatalf("SplitRoot pane-2: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitVertical, invariantPane(3), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-3: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitHorizontal, invariantPane(4), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-4: %v", err)
+				}
+				return w
+			},
+			width:      12,
+			height:     8,
+			violatedID: 2,
+			axis:       SplitHorizontal,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := tt.build(t)
+			w.Resize(tt.width, tt.height)
+			cell := w.Root.FindPane(tt.violatedID)
+			if cell == nil || cell.Parent == nil {
+				t.Fatalf("nested pane-%d cell = %v, want nested cell", tt.violatedID, cell)
+			}
+			parent := cell.Parent
+			if got, want := parent.axisSize(tt.axis), parent.minSubtreeSize(tt.axis); got < want {
+				t.Fatalf("nested subtree %s size = %d, want at least %d", splitDirName(tt.axis), got, want)
+			}
+			assertGeometryInvariant(t, w, []string{tt.name})
+		})
+	}
+}
+
 func TestWindowLayoutInvariants(t *testing.T) {
 	t.Parallel()
 
