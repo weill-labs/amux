@@ -114,6 +114,22 @@ func normalizeGlobalBar(line string, sessionName string) string {
 	return timeRe.ReplaceAllString(line, "00:00")
 }
 
+func TestNormalizeGlobalBarIgnoresTestSessionEntropyLength(t *testing.T) {
+	t.Parallel()
+
+	shortSession := "t-12345678"
+	longSession := "t-1234567890abcdef"
+	shortLine := " amux │ " + shortSession + "                                     3 panes │ ? help │ 12:34"
+	longLine := " amux │ " + longSession + "                             3 panes │ ? help │ 12:34"
+
+	gotShort := normalizeGlobalBar(shortLine, shortSession)
+	gotLong := normalizeGlobalBar(longLine, longSession)
+
+	if gotShort != gotLong {
+		t.Fatalf("normalized global bars differ:\nshort: %q\nlong:  %q", gotShort, gotLong)
+	}
+}
+
 // extractStructuralLine keeps pane status segments and box-drawing border
 // characters, replacing all other pane content with spaces.
 func extractStructuralLine(line string) string {
