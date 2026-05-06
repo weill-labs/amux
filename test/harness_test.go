@@ -24,6 +24,10 @@ var gocoverDir string
 // gocoverOwned is true when TestMain created gocoverDir (vs. inheriting it).
 var gocoverOwned bool
 
+// childGoCacheDir isolates nested go build/go run commands from the user's
+// ambient cache while preserving reuse within this test process.
+var childGoCacheDir string
+
 const testRunLockPrefix = "test-run-"
 
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
@@ -46,11 +50,25 @@ func buildAmuxWithCommit(binPath, buildCommit string) error {
 		args = append(args, "-ldflags", "-X main.BuildCommit="+buildCommit)
 	}
 	args = append(args, "-o", binPath, "..")
-	out, err := exec.Command("go", args...).CombinedOutput()
+	cmd := exec.Command("go", args...)
+	cmd.Env = goBuildEnv(os.Environ(), binPath)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("building amux: %w\n%s", err, out)
 	}
 	return nil
+}
+
+func goBuildEnv(baseEnv []string, binPath string) []string {
+	env := append([]string{}, baseEnv...)
+	return upsertEnv(env, "GOCACHE", childGoCachePath(filepath.Dir(binPath)))
+}
+
+func childGoCachePath(fallbackParent string) string {
+	if childGoCacheDir != "" {
+		return childGoCacheDir
+	}
+	return filepath.Join(fallbackParent, ".gocache")
 }
 
 func privateAmuxBin(tb testing.TB) string {
@@ -113,6 +131,7 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(tmp)
 
 	amuxBin = tmp + "/amux"
+	childGoCacheDir = filepath.Join(tmp, ".gocache")
 	if err := buildAmux(amuxBin); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		removeTestRunLock()
