@@ -30,10 +30,10 @@ func captureServerPathEnabled() bool {
 
 func captureLocally(ctx *CommandContext, args []string) *Message {
 	req := caputil.ParseArgs(args)
-	if req.PaneRef != "" {
-		return captureSinglePaneLocally(ctx, req)
+	if req.PaneRef == "" {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "server-side full-session capture is not implemented"}
 	}
-	return ctx.Sess.forwardCaptureForActor(ctx.ActorPaneID, args)
+	return captureSinglePaneLocally(ctx, req)
 }
 
 func captureSinglePaneLocally(ctx *CommandContext, req caputil.Request) *Message {
