@@ -359,7 +359,7 @@ func (r *Renderer) Capture(stripANSI bool) string {
 		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
 		raw := st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
 			return r.paneLookupSnapshot(st, snap, paneID)
-		}, r.mergeOverlay(snap, render.OverlayState{}), true)
+		}, r.mergeOverlay(snap, render.OverlayState{}), false)
 		if stripANSI {
 			return render.MaterializeGrid(raw, snap.width, snap.height)
 		}
@@ -387,7 +387,7 @@ func (r *Renderer) CaptureColorMap() string {
 		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
 		raw := st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
 			return r.paneLookupSnapshot(st, snap, paneID)
-		}, r.mergeOverlay(snap, render.OverlayState{}), true)
+		}, r.mergeOverlay(snap, render.OverlayState{}), false)
 		return render.ExtractColorMap(raw, snap.width, snap.height) + "\n"
 	})
 }
