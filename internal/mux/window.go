@@ -82,49 +82,51 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 	if targetRoot == nil {
 		return nil, fmt.Errorf("window has no layout root")
 	}
+	required := splitRootRequiredSize(targetRoot, dir)
+	if available := splitAvailable(targetRoot, dir); available < required {
+		return nil, fmt.Errorf("not enough space to split (%d < %d)", available, required)
+	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 	equalizeAnchoredLeadAfterSplit := false
 
 	if !targetRoot.IsLeaf() && targetRoot.Dir == dir {
 		equalizeAnchoredLeadAfterSplit = w.shouldEqualizeAnchoredLeadAfterRootSplit(parent, parentIdx, dir)
 		// Same direction: add as sibling, redistribute equally
+		children := append(append([]*LayoutCell{}, targetRoot.Children...), newLeaf)
+		sizes, ok := equalSubtreeSplitSizes(children, dir, targetRoot.axisSize(dir))
+		if !ok {
+			return nil, fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(targetRoot, dir), required)
+		}
 		newLeaf.Parent = targetRoot
 		targetRoot.Children = append(targetRoot.Children, newLeaf)
-		// Give all children equal sizes so ResizeAll distributes fairly
-		n := len(targetRoot.Children)
-		seps := n - 1
 		if dir == SplitVertical {
-			each := (targetRoot.W - seps) / n
-			for _, child := range targetRoot.Children {
-				child.ResizeSubtree(each, targetRoot.H)
+			for i, child := range targetRoot.Children {
+				child.ResizeSubtree(sizes[i], targetRoot.H)
 			}
-			// Give remainder to last child
-			targetRoot.Children[n-1].ResizeSubtree(targetRoot.W-seps-each*(n-1), targetRoot.H)
 		} else {
-			each := (targetRoot.H - seps) / n
-			for _, child := range targetRoot.Children {
-				child.ResizeSubtree(targetRoot.W, each)
+			for i, child := range targetRoot.Children {
+				child.ResizeSubtree(targetRoot.W, sizes[i])
 			}
-			targetRoot.Children[n-1].ResizeSubtree(targetRoot.W, targetRoot.H-seps-each*(n-1))
 		}
 	} else {
 		// Different direction or root is a leaf: wrap
 		oldRoot := targetRoot
 		oldX, oldY := oldRoot.X, oldRoot.Y
 		oldW, oldH := oldRoot.W, oldRoot.H
+		children := []*LayoutCell{oldRoot, newLeaf}
+		sizes, ok := equalSubtreeSplitSizes(children, dir, oldRoot.axisSize(dir))
+		if !ok {
+			return nil, fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(targetRoot, dir), required)
+		}
 
 		if dir == SplitVertical {
-			size2 := (oldW - 1) / 2
-			size1 := oldW - 1 - size2
-			newLeaf.W = size2
+			newLeaf.W = sizes[1]
 			newLeaf.H = oldH
-			oldRoot.ResizeSubtree(size1, oldH)
+			oldRoot.ResizeSubtree(sizes[0], oldH)
 		} else {
-			size2 := (oldH - 1) / 2
-			size1 := oldH - 1 - size2
 			newLeaf.W = oldW
-			newLeaf.H = size2
-			oldRoot.ResizeSubtree(oldW, size1)
+			newLeaf.H = sizes[1]
+			oldRoot.ResizeSubtree(oldW, sizes[0])
 		}
 
 		newRoot := &LayoutCell{
@@ -254,6 +256,13 @@ func splitAvailable(cell *LayoutCell, dir SplitDir) int {
 	return cell.W
 }
 
+func splitRootRequiredSize(cell *LayoutCell, dir SplitDir) int {
+	if cell == nil {
+		return 2*PaneMinSize + 1
+	}
+	return cell.minSubtreeSize(dir) + 1 + PaneMinSize
+}
+
 func (w *Window) restoreActivePaneByID(activePaneID uint32, preferred *Pane) {
 	if preferred != nil && activePaneID == preferred.ID {
 		w.setActive(preferred)
@@ -349,8 +358,9 @@ func (w *Window) MovePaneToRootEdge(paneID uint32, dir SplitDir, insertFirst boo
 	}
 
 	root := w.logicalRoot()
-	if !canSplitCell(root, dir) {
-		return fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(root, dir), 2*PaneMinSize+1)
+	required := splitRootRequiredSize(root, dir)
+	if available := splitAvailable(root, dir); available < required {
+		return fmt.Errorf("not enough space to split (%d < %d)", available, required)
 	}
 
 	sourceCell, err := w.mustFindPane(paneID)

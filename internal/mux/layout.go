@@ -338,64 +338,29 @@ func proportionalSubtreeChildSizes(children []*LayoutCell, axis SplitDir, target
 		target = minimumTotal
 	}
 
-	sizes := make([]int, n)
-	extra := target - minimumTotal
-	if extra == 0 {
-		copy(sizes, minimums)
+	sizes := proportionalChildSizes(children, axis, target+n-1)
+	deficit := 0
+	for i := range sizes {
+		if sizes[i] < minimums[i] {
+			deficit += minimums[i] - sizes[i]
+			sizes[i] = minimums[i]
+		}
+	}
+	if deficit == 0 {
 		return sizes
 	}
 
-	weights := make([]int, n)
-	totalWeight := 0
-	for i, child := range children {
-		weight := child.axisSize(axis) - minimums[i]
-		if weight < 0 {
-			weight = 0
+	for i := len(sizes) - 1; i >= 0 && deficit > 0; i-- {
+		available := sizes[i] - minimums[i]
+		if available <= 0 {
+			continue
 		}
-		weights[i] = weight
-		totalWeight += weight
-	}
-
-	if totalWeight == 0 {
-		base := extra / n
-		leftover := extra % n
-		for i := range sizes {
-			sizes[i] = minimums[i] + base
-			if i >= n-leftover {
-				sizes[i]++
-			}
+		if available > deficit {
+			available = deficit
 		}
-		return sizes
+		sizes[i] -= available
+		deficit -= available
 	}
-
-	type remainder struct {
-		idx int
-		rem int64
-	}
-	remainders := make([]remainder, 0, n)
-	assignedExtra := 0
-	for i, weight := range weights {
-		numerator := int64(extra) * int64(weight)
-		share := int(numerator / int64(totalWeight))
-		sizes[i] = minimums[i] + share
-		assignedExtra += share
-		remainders = append(remainders, remainder{
-			idx: i,
-			rem: numerator % int64(totalWeight),
-		})
-	}
-
-	leftover := extra - assignedExtra
-	sort.SliceStable(remainders, func(i, j int) bool {
-		if remainders[i].rem == remainders[j].rem {
-			return remainders[i].idx > remainders[j].idx
-		}
-		return remainders[i].rem > remainders[j].rem
-	})
-	for i := 0; i < leftover; i++ {
-		sizes[remainders[i].idx]++
-	}
-
 	return sizes
 }
 
@@ -411,6 +376,42 @@ func equalSplitSizes(total, count int) []int {
 	}
 	sizes[count-1] = total - seps - each*(count-1)
 	return sizes
+}
+
+func equalSubtreeSplitSizes(children []*LayoutCell, axis SplitDir, total int) ([]int, bool) {
+	sizes := equalSplitSizes(total, len(children))
+	if len(sizes) == 0 {
+		return nil, false
+	}
+
+	deficit := 0
+	minimums := make([]int, len(children))
+	for i, child := range children {
+		minimums[i] = child.minSubtreeSize(axis)
+		if sizes[i] < minimums[i] {
+			deficit += minimums[i] - sizes[i]
+			sizes[i] = minimums[i]
+		}
+	}
+	if deficit == 0 {
+		return sizes, true
+	}
+
+	for i := len(sizes) - 1; i >= 0 && deficit > 0; i-- {
+		available := sizes[i] - minimums[i]
+		if available <= 0 {
+			continue
+		}
+		if available > deficit {
+			available = deficit
+		}
+		sizes[i] -= available
+		deficit -= available
+	}
+	if deficit > 0 {
+		return nil, false
+	}
+	return sizes, true
 }
 
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
@@ -492,7 +493,7 @@ func (c *LayoutCell) resizeAxis(axis SplitDir, target int) {
 		return
 	}
 
-	sizes := proportionalChildSizes(c.Children, axis, target)
+	sizes := proportionalSubtreeChildSizes(c.Children, axis, target-(len(c.Children)-1))
 	for i, child := range c.Children {
 		child.resizeAxis(axis, sizes[i])
 	}
@@ -758,7 +759,10 @@ func (c *LayoutCell) equalizeChildren() {
 		return
 	}
 
-	sizes := equalSplitSizes(c.axisSize(c.Dir), len(c.Children))
+	sizes, ok := equalSubtreeSplitSizes(c.Children, c.Dir, c.axisSize(c.Dir))
+	if !ok {
+		return
+	}
 	for i, child := range c.Children {
 		if c.Dir == SplitVertical {
 			child.ResizeSubtree(sizes[i], c.H)
@@ -775,7 +779,10 @@ func (c *LayoutCell) equalizeChildrenNeeded() bool {
 		return false
 	}
 
-	sizes := equalSplitSizes(c.axisSize(c.Dir), len(c.Children))
+	sizes, ok := equalSubtreeSplitSizes(c.Children, c.Dir, c.axisSize(c.Dir))
+	if !ok {
+		return false
+	}
 	for i, child := range c.Children {
 		if child.axisSize(c.Dir) != sizes[i] {
 			return true
