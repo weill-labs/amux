@@ -479,14 +479,7 @@ func TestShutdownLeavesNoOrphans(t *testing.T) {
 	if err := h.signalServer(os.Interrupt); err != nil {
 		t.Fatalf("interrupting server: %v", err)
 	}
-	done := make(chan struct{})
-	go func() {
-		ignoreCmdWait(h.cmd)
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
+	if !h.waitForSignaledServerExit(10 * time.Second) {
 		_ = h.signalServer(syscall.SIGKILL)
 		t.Fatal("server didn't shut down within 10 seconds")
 	}

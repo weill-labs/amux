@@ -338,7 +338,9 @@ func TestServerHarnessWaitForSignaledServerExitReusesBackgroundWaiter(t *testing
 		t.Fatalf("SIGKILL server: %v", err)
 	}
 
-	h.waitForSignaledServerExit(5 * time.Second)
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 }
 
 // cleanup detaches the headless clients, sends SIGINT for graceful shutdown
@@ -1170,6 +1172,11 @@ func (h *ServerHarness) waitForProcessExit(timeout time.Duration) bool {
 	case <-time.After(timeout):
 		return false
 	}
+}
+
+func (h *ServerHarness) waitForSignaledServerExit(timeout time.Duration) bool {
+	h.tb.Helper()
+	return h.waitForProcessExit(timeout)
 }
 
 // capture returns the server-side composited screen (plain text 2D grid).
