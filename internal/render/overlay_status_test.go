@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -693,6 +694,77 @@ func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
 	}
 	if got := grid.Get(start+3, 0).Char; got != "s" {
 		t.Fatalf("task should start after the wide rune continuation, got %q", got)
+	}
+}
+
+func TestBuildStatusCellsDoesNotStartWideGlyphAtPaneRightEdge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		pane *statusPaneData
+	}{
+		{
+			name: "wide_connection_marker",
+			pane: &statusPaneData{
+				id:         1,
+				name:       "pane-1",
+				connStatus: "connected",
+				color:      config.TextColorHex,
+			},
+		},
+		{
+			name: "wide_task_glyph",
+			pane: &statusPaneData{
+				id:    1,
+				name:  "name-123456789012345678",
+				task:  "⌛",
+				color: config.TextColorHex,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for width := 1; width <= 32; width++ {
+				width := width
+				t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+					t.Parallel()
+
+					cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, width, 4)
+					grid := NewScreenGrid(width+1, 4)
+					grid.Set(width, 0, ScreenCell{Char: "│", Width: 1})
+					buildStatusCells(grid, cell, true, tt.pane)
+
+					assertNoWideStatusCellCrossesPane(t, grid, cell)
+					if got := grid.Get(width, 0).Char; got != "│" {
+						t.Fatalf("cell past pane edge = %q, want sentinel border", got)
+					}
+				})
+			}
+		})
+	}
+}
+
+func assertNoWideStatusCellCrossesPane(t *testing.T, grid *ScreenGrid, cell *mux.LayoutCell) {
+	t.Helper()
+
+	for col := 0; col < cell.W; col++ {
+		sc := grid.Get(cell.X+col, cell.Y)
+		if sc.Width <= 1 {
+			continue
+		}
+		if col+sc.Width > cell.W {
+			t.Fatalf("wide status cell %q at pane col %d width %d crosses pane width %d", sc.Char, col, sc.Width, cell.W)
+		}
+		for offset := 1; offset < sc.Width; offset++ {
+			if got := grid.Get(cell.X+col+offset, cell.Y).Width; got != 0 {
+				t.Fatalf("wide status cell %q at pane col %d missing continuation at offset %d: width=%d", sc.Char, col, offset, got)
+			}
+		}
 	}
 }
 
