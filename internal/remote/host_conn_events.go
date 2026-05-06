@@ -158,7 +158,9 @@ func (hc *HostConn) startConnect(reply chan error, connectFn func() (*connectOut
 	hc.setState(Connecting)
 	go func() {
 		outcome, err := connectFn()
-		hc.enqueue(connectDoneEvent{outcome: outcome, err: err})
+		if !hc.enqueue(connectDoneEvent{outcome: outcome, err: err}) && outcome != nil {
+			outcome.closeConns()
+		}
 	}()
 }
 
