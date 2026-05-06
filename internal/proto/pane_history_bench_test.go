@@ -23,3 +23,14 @@ func TestEncodePaneHistoryPayloadDeterministicForIdlePane(t *testing.T) {
 		t.Fatalf("consecutive encodes of unchanged pane history differed")
 	}
 }
+
+func BenchmarkEncodePaneHistoryPayload(b *testing.B) {
+	msg := benchmarkPaneHistoryMessage(10_000, 80)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := encodePaneHistoryPayload(msg); err != nil {
+			b.Fatalf("encodePaneHistoryPayload: %v", err)
+		}
+	}
+}
