@@ -14,10 +14,6 @@ func hermeticMainEnv() []string {
 	return testenv.HermeticMainEnv()
 }
 
-func hermeticAmuxEnv() []string {
-	return testenv.HermeticAmuxEnv()
-}
-
 func newHermeticAmuxCommand(tb testing.TB, args ...string) *exec.Cmd {
 	if tb != nil {
 		tb.Helper()
