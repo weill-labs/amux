@@ -177,7 +177,7 @@ func cleanupStaleTestSessions() {
 	liveOwnedSessions := make(map[string]bool)
 	staleSessions := make(map[string]bool)
 
-	// Kill orphaned amux server processes, but only if their socket is stale
+	// Kill orphaned amux server processes whose parent test process is gone.
 	out, _ := exec.Command("pgrep", "-fl", "amux _server t-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
@@ -192,7 +192,7 @@ func cleanupStaleTestSessions() {
 		}
 	}
 
-	// Also kill orphaned benchmark amux servers (same liveness check)
+	// Also kill orphaned benchmark amux servers with the same parent check.
 	out, _ = exec.Command("pgrep", "-fl", "amux _server bench-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
