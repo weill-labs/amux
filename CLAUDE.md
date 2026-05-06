@@ -24,6 +24,8 @@ See [README.md -- How it works](README.md#how-it-works) for the project overview
 
 **`render.RenderFull()`** -- Composites pane content, borders with junction characters, per-pane status lines, and the global session bar into a single ANSI output string.
 
+**Capture architecture** -- The target split for `amux capture` is documented in [docs/capture-architecture.md](docs/capture-architecture.md): server-side capture becomes the default source-of-truth path, and client-side capture remains an opt-in user-perspective path.
+
 ### Patterns To Follow
 
 **One package per concern.** Layout logic in `mux/`, rendering in `render/`, server protocol in `server/`. Packages depend on interfaces and shared types (`proto/`), not on each other's internals.
