@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -124,6 +125,86 @@ func assertStatusUsesSentinelIcons(t *testing.T, rendered string) {
 	for _, old := range []string{"●", "[copy]", "#42", "@gpu", "⚡"} {
 		if strings.Contains(rendered, old) {
 			t.Fatalf("rendered status still contains old glyph %q:\n%s", old, rendered)
+		}
+	}
+}
+
+func TestIconSetPresetsAndHelpers(t *testing.T) {
+	t.Parallel()
+
+	if got := DefaultIconSet(); got != UnicodeIconSet() {
+		t.Fatalf("DefaultIconSet() = %#v, want unicode preset", got)
+	}
+	if got := normalizeIconSet(IconSet{}); got != UnicodeIconSet() {
+		t.Fatalf("normalizeIconSet(zero) = %#v, want unicode preset", got)
+	}
+
+	ascii := ASCIIIconSet()
+	for name, value := range map[string]string{
+		"PaneIdle":      ascii.PaneIdle,
+		"PaneActive":    ascii.PaneActive,
+		"PaneBusy":      ascii.PaneBusy,
+		"PaneLead":      ascii.PaneLead,
+		"PaneEscalated": ascii.PaneEscalated,
+		"PaneStuck":     ascii.PaneStuck,
+		"RemoteHost":    ascii.RemoteHost,
+		"PR":            ascii.PR,
+		"Issue":         ascii.Issue,
+		"CopyMode":      ascii.CopyMode,
+		"Connected":     ascii.Connected,
+		"Reconnecting":  ascii.Reconnecting,
+		"Disconnected":  ascii.Disconnected,
+	} {
+		if len(value) != 1 {
+			t.Fatalf("ASCIIIconSet().%s = %q, want single-character fallback", name, value)
+		}
+		r, _ := utf8.DecodeRuneInString(value)
+		if r < 0x20 || r > 0x7e {
+			t.Fatalf("ASCIIIconSet().%s = %q, want printable ASCII", name, value)
+		}
+	}
+
+	nerd := NerdFontIconSet()
+	for name, value := range map[string]string{
+		"PaneIdle":      nerd.PaneIdle,
+		"PaneActive":    nerd.PaneActive,
+		"PaneBusy":      nerd.PaneBusy,
+		"PaneLead":      nerd.PaneLead,
+		"PaneEscalated": nerd.PaneEscalated,
+		"PaneStuck":     nerd.PaneStuck,
+		"RemoteHost":    nerd.RemoteHost,
+		"PR":            nerd.PR,
+		"Issue":         nerd.Issue,
+		"CopyMode":      nerd.CopyMode,
+		"Connected":     nerd.Connected,
+		"Reconnecting":  nerd.Reconnecting,
+		"Disconnected":  nerd.Disconnected,
+	} {
+		r, size := utf8.DecodeRuneInString(value)
+		if size == 0 || r < '\ue000' || r > '\uf8ff' {
+			t.Fatalf("NerdFontIconSet().%s = %q, want Private Use Area placeholder", name, value)
+		}
+	}
+
+	comp := NewCompositor(20, 3, "test")
+	comp.SetIconSet(DefaultIconSet())
+	if got := comp.IconSet(); got != DefaultIconSet() {
+		t.Fatalf("IconSet after no-op SetIconSet(default) = %#v, want default", got)
+	}
+
+	sentinel := IconSet{PaneLead: "L", Connected: "C", Reconnecting: "R", Disconnected: "D"}
+	lead := &statusPaneData{lead: true}
+	if got := paneStatusStateIcon(false, lead, sentinel); got != "L" {
+		t.Fatalf("paneStatusStateIcon(lead) = %q, want L", got)
+	}
+	for status, want := range map[string]string{
+		string(proto.Connected):    "C",
+		string(proto.Reconnecting): "R",
+		string(proto.Disconnected): "D",
+		"unknown":                  "",
+	} {
+		if got := connStatusIcon(status, sentinel); got != want {
+			t.Fatalf("connStatusIcon(%q) = %q, want %q", status, got, want)
 		}
 	}
 }
