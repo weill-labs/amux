@@ -686,18 +686,6 @@ func (r *Renderer) buildCapturePaneFromPaneSnapshot(pane paneRenderSnapshot, sna
 	return cp, true
 }
 
-func (r *Renderer) paneLookupSnapshot(st *rendererActorState, snap *rendererSnapshot, paneID uint32) render.PaneData {
-	emu, ok := st.emulators[paneID]
-	if !ok {
-		return nil
-	}
-	info, ok := snap.paneInfo[paneID]
-	if !ok {
-		return nil
-	}
-	return &clientPaneData{emu: emu, info: info, caps: snap.capabilities}
-}
-
 func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlayState) render.OverlayState {
 	if overlay.Message == "" {
 		overlay.Message = snap.sessionNotice
