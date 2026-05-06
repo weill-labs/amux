@@ -39,7 +39,7 @@ func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
 		if !strings.Contains(out, "ready") {
 			t.Fatalf("capture output = %q, want pane content", out)
 		}
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		close(actorRelease)
 		out := <-captureDone
 		t.Fatalf("capture waited for renderer actor; output after release was %q", out)

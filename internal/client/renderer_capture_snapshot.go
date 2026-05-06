@@ -73,10 +73,20 @@ func cloneTerminalState(state proto.TerminalState) proto.TerminalState {
 	return state
 }
 
-func emptyPaneRenderSnapshot(width, height, scrollbackLines int) paneRenderSnapshot {
-	emu := mux.NewVTEmulatorWithScrollback(width, height, scrollbackLines)
-	defer emu.Close()
-	return capturePaneRenderSnapshot(emu)
+func emptyPaneRenderSnapshot(width, height int) paneRenderSnapshot {
+	if height < 0 {
+		height = 0
+	}
+	screen := make([]paneBufferLine, height)
+	rendered := strings.Repeat("\n", max(0, height-1))
+	return paneRenderSnapshot{
+		width:            width,
+		height:           height,
+		cursorHidden:     true,
+		rendered:         rendered,
+		renderedNoCursor: rendered,
+		screen:           screen,
+	}
 }
 
 func (s *rendererSnapshot) paneCapture(paneID uint32) (paneRenderSnapshot, bool) {
@@ -93,7 +103,10 @@ func (s *rendererSnapshot) paneCapture(paneID uint32) (paneRenderSnapshot, bool)
 	if !ok {
 		return paneRenderSnapshot{}, false
 	}
-	return emptyPaneRenderSnapshot(width, height, s.scrollbackLines), true
+	// Full-session captures are snapshot-only. A pane absent from paneCaptures
+	// has no warm emulator in this snapshot, so represent it as blank here rather
+	// than entering the actor. Pane-specific captures keep the lazy replay path.
+	return emptyPaneRenderSnapshot(width, height), true
 }
 
 func (s *rendererSnapshot) captureCompositor() *render.Compositor {

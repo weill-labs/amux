@@ -124,6 +124,9 @@ func clonePaneRenderSnapshots(src map[uint32]paneRenderSnapshot) map[uint32]pane
 		return make(map[uint32]paneRenderSnapshot)
 	}
 	dst := make(map[uint32]paneRenderSnapshot, len(src))
+	// paneRenderSnapshot values are shallow-copied here. Their screen and
+	// scrollback slices are immutable after capturePaneRenderSnapshot returns, so
+	// sharing backing arrays across snapshot generations is intentional.
 	for paneID, snap := range src {
 		dst[paneID] = snap
 	}
