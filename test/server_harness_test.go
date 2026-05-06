@@ -330,6 +330,17 @@ func (h *ServerHarness) signalServer(sig os.Signal) error {
 	return h.cmd.Process.Signal(sig)
 }
 
+func TestServerHarnessWaitForSignaledServerExitReusesBackgroundWaiter(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
+
+	h.waitForSignaledServerExit(5 * time.Second)
+}
+
 // cleanup detaches the headless clients, sends SIGINT for graceful shutdown
 // (coverage flush) when needed, then cleans up the socket and log files. As a
 // fallback, kills the harness-owned process tree without touching later tests.
