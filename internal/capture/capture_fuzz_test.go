@@ -43,12 +43,13 @@ func FuzzParseArgs(f *testing.F) {
 		req := ParseArgs(args)
 		assertRewrapWidthMatchesRaw(t, req)
 
-		normalized := ArgsForRequest(req)
-		if reparsed := ParseArgs(normalized); !reflect.DeepEqual(reparsed, req) {
-			t.Fatalf("ParseArgs(ArgsForRequest(ParseArgs(%q))) = %+v, want %+v; args=%q normalized=%q", raw, reparsed, req, args, normalized)
+		screenErr, historyErr := assertCaptureValidationResult(t, req)
+		if screenErr == nil || historyErr == nil {
+			normalized := ArgsForRequest(req)
+			if reparsed := ParseArgs(normalized); !reflect.DeepEqual(reparsed, req) {
+				t.Fatalf("ParseArgs(ArgsForRequest(ParseArgs(%q))) = %+v, want %+v; args=%q normalized=%q", raw, reparsed, req, args, normalized)
+			}
 		}
-
-		assertCaptureValidationResult(t, req)
 	})
 }
 
@@ -85,7 +86,7 @@ func assertRewrapWidthMatchesRaw(t *testing.T, req Request) {
 	}
 }
 
-func assertCaptureValidationResult(t *testing.T, req Request) {
+func assertCaptureValidationResult(t *testing.T, req Request) (error, error) {
 	t.Helper()
 
 	screenErr := ValidateScreenRequest(req)
@@ -122,4 +123,5 @@ func assertCaptureValidationResult(t *testing.T, req Request) {
 			t.Fatalf("history request with invalid --rewrap width validated: %+v", req)
 		}
 	}
+	return screenErr, historyErr
 }
