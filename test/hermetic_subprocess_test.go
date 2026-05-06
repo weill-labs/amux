@@ -28,7 +28,7 @@ func TestAmuxSubprocessesUseHermeticHelper(t *testing.T) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, "_test.go") || filepath.Base(path) == "script_helpers_test.go" {
+		if !strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 

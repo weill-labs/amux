@@ -50,7 +50,7 @@ func NewCommandContext(ctx context.Context, name string, args ...string) *exec.C
 
 func RemoveEnvKey(env []string, key string) []string {
 	prefix := key + "="
-	filtered := env[:0]
+	filtered := make([]string, 0, len(env))
 	for _, entry := range env {
 		if strings.HasPrefix(entry, prefix) {
 			continue

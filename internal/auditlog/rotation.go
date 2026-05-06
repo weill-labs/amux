@@ -60,7 +60,6 @@ func InstallProcessLogRotation(path string, opts RotationOptions) (io.Writer, fu
 	if err != nil {
 		return nil, nil, err
 	}
-	MarkSocketLogFDsCloseOnExec(filepath.Dir(path))
 
 	teeFile := teeFileForFD(int(os.Stderr.Fd()))
 	logWriter := &lockedWriter{w: writer}
