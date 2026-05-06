@@ -80,22 +80,23 @@ func appendPaneStatusSegment(segments []paneStatusSegment, text string, role pan
 	return append(segments, paneStatusSegment{text: text, role: role})
 }
 
-func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneStatusSegment {
+func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData, icons IconSet) []paneStatusSegment {
+	icons = normalizeIconSet(icons)
 	idle := !isActive && pd.Idle()
 
 	segments := make([]paneStatusSegment, 0, 16)
 
 	switch {
 	case pd.IsLead() && isActive:
-		segments = appendPaneStatusSegment(segments, "▶", paneStatusSegmentPane)
+		segments = appendPaneStatusSegment(segments, icons.PaneLead, paneStatusSegmentPane)
 	case pd.IsLead():
-		segments = appendPaneStatusSegment(segments, "▶", paneStatusSegmentDim)
+		segments = appendPaneStatusSegment(segments, icons.PaneLead, paneStatusSegmentDim)
 	case isActive:
-		segments = appendPaneStatusSegment(segments, "●", paneStatusSegmentPane)
+		segments = appendPaneStatusSegment(segments, icons.PaneActive, paneStatusSegmentPane)
 	case idle:
-		segments = appendPaneStatusSegment(segments, "◇", paneStatusSegmentDim)
+		segments = appendPaneStatusSegment(segments, icons.PaneIdle, paneStatusSegmentDim)
 	default:
-		segments = appendPaneStatusSegment(segments, "○", paneStatusSegmentDim)
+		segments = appendPaneStatusSegment(segments, icons.PaneBusy, paneStatusSegmentDim)
 	}
 
 	segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
@@ -116,15 +117,15 @@ func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneSt
 
 	if pd.InCopyMode() {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
-		copyText := "[copy]"
+		copyText := icons.CopyMode
 		if search := pd.CopyModeSearch(); search != "" {
 			copyText += " " + search
 		}
 		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
 	}
 
-	metaItems := paneStatusMetadataItemsForPane(pd)
-	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cellWidth, pd))
+	metaItems := paneStatusMetadataItemsForPaneWithIcons(pd, icons)
+	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidthWithIcons(cellWidth, isActive, pd, icons))
 	if len(metaSegments) > 0 {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 		for _, segment := range metaSegments {
@@ -138,18 +139,18 @@ func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneSt
 
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
-		segments = appendPaneStatusSegment(segments, "@"+pd.Host(), paneStatusSegmentGreen)
+		segments = appendPaneStatusSegment(segments, icons.RemoteHost+pd.Host(), paneStatusSegmentGreen)
 	}
 
 	if cs := pd.ConnStatus(); cs != "" {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 		switch cs {
-		case "connected":
-			segments = appendPaneStatusSegment(segments, "⚡", paneStatusSegmentGreen)
-		case "reconnecting":
-			segments = appendPaneStatusSegment(segments, "⟳", paneStatusSegmentYellow)
-		case "disconnected":
-			segments = appendPaneStatusSegment(segments, "✕", paneStatusSegmentRed)
+		case string(proto.Connected):
+			segments = appendPaneStatusSegment(segments, icons.Connected, paneStatusSegmentGreen)
+		case string(proto.Reconnecting):
+			segments = appendPaneStatusSegment(segments, icons.Reconnecting, paneStatusSegmentYellow)
+		case string(proto.Disconnected):
+			segments = appendPaneStatusSegment(segments, icons.Disconnected, paneStatusSegmentRed)
 		}
 	}
 
@@ -246,10 +247,14 @@ func renderPaneStatusWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isA
 }
 
 func renderPaneStatusPressedWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, profile termenv.Profile) {
+	renderPaneStatusPressedWithProfileAndIcons(buf, cell, isActive, pressed, pd, profile, DefaultIconSet())
+}
+
+func renderPaneStatusPressedWithProfileAndIcons(buf *strings.Builder, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, profile termenv.Profile, icons IconSet) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
 	styles := newStatusBarStylesPressed(paneStatusColorHex(pd), pressed)
-	segments := buildPaneStatusSegments(cell.W, isActive, pd)
+	segments := buildPaneStatusSegmentsWithIcons(cell.W, isActive, pd, icons)
 	for _, segment := range segments {
 		writeStyledTextWithProfile(buf, styles.pane(segment.role), segment.text, profile)
 	}
@@ -276,7 +281,8 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string) []paneStatusMetadataItem {
+func paneStatusMetadataItemsWithIcons(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string, icons IconSet) []paneStatusMetadataItem {
+	icons = normalizeIconSet(icons)
 	issues = paneStatusTrackedIssues(issues, rawIssue)
 	items := make([]paneStatusMetadataItem, 0, len(prs)+len(issues))
 	for _, pr := range prs {
@@ -284,7 +290,7 @@ func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue,
 			continue
 		}
 		items = append(items, paneStatusMetadataItem{
-			text:   "#" + strconv.Itoa(pr.Number),
+			text:   icons.PR + strconv.Itoa(pr.Number),
 			status: normalizeTrackedStatus(pr.Status),
 		})
 	}
@@ -294,7 +300,7 @@ func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue,
 			continue
 		}
 		items = append(items, paneStatusMetadataItem{
-			text:   id,
+			text:   icons.Issue + id,
 			status: normalizeTrackedStatus(issue.Status),
 		})
 	}
@@ -316,15 +322,19 @@ func paneStatusTrackedIssues(issues []proto.TrackedIssue, rawIssue string) []pro
 	}}
 }
 
-func paneStatusMetadataItemsForPane(pd PaneData) []paneStatusMetadataItem {
-	return paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue())
+func paneStatusMetadataItemsForPaneWithIcons(pd PaneData, icons IconSet) []paneStatusMetadataItem {
+	return paneStatusMetadataItemsWithIcons(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue(), icons)
 }
 
 func availableMetadataWidth(cellWidth int, pd PaneData) int {
-	if len(paneStatusMetadataItemsForPane(pd)) == 0 {
+	return availableMetadataWidthWithIcons(cellWidth, true, pd, DefaultIconSet())
+}
+
+func availableMetadataWidthWithIcons(cellWidth int, isActive bool, pd PaneData, icons IconSet) int {
+	if len(paneStatusMetadataItemsForPaneWithIcons(pd, icons)) == 0 {
 		return 0
 	}
-	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1
+	return cellWidth - paneStatusUsedWidthWithoutMetadataWithIcons(isActive, pd, icons) - 1
 }
 
 func normalizeTrackedStatus(status proto.TrackedStatus) proto.TrackedStatus {
@@ -416,27 +426,56 @@ func truncateRunewidth(s string, maxWidth int) string {
 	return buf.String()
 }
 
-func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
-	usedWidth := 2 + runewidth.StringWidth(pd.Name()) + 2 // "● [name]"
+func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, icons IconSet) int {
+	icons = normalizeIconSet(icons)
+	usedWidth := runewidth.StringWidth(paneStatusStateIcon(isActive, pd, icons)) + 1 + runewidth.StringWidth(pd.Name()) + 2 // "● [name]"
 	if pd.IsLead() {
 		usedWidth += 7 // " [lead]"
 	}
 	if pd.InCopyMode() {
-		usedWidth += 7 // " [copy]"
+		usedWidth += 1 + runewidth.StringWidth(icons.CopyMode)
 		if search := pd.CopyModeSearch(); search != "" {
 			usedWidth += 1 + runewidth.StringWidth(search)
 		}
 	}
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
-		usedWidth += 2 + runewidth.StringWidth(pd.Host())
+		usedWidth += 1 + runewidth.StringWidth(icons.RemoteHost) + runewidth.StringWidth(pd.Host())
 	}
 	if cs := pd.ConnStatus(); cs != "" {
-		usedWidth += 2 // " ⚡" or " ⟳" or " ✕"
+		usedWidth += 1 + runewidth.StringWidth(connStatusIcon(cs, icons))
 	}
 	if pd.Task() != "" {
 		usedWidth += 1 + runewidth.StringWidth(pd.Task())
 	}
 	return usedWidth
+}
+
+func paneStatusStateIcon(isActive bool, pd PaneData, icons IconSet) string {
+	icons = normalizeIconSet(icons)
+	switch {
+	case pd.IsLead():
+		return icons.PaneLead
+	case isActive:
+		return icons.PaneActive
+	case pd.Idle():
+		return icons.PaneIdle
+	default:
+		return icons.PaneBusy
+	}
+}
+
+func connStatusIcon(status string, icons IconSet) string {
+	icons = normalizeIconSet(icons)
+	switch status {
+	case string(proto.Connected):
+		return icons.Connected
+	case string(proto.Reconnecting):
+		return icons.Reconnecting
+	case string(proto.Disconnected):
+		return icons.Disconnected
+	default:
+		return ""
+	}
 }
 
 func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
