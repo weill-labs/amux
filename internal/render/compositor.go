@@ -327,6 +327,13 @@ func (c *Compositor) layoutReuseKey(root *mux.LayoutCell, activePaneID uint32, l
 	appendLayoutKeyInt(&b, layoutHeight)
 	appendLayoutKeyInt(&b, int(activePaneID))
 	root.Walk(func(cell *mux.LayoutCell) {
+		if cell.IsLeaf() {
+			appendLayoutKeyInt(&b, 1)
+		} else {
+			appendLayoutKeyInt(&b, 0)
+		}
+		appendLayoutKeyInt(&b, int(cell.Dir))
+		appendLayoutKeyInt(&b, len(cell.Children))
 		appendLayoutKeyInt(&b, int(cell.CellPaneID()))
 		appendLayoutKeyInt(&b, cell.X)
 		appendLayoutKeyInt(&b, cell.Y)
