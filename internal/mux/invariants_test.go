@@ -184,6 +184,69 @@ func TestResizeAllPreservesNestedSubtreeMinimums(t *testing.T) {
 	}
 }
 
+func TestSplitSiblingInsertionPreservesNestedSubtreeMinimums(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		build func(t *testing.T) (*Window, *Pane, SplitDir)
+	}{
+		{
+			name: "vertical sibling insertion keeps nested column wide enough",
+			build: func(t *testing.T) (*Window, *Pane, SplitDir) {
+				t.Helper()
+
+				p1 := invariantPane(1)
+				w := NewWindow(p1, 14, 12)
+				if _, err := w.SplitRoot(SplitVertical, invariantPane(2)); err != nil {
+					t.Fatalf("SplitRoot pane-2: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitHorizontal, invariantPane(3), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-3: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitVertical, invariantPane(4), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-4: %v", err)
+				}
+				w.FocusPane(p1)
+				return w, invariantPane(5), SplitVertical
+			},
+		},
+		{
+			name: "horizontal sibling insertion keeps nested row tall enough",
+			build: func(t *testing.T) (*Window, *Pane, SplitDir) {
+				t.Helper()
+
+				p1 := invariantPane(1)
+				w := NewWindow(p1, 12, 14)
+				if _, err := w.SplitRoot(SplitHorizontal, invariantPane(2)); err != nil {
+					t.Fatalf("SplitRoot pane-2: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitVertical, invariantPane(3), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-3: %v", err)
+				}
+				if _, err := w.SplitPaneWithOptions(2, SplitHorizontal, invariantPane(4), SplitOptions{}); err != nil {
+					t.Fatalf("SplitPaneWithOptions pane-4: %v", err)
+				}
+				w.FocusPane(p1)
+				return w, invariantPane(5), SplitHorizontal
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w, pane, dir := tt.build(t)
+			if _, err := w.Split(dir, pane); err != nil {
+				t.Fatalf("Split(%s): %v", splitDirName(dir), err)
+			}
+			assertGeometryInvariant(t, w, []string{tt.name})
+		})
+	}
+}
+
 func TestWindowLayoutInvariants(t *testing.T) {
 	t.Parallel()
 
