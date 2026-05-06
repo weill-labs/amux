@@ -367,9 +367,13 @@ func gridToText(g *ScreenGrid) string {
 			buf.WriteByte('\n')
 		}
 		row = row[:0]
+		preserveContinuations := rowHasPaneStatusHeader(g, y)
 		for x := 0; x < g.Width; x++ {
 			cell := g.Get(x, y)
 			if cell.Width == 0 {
+				if preserveContinuations {
+					row = append(row, ' ')
+				}
 				continue
 			}
 			ch := cell.Char
