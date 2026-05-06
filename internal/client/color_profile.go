@@ -55,11 +55,13 @@ func (cr *ClientRenderer) ColorProfile() termenv.Profile {
 func (r *Renderer) SetColorProfile(profile termenv.Profile) {
 	r.withActor(func(st *rendererActorState) {
 		st.compositor.SetColorProfile(profile)
+		next := *st.snapshot
+		next.colorProfile = profile
+		st.snapshot = &next
+		r.publishSnapshot(&next)
 	})
 }
 
 func (r *Renderer) ColorProfile() termenv.Profile {
-	return withRendererActorValue(r, func(st *rendererActorState) termenv.Profile {
-		return st.compositor.ColorProfile()
-	})
+	return r.loadSnapshot().colorProfile
 }
