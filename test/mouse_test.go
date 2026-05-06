@@ -152,6 +152,18 @@ func outerTextCoords(screen, substr string) (x, y int, ok bool) {
 	return 0, 0, false
 }
 
+func mouseCopyTargetCommand(target string, sleepSeconds int) string {
+	return fmt.Sprintf("printf '\\033[2J\\033[H%s\\n'; sleep %d", shellOctalEscapes(target), sleepSeconds)
+}
+
+func shellOctalEscapes(s string) string {
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		fmt.Fprintf(&b, "\\%03o", c)
+	}
+	return b.String()
+}
+
 func waitOuterTextCoords(wait func(string, time.Duration) bool, capture func() string, substr string, timeout time.Duration) (x, y int, screen string, ok bool) {
 	if !wait(substr, timeout) {
 		return 0, 0, capture(), false
@@ -752,7 +764,7 @@ func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
 
 	// Keep the target line visible long enough for slower CI runners to capture
 	// its screen coordinates before the shell prompt redraws.
-	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 1", "Enter")
+	h.sendKeys(mouseCopyTargetCommand("hello from mouse", 3), "Enter")
 	if !h.waitFor("hello from mouse", 3*time.Second) {
 		t.Fatalf("expected mouse copy target output.\nScreen:\n%s", h.captureOuter())
 	}

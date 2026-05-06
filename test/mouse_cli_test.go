@@ -79,7 +79,7 @@ func TestMouseCommandDragAutomaticallyCopiesSelection(t *testing.T) {
 
 	h := newAmuxHarness(t, "SSH_CONNECTION=1")
 
-	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 3", "Enter")
+	h.sendKeys(mouseCopyTargetCommand("hello from mouse", 3), "Enter")
 	if !h.waitFor("hello from mouse", 3*time.Second) {
 		t.Fatalf("expected mouse copy target output.\nScreen:\n%s", h.captureOuter())
 	}
