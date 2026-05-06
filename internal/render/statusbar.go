@@ -80,10 +80,6 @@ func appendPaneStatusSegment(segments []paneStatusSegment, text string, role pan
 	return append(segments, paneStatusSegment{text: text, role: role})
 }
 
-func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneStatusSegment {
-	return buildPaneStatusSegmentsWithIcons(cellWidth, isActive, pd, DefaultIconSet())
-}
-
 func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData, icons IconSet) []paneStatusSegment {
 	icons = normalizeIconSet(icons)
 	idle := !isActive && pd.Idle()
@@ -285,10 +281,6 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string) []paneStatusMetadataItem {
-	return paneStatusMetadataItemsWithIcons(prs, issues, rawIssue, DefaultIconSet())
-}
-
 func paneStatusMetadataItemsWithIcons(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string, icons IconSet) []paneStatusMetadataItem {
 	icons = normalizeIconSet(icons)
 	issues = paneStatusTrackedIssues(issues, rawIssue)
@@ -328,10 +320,6 @@ func paneStatusTrackedIssues(issues []proto.TrackedIssue, rawIssue string) []pro
 		ID:     id,
 		Status: proto.TrackedStatusActive,
 	}}
-}
-
-func paneStatusMetadataItemsForPane(pd PaneData) []paneStatusMetadataItem {
-	return paneStatusMetadataItemsForPaneWithIcons(pd, DefaultIconSet())
 }
 
 func paneStatusMetadataItemsForPaneWithIcons(pd PaneData, icons IconSet) []paneStatusMetadataItem {
@@ -436,10 +424,6 @@ func truncateRunewidth(s string, maxWidth int) string {
 		usedWidth += runeWidth
 	}
 	return buf.String()
-}
-
-func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
-	return paneStatusUsedWidthWithoutMetadataWithIcons(true, pd, DefaultIconSet())
 }
 
 func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, icons IconSet) int {
