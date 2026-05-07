@@ -53,6 +53,7 @@ var commandUsageByName = map[string]string{
 	"cursor":           cursorUsage,
 	"connect":          connectUsage,
 	"debug":            debugUsage,
+	"doctor":           doctorUsage,
 	"disconnect":       disconnectUsage,
 	"equalize":         "usage: amux equalize [--vertical|--all]",
 	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]",
@@ -161,6 +162,7 @@ Usage:
   amux [-s session] debug client-profile [--duration 30s]
                                        Stream a CPU profile from the latest attached client pprof endpoint
   amux [-s session] debug client-heap  Print a live heap profile summary from the latest attached client pprof endpoint
+  amux doctor fonts                    Print icon and Powerline font diagnostics
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture --history --format json
                                        Capture full-session JSON with per-pane scrollback prepended to content

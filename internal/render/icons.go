@@ -21,23 +21,34 @@ type IconSet struct {
 	Disconnected  string
 }
 
+// IconSetPreset pairs a validated config name with its renderer glyphs.
+type IconSetPreset struct {
+	Name string
+	Set  IconSet
+}
+
 // DefaultIconSet returns the renderer's backward-compatible icon set.
 func DefaultIconSet() IconSet {
 	return UnicodeIconSet()
 }
 
+// IconSetPresets returns the renderer's named icon presets in config order.
+func IconSetPresets() []IconSetPreset {
+	return []IconSetPreset{
+		{Name: config.ThemeIconsASCII, Set: ASCIIIconSet()},
+		{Name: config.ThemeIconsUnicode, Set: UnicodeIconSet()},
+		{Name: config.ThemeIconsNerd, Set: NerdFontIconSet()},
+	}
+}
+
 // IconSetForName returns the preset icon set for a validated config name.
 func IconSetForName(name string) (IconSet, bool) {
-	switch name {
-	case config.ThemeIconsASCII:
-		return ASCIIIconSet(), true
-	case config.ThemeIconsUnicode:
-		return UnicodeIconSet(), true
-	case config.ThemeIconsNerd:
-		return NerdFontIconSet(), true
-	default:
-		return IconSet{}, false
+	for _, preset := range IconSetPresets() {
+		if preset.Name == name {
+			return preset.Set, true
+		}
 	}
+	return IconSet{}, false
 }
 
 // UnicodeIconSet returns the current default compact Unicode glyphs.
