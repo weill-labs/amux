@@ -1,5 +1,7 @@
 package render
 
+import "github.com/weill-labs/amux/internal/config"
+
 // IconSet centralizes human-facing renderer glyphs. Structured capture and
 // event APIs remain semantic and should not consume this type.
 type IconSet struct {
@@ -22,6 +24,20 @@ type IconSet struct {
 // DefaultIconSet returns the renderer's backward-compatible icon set.
 func DefaultIconSet() IconSet {
 	return UnicodeIconSet()
+}
+
+// IconSetForName returns the preset icon set for a validated config name.
+func IconSetForName(name string) (IconSet, bool) {
+	switch name {
+	case config.ThemeIconsASCII:
+		return ASCIIIconSet(), true
+	case config.ThemeIconsUnicode:
+		return UnicodeIconSet(), true
+	case config.ThemeIconsNerd:
+		return NerdFontIconSet(), true
+	default:
+		return IconSet{}, false
+	}
 }
 
 // UnicodeIconSet returns the current default compact Unicode glyphs.

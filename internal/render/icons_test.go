@@ -246,6 +246,19 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 	if got := normalizeIconSet(IconSet{}); got != UnicodeIconSet() {
 		t.Fatalf("normalizeIconSet(zero) = %#v, want unicode preset", got)
 	}
+	for name, want := range map[string]IconSet{
+		config.ThemeIconsASCII:   ASCIIIconSet(),
+		config.ThemeIconsUnicode: UnicodeIconSet(),
+		config.ThemeIconsNerd:    NerdFontIconSet(),
+	} {
+		got, ok := IconSetForName(name)
+		if !ok || got != want {
+			t.Fatalf("IconSetForName(%q) = %#v, %v; want %#v, true", name, got, ok, want)
+		}
+	}
+	if got, ok := IconSetForName("powerline"); ok || got != (IconSet{}) {
+		t.Fatalf("IconSetForName(powerline) = %#v, %v; want zero, false", got, ok)
+	}
 
 	ascii := ASCIIIconSet()
 	for name, value := range map[string]string{

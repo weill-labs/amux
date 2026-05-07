@@ -27,6 +27,7 @@ type rendererSnapshot struct {
 	activeWinID     uint32
 	scrollbackLines int
 	colorProfile    termenv.Profile
+	iconSet         render.IconSet
 	paneCaptures    map[uint32]paneRenderSnapshot
 }
 
@@ -37,6 +38,7 @@ func newRendererSnapshot(width, height, scrollbackLines int) *rendererSnapshot {
 		height:          height,
 		scrollbackLines: scrollbackLines,
 		colorProfile:    termenv.TrueColor,
+		iconSet:         render.DefaultIconSet(),
 		paneCaptures:    make(map[uint32]paneRenderSnapshot),
 	}
 }
