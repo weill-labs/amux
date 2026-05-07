@@ -9,6 +9,7 @@ import (
 const (
 	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
+	captureUsage      = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
 	logUsage          = "usage: amux log <clients|panes>"
 	debugUsage        = "usage: amux debug <goroutines|profile|heap|socket|frames|client-goroutines|client-profile|client-heap> [--duration <duration>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
@@ -48,7 +49,7 @@ var commandUsageByName = map[string]string{
 	"_layout-json":     "usage: amux _layout-json",
 	"_server":          "usage: amux _server [session]",
 	"broadcast":        "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...",
-	"capture":          "usage: amux capture [pane] [--history <pane>] [--ansi] [--colors]",
+	"capture":          captureUsage,
 	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
 	"cursor":           cursorUsage,
 	"connect":          connectUsage,
@@ -164,6 +165,8 @@ Usage:
   amux [-s session] debug client-heap  Print a live heap profile summary from the latest attached client pprof endpoint
   amux doctor fonts                    Print icon and Powerline font diagnostics
   amux [-s session] capture            Capture full composited screen
+  amux [-s session] capture --client [pane]
+                                       Capture the attached client's displayed screen
   amux [-s session] capture --history --format json
                                        Capture full-session JSON with per-pane scrollback prepended to content
   amux [-s session] capture <pane>     Capture a single pane's output

@@ -15,6 +15,8 @@ type Context interface {
 func Capture(ctx Context, args []string) commandpkg.Result {
 	req := caputil.ParseArgs(args)
 	switch {
+	case req.ClientMode || req.DisplayMode:
+		return commandpkg.Result{Message: ctx.ForwardCapture(args)}
 	case req.HistoryMode && (req.PaneRef != "" || !req.FormatJSON):
 		return commandpkg.Result{Message: ctx.CaptureHistory(args)}
 	case req.PaneRef != "":

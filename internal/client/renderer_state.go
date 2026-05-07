@@ -313,12 +313,12 @@ func (r *Renderer) withActor(run func(*rendererActorState)) {
 	<-done
 }
 
-func (r *Renderer) actorLoop(initial *rendererSnapshot, width, height int) {
+func (r *Renderer) actorLoop(initial *rendererSnapshot, compositor *render.Compositor) {
 	state := &rendererActorState{
 		snapshot:          initial,
 		emulators:         make(map[uint32]mux.TerminalEmulator),
 		pendingPaneOutput: make(map[uint32]*paneOutputBuffer),
-		compositor:        render.NewCompositor(width, height, ""),
+		compositor:        compositor,
 	}
 	for cmd := range r.commands {
 		cmd.run(state)

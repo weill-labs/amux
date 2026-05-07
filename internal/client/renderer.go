@@ -22,6 +22,7 @@ import (
 type Renderer struct {
 	state           atomic.Pointer[rendererSnapshot]
 	commands        chan rendererCommand
+	compositor      *render.Compositor
 	scrollbackLines int
 	closeOnce       sync.Once
 
@@ -32,13 +33,15 @@ type Renderer struct {
 
 // NewWithScrollback creates a Renderer with an explicit retained scrollback limit.
 func NewWithScrollback(width, height, scrollbackLines int) *Renderer {
+	compositor := render.NewCompositor(width, height, "")
 	r := &Renderer{
 		commands:        make(chan rendererCommand),
+		compositor:      compositor,
 		scrollbackLines: scrollbackLines,
 	}
 	initial := newRendererSnapshot(width, height, scrollbackLines)
 	r.state.Store(initial)
-	go r.actorLoop(initial, width, height)
+	go r.actorLoop(initial, compositor)
 	return r
 }
 
@@ -379,9 +382,34 @@ func (r *Renderer) Capture(stripANSI bool) string {
 // so a diff between Capture() and CaptureDisplay() reveals exactly where the
 // diff renderer diverges from ground truth.
 func (r *Renderer) CaptureDisplay() string {
-	return withRendererActorValue(r, func(st *rendererActorState) string {
-		return st.compositor.PrevGridText()
-	})
+	if r.compositor == nil {
+		return ""
+	}
+	return r.compositor.PrevGridText()
+}
+
+func (r *Renderer) CaptureDisplayPane(paneID uint32) string {
+	if r.compositor == nil {
+		return ""
+	}
+	snap := r.loadSnapshot()
+	if snap.layout == nil {
+		return ""
+	}
+	root, _ := snap.captureRoot(snap.height - render.GlobalBarHeight)
+	if root == nil {
+		return ""
+	}
+	cell := root.FindByPaneID(paneID)
+	if cell == nil {
+		return ""
+	}
+	contentH := mux.PaneContentHeight(cell.H)
+	maxContentH := snap.height - render.GlobalBarHeight - cell.Y - mux.StatusLineRows
+	if contentH > maxContentH {
+		contentH = maxContentH
+	}
+	return r.compositor.PrevGridTextRect(cell.X, cell.Y+mux.StatusLineRows, cell.W, contentH)
 }
 
 // CaptureColorMap renders a color map from client-side emulators.
@@ -738,8 +766,18 @@ func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]pr
 			CmdErr: err.Error()}
 	}
 
-	if req.DisplayMode {
-		out := r.CaptureDisplay()
+	if req.DisplayMode || req.ClientMode {
+		out := ""
+		if req.PaneRef != "" {
+			paneID, err := r.ResolvePaneID(req.PaneRef)
+			if err != nil {
+				return &proto.Message{Type: proto.MsgTypeCaptureResponse,
+					CmdErr: err.Error()}
+			}
+			out = r.CaptureDisplayPane(paneID)
+		} else {
+			out = r.CaptureDisplay()
+		}
 		if out == "" {
 			out = "(no previous grid — diff renderer has not run yet)"
 		}

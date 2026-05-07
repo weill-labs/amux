@@ -70,6 +70,9 @@ amux -s my-project
 # Inspect the current session
 amux capture --format json
 
+# Inspect what the attached client last rendered
+amux capture --client
+
 # Capture the full browsable buffer for one pane
 amux capture --history pane-1
 
@@ -169,6 +172,13 @@ Pane JSON includes a nested `meta` object for pane metadata, including the raw k
 `cursor.style` is one of `block`, `underline`, or `bar`. `terminal.palette` is the pane's effective 256-color ANSI palette in stable index order, encoded as lowercase hex without `#`. `terminal.hyperlink` is present when OSC 8 hyperlink state is active at the cursor. Capture JSON is additive: agents should ignore unknown fields so future releases can extend the schema without breaking existing parsers.
 
 For full-session JSON capture, `amux capture --history --format json` prepends each pane's retained scrollback to that pane's `content` array so agents can read the full pane buffer from one field.
+
+Client display capture reads the attached client's last rendered frame:
+
+```bash
+amux capture --client
+amux capture --client pane-1
+```
 
 Capture a single pane:
 
@@ -332,6 +342,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | Command | Description |
 |---------|-------------|
 | `amux capture [pane]` | Capture screen output (text) |
+| `amux capture --client [pane]` | Capture the attached client's displayed screen |
 | `amux capture --history <pane>` | Capture retained scrollback plus visible screen |
 | `amux capture --history --rewrap <width> <pane>` | Best-effort rewrap retained history and visible content to a wider width |
 | `amux capture --format json [pane]` | Structured JSON capture |
