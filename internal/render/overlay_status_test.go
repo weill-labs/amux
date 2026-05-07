@@ -736,7 +736,13 @@ func TestRenderPaneStatusPowerlineFullANSI(t *testing.T) {
 	}
 
 	line := MaterializeGrid(raw, cell.W, 1)
-	for _, want := range []string{"[pane-1]", "LAB-1651", "@gpu", "build", powerlineRightSeparator} {
+	if !strings.Contains(line, "pane-1") {
+		t.Fatalf("powerline status line %q missing pane name", line)
+	}
+	if strings.Contains(line, "[pane-1]") {
+		t.Fatalf("powerline status line should omit pane name brackets: %q", line)
+	}
+	for _, want := range []string{"LAB-1651", "@gpu", "build", powerlineRightSeparator} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("powerline status line %q missing %q", line, want)
 		}
