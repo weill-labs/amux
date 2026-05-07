@@ -29,6 +29,11 @@ const (
 	powerlineLeftSeparator  = "\ue0b2" // Nerd Font Powerline left-pointing solid separator.
 )
 
+// PowerlineSeparators returns the glyphs used by the Powerline status style.
+func PowerlineSeparators() (right, left string) {
+	return powerlineRightSeparator, powerlineLeftSeparator
+}
+
 type statusCellStyle struct {
 	fgHex         string
 	bgHex         string
