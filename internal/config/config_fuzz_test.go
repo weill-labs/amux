@@ -45,6 +45,9 @@ address = "builder.example"
 		[]byte("[client]\nlocal_echo_style = \"flashy\"\n"),
 		[]byte("[theme]\nstatus_style = \"powerline\"\n"),
 		[]byte("[theme]\nstatus_style = \"fancy\"\n"),
+		[]byte("[theme]\nicons = \"unicode\"\n"),
+		[]byte("[theme]\nicons = \"powerline\"\n"),
+		[]byte("[theme]\nicons = \"\"\n"),
 		[]byte("[transport]\npreference = [\" ssh \", \"\", \"ssh\", \"mosh\"]\n"),
 		[]byte("scrollback_lines = 0\n"),
 		[]byte("[hosts.local]\nscrollback_lines = 0\n"),
@@ -92,6 +95,9 @@ func assertParsedConfigValid(t *testing.T, cfg *Config) {
 	}
 	if _, err := ResolveStatusStyle(cfg.Theme.StatusStyle); err != nil {
 		t.Fatalf("status_style did not validate after parse: %v", err)
+	}
+	if _, err := ResolveThemeIcons(cfg.Theme.Icons); err != nil {
+		t.Fatalf("theme.icons did not validate after parse: %v", err)
 	}
 
 	preferences := cfg.TransportPreferences()

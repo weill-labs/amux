@@ -113,10 +113,21 @@ const (
 	StatusStyleCompact   = "compact"
 	StatusStylePlain     = "plain"
 	StatusStylePowerline = "powerline"
+
+	ThemeIconsASCII   = "ascii"
+	ThemeIconsUnicode = "unicode"
+	ThemeIconsNerd    = "nerd"
 )
 
+// ThemeConfig controls client-side presentation.
+//
+// Example:
+//
+//	[theme]
+//	icons = "unicode" # ascii | unicode | nerd
 type ThemeConfig struct {
-	StatusStyle string `toml:"status_style"`
+	StatusStyle string  `toml:"status_style"`
+	Icons       *string `toml:"icons"`
 }
 
 type TransportConfig struct {
@@ -195,6 +206,9 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, err
 	}
 	if _, err := ResolveStatusStyle(cfg.Theme.StatusStyle); err != nil {
+		return nil, err
+	}
+	if _, err := ResolveThemeIcons(cfg.Theme.Icons); err != nil {
 		return nil, err
 	}
 
@@ -352,6 +366,29 @@ func (c *Config) EffectiveStatusStyle() string {
 		return StatusStyleCompact
 	}
 	return style
+}
+
+func ResolveThemeIcons(icons *string) (string, error) {
+	if icons == nil {
+		return ThemeIconsUnicode, nil
+	}
+	switch *icons {
+	case ThemeIconsASCII, ThemeIconsUnicode, ThemeIconsNerd:
+		return *icons, nil
+	default:
+		return "", fmt.Errorf(`theme.icons must be one of "ascii", "unicode", or "nerd"`)
+	}
+}
+
+func (c *Config) EffectiveThemeIcons() string {
+	if c == nil {
+		return ThemeIconsUnicode
+	}
+	icons, err := ResolveThemeIcons(c.Theme.Icons)
+	if err != nil {
+		return ThemeIconsUnicode
+	}
+	return icons
 }
 
 func (c *Config) TransportPreferences() []string {

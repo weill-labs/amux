@@ -564,6 +564,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	cr.SetCapabilities(negotiatedAttachCaps)
 	cr.SetStatusStyle(cfg.EffectiveStatusStyle())
 	cr.ConfigureLocalEcho(cfg.EffectiveLocalEchoMode(), cfg.EffectiveLocalEchoStyle())
+	cr.ConfigureTheme(cfg)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{
 			Type:    proto.MsgTypeUIEvent,

@@ -78,6 +78,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			activeWinID:     snap.ActiveWindowID,
 			scrollbackLines: prev.scrollbackLines,
 			colorProfile:    prev.colorProfile,
+			iconSet:         prev.iconSet,
 			paneCaptures:    clonePaneRenderSnapshots(prev.paneCaptures),
 		}
 

@@ -112,6 +112,7 @@ func (s *rendererSnapshot) captureCompositor() *render.Compositor {
 	comp := render.NewCompositor(s.width, s.height, s.sessionName)
 	comp.SetWindows(windowInfoFromSnapshot(s.windows, s.activeWinID))
 	comp.SetColorProfile(s.colorProfile)
+	comp.SetIconSet(s.iconSet)
 	return comp
 }
 
