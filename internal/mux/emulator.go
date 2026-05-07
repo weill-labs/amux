@@ -496,6 +496,9 @@ func lineUsesFullWidthValue(width int, cell uv.Cell, ok bool) bool {
 }
 
 func cellUsesFullWidth(cell uv.Cell) bool {
+	if cell.Equal(&uv.EmptyCell) {
+		return false
+	}
 	if cell.Width == 0 {
 		return true
 	}
