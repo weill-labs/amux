@@ -49,4 +49,4 @@ require (
 
 replace github.com/charmbracelet/ultraviolet => github.com/weill-labs/ultraviolet v0.0.0-20260404003102-9344cbfc286f
 
-replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260507075017-67eb13d58575
+replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260507214137-ae9013d883a6
