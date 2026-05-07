@@ -656,7 +656,6 @@ func paneStatusTaskText(task string, icons IconSet) string {
 }
 
 func paneStatusNameText(name string, icons IconSet) string {
-	icons = normalizeIconSet(icons)
 	return icons.PaneNameOpen + name + icons.PaneNameClose
 }
 

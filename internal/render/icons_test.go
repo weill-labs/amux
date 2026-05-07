@@ -126,7 +126,7 @@ func assertStatusUsesSentinelIcons(t *testing.T, rendered string) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
 	}
-	for _, old := range []string{"●", "[copy]", "#42", "@gpu", "⚡", "Z task"} {
+	for _, old := range []string{"●", "[pane-1]", "[copy]", "#42", "@gpu", "⚡", "Z task"} {
 		if strings.Contains(rendered, old) {
 			t.Fatalf("rendered status still contains old glyph %q:\n%s", old, rendered)
 		}
