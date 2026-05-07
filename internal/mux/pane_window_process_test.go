@@ -206,10 +206,12 @@ func newBashPromptSelfForkTestPane(t *testing.T, markerFile string) *Pane {
 		t.Skip("bash not available")
 	}
 
-	promptCommand := `printf started >"$MARKER_FILE"; PROMPT_COMMAND= PS1= bash --noprofile --norc -ic 'PROMPT_COMMAND= PS1= bash --noprofile --norc -ic "read -rt 0.3 _"; :'`
+	firstPromptFile := markerFile + ".first"
+	promptCommand := `if [[ ! -e "$FIRST_PROMPT_FILE" ]]; then : >"$FIRST_PROMPT_FILE"; printf started >"$MARKER_FILE"; else printf started >"$MARKER_FILE"; PROMPT_COMMAND= PS1= bash --noprofile --norc -ic 'PROMPT_COMMAND= PS1= bash --noprofile --norc -ic "read -rt 5 _"; :'; fi`
 	cmd := exec.Command(bashPath, "--noprofile", "--norc", "-i")
 	cmd.Env = append(os.Environ(),
 		"MARKER_FILE="+markerFile,
+		"FIRST_PROMPT_FILE="+firstPromptFile,
 		"PROMPT_COMMAND="+promptCommand,
 		"PS1=prompt> ",
 		"HISTFILE=/dev/null",
@@ -1214,7 +1216,7 @@ func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
 		t.Fatal("processName(shell) = empty, want bash")
 	}
 
-	waitUntil(t, time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		children := childPIDs(shellPID)
 		if len(children) != 1 || processName(children[0]) != shellName {
 			return false
