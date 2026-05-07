@@ -175,6 +175,7 @@ func statusCellStyleANSIWithProfile(style statusCellStyle, profile termenv.Profi
 func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData, icons IconSet) []paneStatusSegment {
 	icons = normalizeIconSet(icons)
 	idle := !isActive && pd.Idle()
+	paneName := paneStatusNameText(pd.Name(), icons)
 
 	segments := make([]paneStatusSegment, 0, 16)
 
@@ -195,11 +196,11 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 
 	switch {
 	case isActive:
-		segments = appendPaneStatusSegment(segments, "["+pd.Name()+"]", paneStatusSegmentPaneBold)
+		segments = appendPaneStatusSegment(segments, paneName, paneStatusSegmentPaneBold)
 	case idle:
-		segments = appendPaneStatusSegment(segments, "["+pd.Name()+"]", paneStatusSegmentDim)
+		segments = appendPaneStatusSegment(segments, paneName, paneStatusSegmentDim)
 	default:
-		segments = appendPaneStatusSegment(segments, "["+pd.Name()+"]", paneStatusSegmentText)
+		segments = appendPaneStatusSegment(segments, paneName, paneStatusSegmentText)
 	}
 
 	if pd.IsLead() {
@@ -326,6 +327,7 @@ func trimPaneStatusSegmentsRight(segments []paneStatusSegment) []paneStatusSegme
 func buildPowerlinePaneStatusCells(cellWidth int, isActive, pressed bool, pd PaneData, icons IconSet) []styledStatusCell {
 	baseBg := statusBarBaseBgHex(pressed)
 	paneColor := paneStatusColorHex(pd)
+	icons = powerlinePaneStatusIcons(icons)
 	segments := buildPaneStatusSegmentsWithIcons(cellWidth, isActive, pd, icons)
 	cells := make([]styledStatusCell, 0, cellWidth)
 
@@ -653,9 +655,21 @@ func paneStatusTaskText(task string, icons IconSet) string {
 	return icons.Task + " " + task
 }
 
+func paneStatusNameText(name string, icons IconSet) string {
+	icons = normalizeIconSet(icons)
+	return icons.PaneNameOpen + name + icons.PaneNameClose
+}
+
+func powerlinePaneStatusIcons(icons IconSet) IconSet {
+	icons = normalizeIconSet(icons)
+	icons.PaneNameOpen = ""
+	icons.PaneNameClose = ""
+	return icons
+}
+
 func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, icons IconSet) int {
 	icons = normalizeIconSet(icons)
-	usedWidth := runewidth.StringWidth(paneStatusStateIcon(isActive, pd, icons)) + 1 + runewidth.StringWidth(pd.Name()) + 2 // "● [name]"
+	usedWidth := runewidth.StringWidth(paneStatusStateIcon(isActive, pd, icons)) + 1 + runewidth.StringWidth(paneStatusNameText(pd.Name(), icons))
 	if pd.IsLead() {
 		usedWidth += 7 // " [lead]"
 	}

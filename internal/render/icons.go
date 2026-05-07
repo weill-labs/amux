@@ -11,6 +11,8 @@ type IconSet struct {
 	PaneLead      string
 	PaneEscalated string
 	PaneStuck     string
+	PaneNameOpen  string
+	PaneNameClose string
 	RemoteHost    string
 	PR            string
 	Issue         string
@@ -49,6 +51,8 @@ func UnicodeIconSet() IconSet {
 		PaneLead:      "▶",
 		PaneEscalated: "◆",
 		PaneStuck:     "◈",
+		PaneNameOpen:  "[",
+		PaneNameClose: "]",
 		RemoteHost:    "@",
 		PR:            "#",
 		Issue:         "",
@@ -69,6 +73,8 @@ func ASCIIIconSet() IconSet {
 		PaneLead:      ">",
 		PaneEscalated: "!",
 		PaneStuck:     "x",
+		PaneNameOpen:  "[",
+		PaneNameClose: "]",
 		RemoteHost:    "@",
 		PR:            "#",
 		Issue:         "I",
@@ -89,6 +95,8 @@ func NerdFontIconSet() IconSet {
 		PaneLead:      "\ueb59",
 		PaneEscalated: "\uea6c",
 		PaneStuck:     "\ueaaf",
+		PaneNameOpen:  "[",
+		PaneNameClose: "]",
 		RemoteHost:    "\ueb50",
 		PR:            "\uf407",
 		Issue:         "\uf41b",

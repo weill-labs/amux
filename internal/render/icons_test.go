@@ -83,6 +83,8 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 		PaneLead:      "L",
 		PaneEscalated: "E",
 		PaneStuck:     "S",
+		PaneNameOpen:  "{",
+		PaneNameClose: "}",
 		RemoteHost:    "R",
 		PR:            "P",
 		Issue:         "J",
@@ -119,7 +121,7 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 func assertStatusUsesSentinelIcons(t *testing.T, rendered string) {
 	t.Helper()
 
-	for _, want := range []string{"A", "C /query", "P42", "JLAB-1647", "Rgpu", "Z", "T task"} {
+	for _, want := range []string{"A", "{pane-1}", "C /query", "P42", "JLAB-1647", "Rgpu", "Z", "T task"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
@@ -135,12 +137,14 @@ func TestNerdFontIconSetUsesPublishedGlyphs(t *testing.T) {
 	t.Parallel()
 
 	want := IconSet{
-		PaneIdle:      "\uebb5",     // nf-cod-circle_large
-		PaneActive:    "\uebb4",     // nf-cod-circle_large_filled
-		PaneBusy:      "\ueb31",     // nf-cod-pulse
-		PaneLead:      "\ueb59",     // nf-cod-star_full
-		PaneEscalated: "\uea6c",     // nf-cod-warning
-		PaneStuck:     "\ueaaf",     // nf-cod-bug
+		PaneIdle:      "\uebb5", // nf-cod-circle_large
+		PaneActive:    "\uebb4", // nf-cod-circle_large_filled
+		PaneBusy:      "\ueb31", // nf-cod-pulse
+		PaneLead:      "\ueb59", // nf-cod-star_full
+		PaneEscalated: "\uea6c", // nf-cod-warning
+		PaneStuck:     "\ueaaf", // nf-cod-bug
+		PaneNameOpen:  "[",
+		PaneNameClose: "]",
 		RemoteHost:    "\ueb50",     // nf-cod-server
 		PR:            "\uf407",     // nf-oct-git_pull_request
 		Issue:         "\uf41b",     // nf-oct-issue_opened
@@ -268,6 +272,8 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 		"PaneLead":      ascii.PaneLead,
 		"PaneEscalated": ascii.PaneEscalated,
 		"PaneStuck":     ascii.PaneStuck,
+		"PaneNameOpen":  ascii.PaneNameOpen,
+		"PaneNameClose": ascii.PaneNameClose,
 		"RemoteHost":    ascii.RemoteHost,
 		"PR":            ascii.PR,
 		"Issue":         ascii.Issue,
