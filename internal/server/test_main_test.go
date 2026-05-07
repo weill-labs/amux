@@ -1,0 +1,80 @@
+package server
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+const serverSplitCountChildEnv = "AMUX_SERVER_SPLIT_COUNT_CHILD"
+
+func TestMain(m *testing.M) {
+	flag.Parse()
+
+	count := currentTestCount()
+	if count > 1 && os.Getenv(serverSplitCountChildEnv) != "1" {
+		os.Exit(runServerTestCountInChildren(count))
+	}
+
+	os.Exit(m.Run())
+}
+
+func currentTestCount() int {
+	countFlag := flag.Lookup("test.count")
+	if countFlag == nil {
+		return 1
+	}
+	count, err := strconv.Atoi(countFlag.Value.String())
+	if err != nil || count < 1 {
+		return 1
+	}
+	return count
+}
+
+func runServerTestCountInChildren(count int) int {
+	args := serverTestArgsWithCount(os.Args[1:], 1)
+	for i := 0; i < count; i++ {
+		cmd := exec.Command(os.Args[0], args...)
+		cmd.Env = append(os.Environ(),
+			serverSplitCountChildEnv+"=1",
+			fmt.Sprintf("AMUX_SERVER_SPLIT_COUNT_INDEX=%d", i+1),
+		)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "server test iteration %d/%d failed: %v\n", i+1, count, err)
+			return 1
+		}
+	}
+	return 0
+}
+
+func serverTestArgsWithCount(args []string, count int) []string {
+	next := make([]string, 0, len(args)+1)
+	replaced := false
+	countArg := "-test.count=" + strconv.Itoa(count)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-test.count" || arg == "--test.count":
+			next = append(next, countArg)
+			replaced = true
+			if i+1 < len(args) {
+				i++
+			}
+		case strings.HasPrefix(arg, "-test.count=") || strings.HasPrefix(arg, "--test.count="):
+			next = append(next, countArg)
+			replaced = true
+		default:
+			next = append(next, arg)
+		}
+	}
+	if !replaced {
+		next = append(next, countArg)
+	}
+	return next
+}
