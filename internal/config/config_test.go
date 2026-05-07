@@ -353,6 +353,57 @@ local_echo_style = "underline"
 	}
 }
 
+func TestLoadThemeStatusStyle(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `
+[theme]
+status_style = "powerline"
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.EffectiveStatusStyle(); got != "powerline" {
+		t.Fatalf("EffectiveStatusStyle() = %q, want powerline", got)
+	}
+}
+
+func TestEffectiveStatusStyleDefaultsToCompact(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{}
+	if got := cfg.EffectiveStatusStyle(); got != "compact" {
+		t.Fatalf("EffectiveStatusStyle() = %q, want compact", got)
+	}
+}
+
+func TestLoadRejectsInvalidThemeStatusStyle(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `
+[theme]
+status_style = "fancy"
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), `status_style must be one of "compact", "plain", or "powerline"`) {
+		t.Fatalf("Load() error = %v, want invalid status_style message", err)
+	}
+}
+
 func TestLoadRejectsInvalidClientLocalEcho(t *testing.T) {
 	t.Parallel()
 

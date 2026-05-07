@@ -650,6 +650,40 @@ func TestBuildStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
 	}
 }
 
+func TestBuildPowerlineStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
+	t.Parallel()
+
+	const paneWidth = 24
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, paneWidth, 4)
+	grid := NewScreenGrid(paneWidth+1, 4)
+	grid.Set(paneWidth, 0, ScreenCell{Char: "│", Width: 1})
+	buildStatusCellsPressedWithIconsAndStyle(grid, cell, true, false, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		task:  "sync-build-with-a-very-long-name",
+		color: config.TextColorHex,
+	}, DefaultIconSet(), "powerline")
+
+	var row strings.Builder
+	for x := 0; x < paneWidth; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	line := strings.TrimRight(row.String(), " ")
+	if !strings.Contains(line, "sync") {
+		t.Fatalf("status row %q should keep the task prefix", line)
+	}
+	if !strings.Contains(line, "…") {
+		t.Fatalf("status row %q should include an ellipsis when clipped", line)
+	}
+	if got := grid.Get(paneWidth, 0).Char; got != "│" {
+		t.Fatalf("cell past pane edge = %q, want sentinel border", got)
+	}
+}
+
 func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
 	t.Parallel()
 
