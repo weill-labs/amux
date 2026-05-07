@@ -109,6 +109,16 @@ type ClientConfig struct {
 	LocalEchoStyle string `toml:"local_echo_style"`
 }
 
+const (
+	StatusStyleCompact   = "compact"
+	StatusStylePlain     = "plain"
+	StatusStylePowerline = "powerline"
+)
+
+type ThemeConfig struct {
+	StatusStyle string `toml:"status_style"`
+}
+
 type TransportConfig struct {
 	Preference []string `toml:"preference"`
 }
@@ -118,6 +128,7 @@ type Config struct {
 	ScrollbackLines *int            `toml:"scrollback_lines"`
 	Debug           DebugConfig     `toml:"debug"`
 	Client          ClientConfig    `toml:"client"`
+	Theme           ThemeConfig     `toml:"theme"`
 	Transport       TransportConfig `toml:"transport"`
 	Hosts           map[string]Host `toml:"hosts"`
 }
@@ -181,6 +192,9 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, err
 	}
 	if _, err := ResolveLocalEchoStyle(cfg.Client.LocalEchoStyle); err != nil {
+		return nil, err
+	}
+	if _, err := ResolveStatusStyle(cfg.Theme.StatusStyle); err != nil {
 		return nil, err
 	}
 
@@ -296,6 +310,17 @@ func ResolveLocalEchoStyle(style string) (string, error) {
 	}
 }
 
+func ResolveStatusStyle(style string) (string, error) {
+	switch style {
+	case "", StatusStyleCompact:
+		return StatusStyleCompact, nil
+	case StatusStylePlain, StatusStylePowerline:
+		return style, nil
+	default:
+		return "", fmt.Errorf(`status_style must be one of "compact", "plain", or "powerline"`)
+	}
+}
+
 func (c *Config) EffectiveLocalEchoMode() string {
 	if c == nil {
 		return "auto"
@@ -314,6 +339,17 @@ func (c *Config) EffectiveLocalEchoStyle() string {
 	style, err := ResolveLocalEchoStyle(c.Client.LocalEchoStyle)
 	if err != nil {
 		return "dim"
+	}
+	return style
+}
+
+func (c *Config) EffectiveStatusStyle() string {
+	if c == nil {
+		return StatusStyleCompact
+	}
+	style, err := ResolveStatusStyle(c.Theme.StatusStyle)
+	if err != nil {
+		return StatusStyleCompact
 	}
 	return style
 }

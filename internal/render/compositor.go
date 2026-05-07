@@ -48,6 +48,7 @@ type Compositor struct {
 	prevCursor        cursorRenderState
 	colorProfile      termenv.Profile
 	iconSet           IconSet
+	statusStyle       string
 }
 
 type cursorRenderState struct {
@@ -77,6 +78,7 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 		sessionName:  sessionName,
 		colorProfile: defaultColorProfile,
 		iconSet:      DefaultIconSet(),
+		statusStyle:  config.StatusStyleCompact,
 	}
 }
 
@@ -137,6 +139,23 @@ func (c *Compositor) SetIconSet(icons IconSet) {
 // IconSet reports the compositor's current human-facing status glyphs.
 func (c *Compositor) IconSet() IconSet {
 	return normalizeIconSet(c.iconSet)
+}
+
+// SetStatusStyle updates the human-facing status bar preset used by the compositor.
+func (c *Compositor) SetStatusStyle(style string) {
+	style = normalizeStatusStyle(style)
+	if c.statusStyle == style {
+		return
+	}
+	c.statusStyle = style
+	c.prevGrid = nil
+	c.prevGridLayoutKey = ""
+	c.prevCursor = cursorRenderState{}
+}
+
+// StatusStyle reports the compositor's current human-facing status bar preset.
+func (c *Compositor) StatusStyle() string {
+	return normalizeStatusStyle(c.statusStyle)
 }
 
 // LayoutHeight returns the height available for the layout tree
@@ -204,7 +223,7 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 		pressed := overlay.IsPanePressed(pid)
 
 		// Per-pane status line
-		renderPaneStatusPressedWithProfileAndIcons(&buf, cell, isActive, pressed, pd, c.colorProfile, c.IconSet())
+		renderPaneStatusPressedWithProfileAndIconsAndStyle(&buf, cell, isActive, pressed, pd, c.colorProfile, c.IconSet(), c.StatusStyle())
 
 		// Pane content (shifted down by status line)
 		c.renderPaneContentWithLayoutHeight(&buf, cell, isActive, pd, layoutHeight)
@@ -229,7 +248,7 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 	}
 
 	// Global status bar at bottom
-	renderGlobalBarWithProfile(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.colorProfile)
+	renderGlobalBarWithProfileAndStyle(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.colorProfile, c.StatusStyle())
 	if overlay.WindowDropIndicator != nil {
 		renderWindowDropIndicator(&buf, overlay.WindowDropIndicator, c.height-1, c.colorProfile)
 	}

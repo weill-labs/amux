@@ -562,6 +562,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	// Client-side renderer with per-pane emulators
 	cr := newAttachClientRenderer(cols, rows, scrollbackLines, stdout, processEnviron{}, termenv.WithTTY(true))
 	cr.SetCapabilities(negotiatedAttachCaps)
+	cr.SetStatusStyle(cfg.EffectiveStatusStyle())
 	cr.ConfigureLocalEcho(cfg.EffectiveLocalEchoMode(), cfg.EffectiveLocalEchoStyle())
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{

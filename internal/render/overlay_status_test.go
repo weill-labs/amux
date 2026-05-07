@@ -650,6 +650,265 @@ func TestBuildStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
 	}
 }
 
+func TestBuildPowerlineStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
+	t.Parallel()
+
+	const paneWidth = 24
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, paneWidth, 4)
+	grid := NewScreenGrid(paneWidth+1, 4)
+	grid.Set(paneWidth, 0, ScreenCell{Char: "│", Width: 1})
+	buildStatusCellsPressedWithIconsAndStyle(grid, cell, true, false, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		task:  "sync-build-with-a-very-long-name",
+		color: config.TextColorHex,
+	}, DefaultIconSet(), "powerline")
+
+	var row strings.Builder
+	for x := 0; x < paneWidth; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	line := strings.TrimRight(row.String(), " ")
+	if !strings.Contains(line, "sync") {
+		t.Fatalf("status row %q should keep the task prefix", line)
+	}
+	if !strings.Contains(line, "…") {
+		t.Fatalf("status row %q should include an ellipsis when clipped", line)
+	}
+	if got := grid.Get(paneWidth, 0).Char; got != "│" {
+		t.Fatalf("cell past pane edge = %q, want sentinel border", got)
+	}
+}
+
+func TestBuildPowerlineStatusCellsUsesSeparatorColorTransitions(t *testing.T) {
+	t.Parallel()
+
+	const paneWidth = 48
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, paneWidth, 4)
+	grid := NewScreenGrid(paneWidth, 4)
+	buildStatusCellsPressedWithIconsAndStyle(grid, cell, true, false, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		host:  "gpu",
+		task:  "build",
+		color: config.AccentColor(0),
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
+	}, DefaultIconSet(), "powerline")
+
+	separators := powerlineSeparatorCells(grid, paneWidth)
+	if len(separators) < 3 {
+		t.Fatalf("powerline status row has %d separators, want at least 3", len(separators))
+	}
+
+	assertCellColors(t, separators[0], config.AccentColor(0), config.Surface1Hex)
+	assertCellColors(t, separators[1], config.Surface1Hex, config.GreenHex)
+	assertCellColors(t, separators[2], config.GreenHex, config.Surface1Hex)
+}
+
+func TestRenderPaneStatusPowerlineFullANSI(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 64, 4)
+	buf := strings.Builder{}
+	renderPaneStatusPressedWithProfileAndIconsAndStyle(&buf, cell, true, true, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		host:  "gpu",
+		task:  "build",
+		color: config.AccentColor(0),
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-1651"},
+		},
+	}, defaultColorProfile, DefaultIconSet(), config.StatusStylePowerline)
+
+	raw := buf.String()
+	if !strings.Contains(raw, powerlineRightSeparator) {
+		t.Fatalf("raw status output missing powerline separator:\n%q", raw)
+	}
+	if !strings.Contains(raw, bgHexSequence(config.Surface1Hex, defaultColorProfile)) {
+		t.Fatalf("pressed powerline status should use pressed background in ANSI:\n%q", raw)
+	}
+
+	line := MaterializeGrid(raw, cell.W, 1)
+	for _, want := range []string{"[pane-1]", "LAB-1651", "@gpu", "build", powerlineRightSeparator} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("powerline status line %q missing %q", line, want)
+		}
+	}
+}
+
+func TestBuildPowerlineStatusCellsStylesCompletedMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 64, 4)
+	grid := NewScreenGrid(64, 4)
+	buildStatusCellsPressedWithIconsAndStyle(grid, cell, true, false, &statusPaneData{
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42, Status: proto.TrackedStatusCompleted},
+			{Number: 314, Status: proto.TrackedStatusActive},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-450", Status: proto.TrackedStatusCompleted},
+		},
+		color: config.TextColorHex,
+	}, DefaultIconSet(), config.StatusStylePowerline)
+
+	for _, token := range []string{"#42", "LAB-450"} {
+		start := findRowLabel(grid, 0, cell.W, token)
+		if start < 0 {
+			t.Fatalf("status row %q missing %q", gridRowText(grid, 0, cell.W), token)
+		}
+		for offset := 0; offset < len([]rune(token)); offset++ {
+			if grid.Get(start+offset, 0).Style.Attrs&uv.AttrStrikethrough == 0 {
+				t.Fatalf("cell %q at x=%d should be strikethrough", token, start+offset)
+			}
+		}
+	}
+
+	start := findRowLabel(grid, 0, cell.W, "#314")
+	if start < 0 {
+		t.Fatalf("status row %q missing %q", gridRowText(grid, 0, cell.W), "#314")
+	}
+	for offset := 0; offset < len("#314"); offset++ {
+		if grid.Get(start+offset, 0).Style.Attrs&uv.AttrStrikethrough != 0 {
+			t.Fatalf("active metadata cell at x=%d should not be strikethrough", start+offset)
+		}
+	}
+}
+
+func TestPowerlineStatusHelpers(t *testing.T) {
+	t.Parallel()
+
+	if got := normalizeStatusStyle("made-up"); got != config.StatusStyleCompact {
+		t.Fatalf("normalizeStatusStyle invalid = %q, want compact", got)
+	}
+	if got := statusBarBaseBgHex(true); got != config.Surface1Hex {
+		t.Fatalf("statusBarBaseBgHex(true) = %q, want %q", got, config.Surface1Hex)
+	}
+	if got := alternatePowerlineBgHex(config.Surface1Hex); got != config.Surface0Hex {
+		t.Fatalf("alternatePowerlineBgHex(surface1) = %q, want %q", got, config.Surface0Hex)
+	}
+
+	segments := []paneStatusSegment{
+		{text: " ", role: paneStatusSegmentBackground},
+		{text: "name", role: paneStatusSegmentPaneBold},
+		{text: " ", role: paneStatusSegmentBackground},
+		{text: "", role: paneStatusSegmentText},
+	}
+	if _, ok := previousVisiblePaneStatusRole(segments, 0); ok {
+		t.Fatal("first segment should not have a previous visible role")
+	}
+	if got, ok := nextVisiblePaneStatusRole(segments, 0); !ok || got != paneStatusSegmentPaneBold {
+		t.Fatalf("next role = (%v, %v), want pane bold", got, ok)
+	}
+	if _, ok := nextVisiblePaneStatusRole(segments, len(segments)-1); ok {
+		t.Fatal("last segment should not have a next visible role")
+	}
+	if got, ok := lastVisiblePaneStatusRole(segments); !ok || got != paneStatusSegmentPaneBold {
+		t.Fatalf("last role = (%v, %v), want pane bold", got, ok)
+	}
+	if _, ok := lastVisiblePaneStatusRole([]paneStatusSegment{{text: " ", role: paneStatusSegmentBackground}}); ok {
+		t.Fatal("background-only segments should not have a visible role")
+	}
+
+	for _, tt := range []struct {
+		role paneStatusSegmentRole
+		want string
+	}{
+		{role: paneStatusSegmentDim, want: config.DimColorHex},
+		{role: paneStatusSegmentYellow, want: config.YellowHex},
+		{role: paneStatusSegmentRed, want: config.RedHex},
+		{role: paneStatusSegmentBackground, want: config.Surface0Hex},
+	} {
+		if got := panePowerlineRoleBgHex(tt.role, config.BlueHex, config.Surface0Hex); got != tt.want {
+			t.Fatalf("panePowerlineRoleBgHex(%v) = %q, want %q", tt.role, got, tt.want)
+		}
+	}
+
+	cells := appendStyledStatusCells(nil, "⚡", statusCellStyle{fgHex: config.GreenHex, bgHex: config.Surface0Hex})
+	if len(cells) != 2 || cells[0].width != 2 || cells[1].width != 0 {
+		t.Fatalf("wide status cells = %+v, want visible cell and continuation", cells)
+	}
+	cells = append(cells, styledStatusCell{char: "skip", width: 0})
+	var buf strings.Builder
+	writeStyledStatusCellsWithProfile(&buf, cells, defaultColorProfile)
+	if strings.Contains(buf.String(), "skip") {
+		t.Fatalf("width-zero status cell should not be written: %q", buf.String())
+	}
+
+	ansiStyle := statusCellStyleANSIWithProfile(statusCellStyle{
+		fgHex:         config.TextColorHex,
+		bgHex:         config.Surface0Hex,
+		bold:          true,
+		strikethrough: true,
+	}, defaultColorProfile)
+	for _, want := range []string{Bold, StrikeOn} {
+		if !strings.Contains(ansiStyle, want) {
+			t.Fatalf("status style ANSI %q missing %q", ansiStyle, want)
+		}
+	}
+
+	narrow := buildPowerlinePaneStatusCells(2, true, false, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		color: config.TextColorHex,
+	}, DefaultIconSet())
+	if len(narrow) != 2 {
+		t.Fatalf("narrow powerline cells len = %d, want 2", len(narrow))
+	}
+}
+
+func powerlineSeparatorCells(grid *ScreenGrid, width int) []ScreenCell {
+	var cells []ScreenCell
+	for x := 0; x < width; x++ {
+		cell := grid.Get(x, 0)
+		if cell.Char == powerlineRightSeparator {
+			cells = append(cells, cell)
+		}
+	}
+	return cells
+}
+
+func assertCellColors(t *testing.T, cell ScreenCell, wantFgHex, wantBgHex string) {
+	t.Helper()
+
+	wantFg := hexToColor(wantFgHex)
+	gotFg, ok := cell.Style.Fg.(interface {
+		RGBA() (uint32, uint32, uint32, uint32)
+	})
+	if !ok || !sameColor(gotFg, wantFg) {
+		t.Fatalf("separator fg = %v, want %s", cell.Style.Fg, wantFgHex)
+	}
+
+	wantBg := hexToColor(wantBgHex)
+	gotBg, ok := cell.Style.Bg.(interface {
+		RGBA() (uint32, uint32, uint32, uint32)
+	})
+	if !ok || !sameColor(gotBg, wantBg) {
+		t.Fatalf("separator bg = %v, want %s", cell.Style.Bg, wantBgHex)
+	}
+}
+
+func gridRowText(grid *ScreenGrid, y, width int) string {
+	var row strings.Builder
+	for x := 0; x < width; x++ {
+		ch := grid.Get(x, y).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	return row.String()
+}
+
 func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
 	t.Parallel()
 
@@ -829,6 +1088,96 @@ func TestBuildGlobalBarCellsColorsActiveTab(t *testing.T) {
 		if !ok || !sameColor(got, wantInactive) {
 			t.Fatalf("inactive tab cell %q should use the default text color", cell.Char)
 		}
+	}
+}
+
+func TestBuildGlobalBarCellsPowerline(t *testing.T) {
+	t.Parallel()
+
+	const width = 64
+	grid := NewScreenGrid(width, 2)
+	buildGlobalBarCellsWithStyle(grid, "session", 3, width, 1, []WindowInfo{
+		{Index: 1, Name: "editor", IsActive: true},
+		{Index: 2, Name: "logs", IsActive: false},
+	}, "", time.Date(2025, 1, 1, 12, 34, 0, 0, time.UTC), config.StatusStylePowerline)
+
+	row := gridRowText(grid, 1, width)
+	for _, want := range []string{"amux", powerlineRightSeparator, "1:editor", "2:logs", powerlineLeftSeparator, "? help", "12:34"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("powerline global bar row %q missing %q", row, want)
+		}
+	}
+
+	titleEnd := findRowLabel(grid, 1, width, powerlineRightSeparator)
+	if titleEnd < 0 {
+		t.Fatalf("powerline global bar row %q missing title separator", row)
+	}
+	assertCellColors(t, grid.Get(titleEnd, 1), config.BlueHex, config.Surface0Hex)
+}
+
+func TestRenderGlobalBarPowerlineFullANSI(t *testing.T) {
+	t.Parallel()
+
+	var buf strings.Builder
+	renderGlobalBarWithProfileAndStyle(&buf, "session", 2, 42, 0, nil, "error details that must truncate", time.Date(2025, 1, 1, 12, 34, 0, 0, time.UTC), defaultColorProfile, config.StatusStylePowerline)
+
+	raw := buf.String()
+	if !strings.Contains(raw, powerlineRightSeparator) {
+		t.Fatalf("raw global bar output missing powerline separator:\n%q", raw)
+	}
+	if !strings.Contains(raw, fgHexSequence(config.RedHex, defaultColorProfile)) {
+		t.Fatalf("message powerline global bar should use error foreground:\n%q", raw)
+	}
+
+	line := MaterializeGrid(raw, 42, 1)
+	for _, want := range []string{"amux", "session", "error details"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("powerline global bar line %q missing %q", line, want)
+		}
+	}
+}
+
+func TestCompositorSetStatusStyleInvalidatesGrid(t *testing.T) {
+	t.Parallel()
+
+	comp := NewCompositor(20, 6, "status")
+	root := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 20, 5)
+	lookup := func(uint32) PaneData {
+		return &statusPaneData{id: 1, name: "pane-1", color: config.TextColorHex}
+	}
+
+	comp.RenderDiff(root, 1, lookup)
+	if comp.LastGrid() == nil {
+		t.Fatal("RenderDiff should populate prevGrid")
+	}
+	comp.SetStatusStyle(config.StatusStyleCompact)
+	if comp.LastGrid() == nil {
+		t.Fatal("setting the current status style should keep prevGrid")
+	}
+
+	comp.SetStatusStyle(config.StatusStylePowerline)
+	if got := comp.StatusStyle(); got != config.StatusStylePowerline {
+		t.Fatalf("StatusStyle() = %q, want %q", got, config.StatusStylePowerline)
+	}
+	if comp.LastGrid() != nil {
+		t.Fatal("changing status style should invalidate prevGrid")
+	}
+
+	comp.RenderDiff(root, 1, lookup)
+	if comp.LastGrid() == nil {
+		t.Fatal("RenderDiff should repopulate prevGrid")
+	}
+	comp.SetStatusStyle(config.StatusStylePowerline)
+	if comp.LastGrid() == nil {
+		t.Fatal("setting the unchanged powerline status style should keep prevGrid")
+	}
+
+	comp.SetStatusStyle("invalid")
+	if got := comp.StatusStyle(); got != config.StatusStyleCompact {
+		t.Fatalf("invalid status style should normalize to compact, got %q", got)
+	}
+	if comp.LastGrid() != nil {
+		t.Fatal("normalizing to a different status style should invalidate prevGrid")
 	}
 }
 
