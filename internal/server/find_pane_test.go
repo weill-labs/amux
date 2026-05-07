@@ -94,20 +94,20 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	sess := srv.sessions["test-kill-orphan"]
 
 	// Create pane-1 in a window (the normal, non-orphaned pane).
-	pane1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	pane1.Start()
+	pane1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := mux.NewWindow(pane1, 80, 24)
-	w.ID = sess.windowCounter.Add(1)
-	w.Name = "window-1"
-	sess.Windows = append(sess.Windows, w)
-	sess.ActiveWindowID = w.ID
+	mustSessionMutation(t, sess, func(sess *Session) {
+		w.ID = sess.windowCounter.Add(1)
+		w.Name = "window-1"
+		sess.Windows = append(sess.Windows, w)
+		sess.ActiveWindowID = w.ID
+	})
 
 	// Create an orphaned pane: add to flat registry but NOT to any window layout.
 	// This simulates a dormant SSH takeover pane or a pane orphaned by a race.
-	orphanID := sess.counter.Add(1)
+	orphanID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.counter.Add(1)
+	})
 	orphanPane := newProxyPane(orphanID, mux.PaneMeta{
 		Name: "orphan-pane", Host: "remote", Color: "f5e0dc",
 	}, 80, 23,
@@ -115,7 +115,9 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
-	sess.Panes = append(sess.Panes, orphanPane)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = append(sess.Panes, orphanPane)
+	})
 
 	// Verify the orphan is in the flat registry but not in any layout tree.
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {

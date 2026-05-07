@@ -65,19 +65,19 @@ func TestCmdListShowsDormant(t *testing.T) {
 	sess := srv.sessions["test-list-dormant"]
 
 	// Create pane-1 in a window.
-	pane1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	pane1.Start()
+	pane1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := mux.NewWindow(pane1, 80, 24)
-	w.ID = sess.windowCounter.Add(1)
-	w.Name = "window-1"
-	sess.Windows = append(sess.Windows, w)
-	sess.ActiveWindowID = w.ID
+	mustSessionMutation(t, sess, func(sess *Session) {
+		w.ID = sess.windowCounter.Add(1)
+		w.Name = "window-1"
+		sess.Windows = append(sess.Windows, w)
+		sess.ActiveWindowID = w.ID
+	})
 
 	// Add a dormant pane.
-	dormantID := sess.counter.Add(1)
+	dormantID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.counter.Add(1)
+	})
 	dormantPane := newProxyPane(dormantID, mux.PaneMeta{
 		Name: "ssh-conn", Dormant: true, Color: "f5e0dc",
 	}, 80, 23,
@@ -85,7 +85,9 @@ func TestCmdListShowsDormant(t *testing.T) {
 		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
-	sess.Panes = append(sess.Panes, dormantPane)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = append(sess.Panes, dormantPane)
+	})
 
 	// Run the list command via net.Pipe.
 	serverConn, peerConn := net.Pipe()

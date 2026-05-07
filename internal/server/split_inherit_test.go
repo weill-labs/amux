@@ -24,19 +24,19 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	sess := srv.sessions["test-inherit"]
 
 	// Create pane-1 + window
-	pane1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	pane1.Start()
+	pane1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := mux.NewWindow(pane1, 80, 24)
-	w.ID = sess.windowCounter.Add(1)
-	w.Name = "window-1"
-	sess.Windows = append(sess.Windows, w)
-	sess.ActiveWindowID = w.ID
+	mustSessionMutation(t, sess, func(sess *Session) {
+		w.ID = sess.windowCounter.Add(1)
+		w.Name = "window-1"
+		sess.Windows = append(sess.Windows, w)
+		sess.ActiveWindowID = w.ID
+	})
 
 	// Create a proxy pane simulating a remote connection
-	proxyID := sess.counter.Add(1)
+	proxyID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.counter.Add(1)
+	})
 	proxyPane := newProxyPane(proxyID, mux.PaneMeta{
 		Name: "pane-2", Host: "gpu-server", Color: "f5e0dc",
 	}, 40, 23,
@@ -44,11 +44,18 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
-	sess.Panes = append(sess.Panes, proxyPane)
-	if _, err := w.Split(mux.SplitHorizontal, proxyPane); err != nil {
-		t.Fatalf("Split: %v", err)
+	var splitErr error
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = append(sess.Panes, proxyPane)
+		_, splitErr = w.Split(mux.SplitHorizontal, proxyPane)
+		if splitErr != nil {
+			return
+		}
+		w.FocusPane(proxyPane) // make proxy pane active
+	})
+	if splitErr != nil {
+		t.Fatalf("Split: %v", splitErr)
 	}
-	w.FocusPane(proxyPane) // make proxy pane active
 
 	// Send the split command through handleCommand with a pipe to capture the response.
 	// handleCommand may send layout broadcasts before the cmd result, so drain

@@ -255,17 +255,11 @@ func TestQueuedCommandNewWindow(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	p1.Start()
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "new-window", "--name", "second")
@@ -294,17 +288,11 @@ func TestQueuedCommandSpawnLocal(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	p1.Start()
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "spawn", "--name", "worker-1", "--task", "build")
@@ -344,15 +332,9 @@ func TestQueuedCommandSpawnDoesNotBlockEventLoopWhileLocalPaneBuildRuns(t *testi
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	p1.Start()
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1)
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	buildStarted := make(chan struct{})
 	buildFinished := make(chan struct{})
@@ -530,17 +512,11 @@ func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
-	p1.Start()
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	beforeInject := sess.generation.Load()
 	injectRes := runTestCommand(t, srv, sess, "_inject-proxy", "fake-host")
