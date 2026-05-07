@@ -246,9 +246,9 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 		}
 	}
 
-	if pd.Task() != "" {
+	if taskText := paneStatusTaskText(pd.Task(), icons); taskText != "" {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
-		segments = appendPaneStatusSegment(segments, pd.Task(), paneStatusSegmentText)
+		segments = appendPaneStatusSegment(segments, taskText, paneStatusSegmentText)
 	}
 
 	return clipPaneStatusSegments(segments, cellWidth)
@@ -642,6 +642,17 @@ func truncateRunewidth(s string, maxWidth int) string {
 	return buf.String()
 }
 
+func paneStatusTaskText(task string, icons IconSet) string {
+	if task == "" {
+		return ""
+	}
+	icons = normalizeIconSet(icons)
+	if icons.Task == "" {
+		return task
+	}
+	return icons.Task + " " + task
+}
+
 func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, icons IconSet) int {
 	icons = normalizeIconSet(icons)
 	usedWidth := runewidth.StringWidth(paneStatusStateIcon(isActive, pd, icons)) + 1 + runewidth.StringWidth(pd.Name()) + 2 // "● [name]"
@@ -660,8 +671,8 @@ func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, ico
 	if cs := pd.ConnStatus(); cs != "" {
 		usedWidth += 1 + runewidth.StringWidth(connStatusIcon(cs, icons))
 	}
-	if pd.Task() != "" {
-		usedWidth += 1 + runewidth.StringWidth(pd.Task())
+	if taskText := paneStatusTaskText(pd.Task(), icons); taskText != "" {
+		usedWidth += 1 + runewidth.StringWidth(taskText)
 	}
 	return usedWidth
 }

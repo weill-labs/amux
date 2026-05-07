@@ -435,6 +435,39 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	}
 }
 
+func TestClientRendererCaptureJSONOmitsNerdIconGlyphs(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	icons := render.NerdFontIconSet()
+	snap := singlePane20xN(23)
+	snap.Panes[0].Host = "gpu"
+	snap.Panes[0].Task = "build LAB-1650"
+	snap.Panes[0].ConnStatus = string(proto.Connected)
+	snap.Panes[0].TrackedPRs = []proto.TrackedPR{{Number: 42}}
+	snap.Panes[0].TrackedIssues = []proto.TrackedIssue{{ID: "LAB-1650"}}
+	snap.Windows[0].Panes[0] = snap.Panes[0]
+
+	cr.HandleLayout(snap)
+	cr.HandlePaneOutput(1, []byte("semantic capture"))
+	cr.renderer.withActor(func(st *rendererActorState) {
+		st.compositor.SetIconSet(icons)
+	})
+	cr.RenderDiff()
+
+	jsonOut := cr.CaptureJSON(nil)
+	for _, glyph := range nerdIconGlyphs(icons) {
+		if glyph != "" && strings.Contains(jsonOut, glyph) {
+			t.Fatalf("JSON capture contains Nerd glyph %q:\n%s", glyph, jsonOut)
+		}
+	}
+	for _, want := range []string{`"task": "build LAB-1650"`, `"tracked_prs"`, `"tracked_issues"`, `"conn_status": "connected"`} {
+		if !strings.Contains(jsonOut, want) {
+			t.Fatalf("JSON capture missing semantic field %q:\n%s", want, jsonOut)
+		}
+	}
+}
+
 func TestClientRendererCaptureJSONIncludesTerminalMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -501,6 +534,25 @@ func TestClientRendererCaptureJSONIncludesTerminalMetadata(t *testing.T) {
 	}
 	if got, want := pane.Terminal.Palette[1], captureHexColor(ansi.IndexedColor(1)); got != want {
 		t.Fatalf("palette[1] = %q, want %q", got, want)
+	}
+}
+
+func nerdIconGlyphs(icons render.IconSet) []string {
+	return []string{
+		icons.PaneIdle,
+		icons.PaneActive,
+		icons.PaneBusy,
+		icons.PaneLead,
+		icons.PaneEscalated,
+		icons.PaneStuck,
+		icons.RemoteHost,
+		icons.PR,
+		icons.Issue,
+		icons.Task,
+		icons.CopyMode,
+		icons.Connected,
+		icons.Reconnecting,
+		icons.Disconnected,
 	}
 }
 
