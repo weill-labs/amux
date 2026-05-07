@@ -10,6 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -85,6 +86,7 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 		RemoteHost:    "R",
 		PR:            "P",
 		Issue:         "J",
+		Task:          "T",
 		CopyMode:      "C",
 		Connected:     "Z",
 		Reconnecting:  "Y",
@@ -117,15 +119,121 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 func assertStatusUsesSentinelIcons(t *testing.T, rendered string) {
 	t.Helper()
 
-	for _, want := range []string{"A", "C /query", "P42", "JLAB-1647", "Rgpu", "Z", "task"} {
+	for _, want := range []string{"A", "C /query", "P42", "JLAB-1647", "Rgpu", "Z", "T task"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
 	}
-	for _, old := range []string{"●", "[copy]", "#42", "@gpu", "⚡"} {
+	for _, old := range []string{"●", "[copy]", "#42", "@gpu", "⚡", "Z task"} {
 		if strings.Contains(rendered, old) {
 			t.Fatalf("rendered status still contains old glyph %q:\n%s", old, rendered)
 		}
+	}
+}
+
+func TestNerdFontIconSetUsesPublishedGlyphs(t *testing.T) {
+	t.Parallel()
+
+	want := IconSet{
+		PaneIdle:      "\uebb5",     // nf-cod-circle_large
+		PaneActive:    "\uebb4",     // nf-cod-circle_large_filled
+		PaneBusy:      "\ueb31",     // nf-cod-pulse
+		PaneLead:      "\ueb59",     // nf-cod-star_full
+		PaneEscalated: "\uea6c",     // nf-cod-warning
+		PaneStuck:     "\ueaaf",     // nf-cod-bug
+		RemoteHost:    "\ueb50",     // nf-cod-server
+		PR:            "\uf407",     // nf-oct-git_pull_request
+		Issue:         "\uf41b",     // nf-oct-issue_opened
+		Task:          "\ueb67",     // nf-cod-tasklist
+		CopyMode:      "\ueac0",     // nf-cod-clippy
+		Connected:     "\U000f0c53", // nf-md-check_network
+		Reconnecting:  "\uea77",     // nf-cod-sync
+		Disconnected:  "\U000f0c9b", // nf-md-network_off
+	}
+	if got := NerdFontIconSet(); got != want {
+		t.Fatalf("NerdFontIconSet() = %#v, want %#v", got, want)
+	}
+	for name, value := range iconSetFieldMap(want) {
+		if value == "" {
+			t.Fatalf("NerdFontIconSet().%s is empty", name)
+		}
+		if width := runewidth.StringWidth(value); width != 1 {
+			t.Fatalf("NerdFontIconSet().%s width = %d, want 1", name, width)
+		}
+	}
+}
+
+func TestCompositorUsesNerdFontIconSetForPaneStatusMetadata(t *testing.T) {
+	t.Parallel()
+
+	icons := NerdFontIconSet()
+	root := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 96, 2)
+	pane := &statusPaneData{
+		id:            1,
+		name:          "pane-1",
+		trackedPRs:    []proto.TrackedPR{{Number: 42}},
+		trackedIssues: []proto.TrackedIssue{{ID: "LAB-1650"}},
+		host:          "gpu",
+		task:          "build LAB-1650",
+		color:         config.TextColorHex,
+		connStatus:    string(proto.Connected),
+		copyMode:      true,
+		copySearch:    "/query",
+	}
+	lookup := func(uint32) PaneData { return pane }
+
+	comp := NewCompositor(96, 3, "test")
+	comp.SetIconSet(icons)
+	rendered := MaterializeGrid(comp.RenderFull(root, 1, lookup), 96, 3)
+
+	for _, want := range []string{
+		icons.PaneActive,
+		icons.CopyMode + " /query",
+		icons.PR + "42",
+		icons.Issue + "LAB-1650",
+		icons.RemoteHost + "gpu",
+		icons.Connected,
+		icons.Task + " build LAB-1650",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("Nerd status missing %q:\n%s", want, rendered)
+		}
+	}
+	for _, old := range []string{"●", "[copy]", "#42", "@gpu", "⚡", icons.Connected + " build LAB-1650"} {
+		if strings.Contains(rendered, old) {
+			t.Fatalf("Nerd status still contains fallback marker %q:\n%s", old, rendered)
+		}
+	}
+}
+
+func TestNerdFontPaneStatusClippingKeepsGlyphWidths(t *testing.T) {
+	t.Parallel()
+
+	icons := NerdFontIconSet()
+	root := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 34, 2)
+	pane := &statusPaneData{
+		id:            1,
+		name:          "pane-1",
+		trackedPRs:    []proto.TrackedPR{{Number: 42}},
+		trackedIssues: []proto.TrackedIssue{{ID: "LAB-1650-EXTRA-LONG"}},
+		host:          "remote",
+		task:          "long task name",
+		color:         config.TextColorHex,
+		connStatus:    string(proto.Reconnecting),
+	}
+	comp := NewCompositor(34, 3, "test")
+	comp.SetIconSet(icons)
+	rendered := MaterializeGrid(comp.RenderFull(root, 1, func(uint32) PaneData { return pane }), 34, 3)
+	statusLine := strings.Split(rendered, "\n")[0]
+
+	if width := runewidth.StringWidth(statusLine); width != 34 {
+		t.Fatalf("status line width = %d, want 34:\n%s", width, rendered)
+	}
+	if !strings.Contains(statusLine, "…") {
+		t.Fatalf("status line should be clipped with ellipsis:\n%s", rendered)
+	}
+	if !strings.Contains(statusLine, icons.PaneActive+" [pane-1]") {
+		t.Fatalf("status line missing active Nerd prefix:\n%s", rendered)
 	}
 }
 
@@ -150,6 +258,7 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 		"RemoteHost":    ascii.RemoteHost,
 		"PR":            ascii.PR,
 		"Issue":         ascii.Issue,
+		"Task":          ascii.Task,
 		"CopyMode":      ascii.CopyMode,
 		"Connected":     ascii.Connected,
 		"Reconnecting":  ascii.Reconnecting,
@@ -164,25 +273,13 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 		}
 	}
 
-	nerd := NerdFontIconSet()
-	for name, value := range map[string]string{
-		"PaneIdle":      nerd.PaneIdle,
-		"PaneActive":    nerd.PaneActive,
-		"PaneBusy":      nerd.PaneBusy,
-		"PaneLead":      nerd.PaneLead,
-		"PaneEscalated": nerd.PaneEscalated,
-		"PaneStuck":     nerd.PaneStuck,
-		"RemoteHost":    nerd.RemoteHost,
-		"PR":            nerd.PR,
-		"Issue":         nerd.Issue,
-		"CopyMode":      nerd.CopyMode,
-		"Connected":     nerd.Connected,
-		"Reconnecting":  nerd.Reconnecting,
-		"Disconnected":  nerd.Disconnected,
-	} {
+	for name, value := range iconSetFieldMap(NerdFontIconSet()) {
 		r, size := utf8.DecodeRuneInString(value)
-		if size == 0 || r < '\ue000' || r > '\uf8ff' {
-			t.Fatalf("NerdFontIconSet().%s = %q, want Private Use Area placeholder", name, value)
+		if size == 0 || !isPrivateUseAreaRune(r) {
+			t.Fatalf("NerdFontIconSet().%s = %q, want Nerd Font private-use glyph", name, value)
+		}
+		if width := runewidth.StringWidth(value); width != 1 {
+			t.Fatalf("NerdFontIconSet().%s width = %d, want 1", name, width)
 		}
 	}
 
@@ -207,4 +304,29 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 			t.Fatalf("connStatusIcon(%q) = %q, want %q", status, got, want)
 		}
 	}
+}
+
+func iconSetFieldMap(icons IconSet) map[string]string {
+	return map[string]string{
+		"PaneIdle":      icons.PaneIdle,
+		"PaneActive":    icons.PaneActive,
+		"PaneBusy":      icons.PaneBusy,
+		"PaneLead":      icons.PaneLead,
+		"PaneEscalated": icons.PaneEscalated,
+		"PaneStuck":     icons.PaneStuck,
+		"RemoteHost":    icons.RemoteHost,
+		"PR":            icons.PR,
+		"Issue":         icons.Issue,
+		"Task":          icons.Task,
+		"CopyMode":      icons.CopyMode,
+		"Connected":     icons.Connected,
+		"Reconnecting":  icons.Reconnecting,
+		"Disconnected":  icons.Disconnected,
+	}
+}
+
+func isPrivateUseAreaRune(r rune) bool {
+	return (r >= 0xe000 && r <= 0xf8ff) ||
+		(r >= 0xf0000 && r <= 0xffffd) ||
+		(r >= 0x100000 && r <= 0x10fffd)
 }
