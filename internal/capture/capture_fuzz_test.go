@@ -30,6 +30,7 @@ func FuzzParseArgs(f *testing.F) {
 		"--client",
 		"--client\x00pane-1",
 		"--client\x00--format\x00json",
+		"--display\x00--client",
 		"--display",
 		"--display\x00pane-1",
 		"--ansi\x00--colors",
@@ -103,10 +104,10 @@ func assertCaptureValidationResult(t *testing.T, req Request) (error, error) {
 		if req.ColorMap && req.FormatJSON {
 			t.Fatalf("screen request with mutually exclusive color/json modes validated: %+v", req)
 		}
-		if req.DisplayMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode || req.PaneRef != "") {
+		if req.DisplayMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.ClientMode || req.HistoryMode || req.PaneRef != "") {
 			t.Fatalf("display request with other options validated: %+v", req)
 		}
-		if req.ClientMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode) {
+		if req.ClientMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.DisplayMode || req.HistoryMode) {
 			t.Fatalf("client request with incompatible options validated: %+v", req)
 		}
 		if req.RewrapSpecified {
