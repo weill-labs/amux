@@ -351,8 +351,7 @@ func buildPowerlinePaneStatusCells(cellWidth int, isActive, pressed bool, pd Pan
 		cells = appendStyledStatusCells(cells, segment.text, panePowerlineRoleStyle(segment.role, paneColor, baseBg))
 	}
 
-	used := len(cells)
-	if used < cellWidth {
+	if len(cells) < cellWidth {
 		if lastRole, ok := lastVisiblePaneStatusRole(segments); ok {
 			lastBg := panePowerlineRoleBgHex(lastRole, paneColor, baseBg)
 			if lastBg != baseBg {
@@ -360,7 +359,6 @@ func buildPowerlinePaneStatusCells(cellWidth int, isActive, pressed bool, pd Pan
 					fgHex: lastBg,
 					bgHex: baseBg,
 				})
-				used++
 			}
 		}
 	}
