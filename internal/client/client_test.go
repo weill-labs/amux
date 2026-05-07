@@ -2606,6 +2606,13 @@ func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 	if !strings.Contains(resp.CmdOutput, "no previous grid") {
 		t.Errorf("--display before render should show fallback, got: %q", resp.CmdOutput)
 	}
+	resp = cr.HandleCaptureRequest([]string{"--client"}, nil)
+	if resp.CmdErr != "" {
+		t.Errorf("--client before render error: %s", resp.CmdErr)
+	}
+	if !strings.Contains(resp.CmdOutput, "no previous grid") {
+		t.Errorf("--client before render should show fallback, got: %q", resp.CmdOutput)
+	}
 
 	// After a diff render, --display returns grid content.
 	cr.RenderDiff()
@@ -2631,6 +2638,10 @@ func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 	}
 	if !strings.Contains(resp.CmdOutput, "hello from pane 1") {
 		t.Errorf("--client pane should contain pane content from display snapshot, got: %q", resp.CmdOutput)
+	}
+	resp = cr.HandleCaptureRequest([]string{"--client", "nope"}, nil)
+	if resp.CmdErr == "" || !strings.Contains(resp.CmdErr, `pane "nope" not found`) {
+		t.Errorf("--client missing pane error = %q, want pane not found", resp.CmdErr)
 	}
 
 	// --display is mutually exclusive with other flags.

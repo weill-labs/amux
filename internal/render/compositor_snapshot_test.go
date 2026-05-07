@@ -76,3 +76,45 @@ func TestPrevGridSnapshotClearsWithPrevGridInvalidation(t *testing.T) {
 		t.Fatal("ClearPrevGrid should clear the published prevGrid snapshot")
 	}
 }
+
+func TestPrevGridTextRectCropsPublishedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	comp := NewCompositor(6, 4, "test")
+	grid := NewScreenGrid(6, 4)
+	for y, row := range []string{"abcdef", "ghijkl", "mnopqr", "stuvwx"} {
+		for x, ch := range row {
+			grid.Set(x, y, ScreenCell{Char: string(ch), Width: 1})
+		}
+	}
+
+	comp.publishPrevGridSnapshot(grid)
+	grid.Set(1, 1, ScreenCell{Char: "X", Width: 1})
+
+	if got, want := comp.PrevGridTextRect(1, 1, 3, 2), "hij\nnop"; got != want {
+		t.Fatalf("PrevGridTextRect() = %q, want %q", got, want)
+	}
+	if got, want := comp.PrevGridTextRect(-2, -1, 4, 3), "ab\ngh"; got != want {
+		t.Fatalf("clipped PrevGridTextRect() = %q, want %q", got, want)
+	}
+	if got := comp.PrevGridTextRect(10, 10, 1, 1); got != "" {
+		t.Fatalf("out-of-bounds PrevGridTextRect() = %q, want empty", got)
+	}
+	if got := comp.PrevGridTextRect(0, 0, 0, 1); got != "" {
+		t.Fatalf("zero-width PrevGridTextRect() = %q, want empty", got)
+	}
+
+	blankAndWide := NewScreenGrid(4, 1)
+	blankAndWide.Set(0, 0, ScreenCell{Char: "a", Width: 1})
+	blankAndWide.Set(1, 0, ScreenCell{Width: 1})
+	blankAndWide.Set(2, 0, ScreenCell{Char: "b", Width: 1})
+	blankAndWide.Set(3, 0, ScreenCell{Width: 0})
+	if got, want := gridRectToText(blankAndWide, 0, 0, 4, 1), "a b"; got != want {
+		t.Fatalf("gridRectToText blank/wide row = %q, want %q", got, want)
+	}
+
+	comp.publishPrevGridSnapshot(nil)
+	if got := comp.PrevGridTextRect(0, 0, 1, 1); got != "" {
+		t.Fatalf("cleared PrevGridTextRect() = %q, want empty", got)
+	}
+}

@@ -397,9 +397,6 @@ func (r *Renderer) CaptureDisplayPane(paneID uint32) string {
 		return ""
 	}
 	root, _ := snap.captureRoot(snap.height - render.GlobalBarHeight)
-	if root == nil {
-		return ""
-	}
 	cell := root.FindByPaneID(paneID)
 	if cell == nil {
 		return ""

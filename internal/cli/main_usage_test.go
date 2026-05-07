@@ -105,6 +105,22 @@ func TestMainCaptureHelpIncludesClientFlag(t *testing.T) {
 	}
 }
 
+func TestRunWithRuntimeCaptureHelpPrintsUsageWithoutServer(t *testing.T) {
+	t.Parallel()
+
+	h := newCLIRuntimeHarness()
+	handler := layoutCLICommands()["capture"]
+	if code := handler(invocation{runtime: h.runtime()}, []string{"--help"}); code != 0 {
+		t.Fatalf("capture handler help exit = %d, want 0", code)
+	}
+	if !strings.Contains(h.stdout.String(), "--client") {
+		t.Fatalf("stdout should include --client:\n%s", h.stdout.String())
+	}
+	if len(h.calls) != 0 {
+		t.Fatalf("capture --help should not call runtime, got %#v", h.calls)
+	}
+}
+
 func TestMainMetaCommandsHelpFlagsPrintUsage(t *testing.T) {
 	t.Parallel()
 
