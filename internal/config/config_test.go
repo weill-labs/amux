@@ -383,6 +383,11 @@ func TestEffectiveStatusStyleDefaultsToCompact(t *testing.T) {
 	if got := cfg.EffectiveStatusStyle(); got != "compact" {
 		t.Fatalf("EffectiveStatusStyle() = %q, want compact", got)
 	}
+
+	var nilCfg *Config
+	if got := nilCfg.EffectiveStatusStyle(); got != "compact" {
+		t.Fatalf("nil EffectiveStatusStyle() = %q, want compact", got)
+	}
 }
 
 func TestLoadRejectsInvalidThemeStatusStyle(t *testing.T) {
