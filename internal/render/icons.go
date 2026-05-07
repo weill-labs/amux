@@ -12,6 +12,7 @@ type IconSet struct {
 	RemoteHost    string
 	PR            string
 	Issue         string
+	Task          string
 	CopyMode      string
 	Connected     string
 	Reconnecting  string
@@ -35,6 +36,7 @@ func UnicodeIconSet() IconSet {
 		RemoteHost:    "@",
 		PR:            "#",
 		Issue:         "",
+		Task:          "",
 		CopyMode:      "[copy]",
 		Connected:     "⚡",
 		Reconnecting:  "⟳",
@@ -54,6 +56,7 @@ func ASCIIIconSet() IconSet {
 		RemoteHost:    "@",
 		PR:            "#",
 		Issue:         "I",
+		Task:          "T",
 		CopyMode:      "C",
 		Connected:     "+",
 		Reconnecting:  "~",
@@ -61,22 +64,23 @@ func ASCIIIconSet() IconSet {
 	}
 }
 
-// NerdFontIconSet returns placeholder Private Use Area glyphs for future opt-in use.
+// NerdFontIconSet returns Private Use Area glyphs for opt-in Nerd Font rendering.
 func NerdFontIconSet() IconSet {
 	return IconSet{
-		PaneIdle:      "\uf10c",
-		PaneActive:    "\uf111",
-		PaneBusy:      "\uf013",
-		PaneLead:      "\uf04b",
-		PaneEscalated: "\uf071",
-		PaneStuck:     "\uf188",
-		RemoteHost:    "\uf489",
+		PaneIdle:      "\uebb5",
+		PaneActive:    "\uebb4",
+		PaneBusy:      "\ueb31",
+		PaneLead:      "\ueb59",
+		PaneEscalated: "\uea6c",
+		PaneStuck:     "\ueaaf",
+		RemoteHost:    "\ueb50",
 		PR:            "\uf407",
 		Issue:         "\uf41b",
-		CopyMode:      "\uf0c5",
-		Connected:     "\uf0e7",
-		Reconnecting:  "\uf021",
-		Disconnected:  "\uf00d",
+		Task:          "\ueb67",
+		CopyMode:      "\ueac0",
+		Connected:     "\U000f0c53",
+		Reconnecting:  "\uea77",
+		Disconnected:  "\U000f0c9b",
 	}
 }
 

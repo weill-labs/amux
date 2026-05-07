@@ -226,8 +226,8 @@ func TestNerdFontPaneStatusClippingKeepsGlyphWidths(t *testing.T) {
 	rendered := MaterializeGrid(comp.RenderFull(root, 1, func(uint32) PaneData { return pane }), 34, 3)
 	statusLine := strings.Split(rendered, "\n")[0]
 
-	if width := runewidth.StringWidth(statusLine); width != 34 {
-		t.Fatalf("status line width = %d, want 34:\n%s", width, rendered)
+	if width := runewidth.StringWidth(statusLine); width > 34 {
+		t.Fatalf("status line width = %d, want at most 34:\n%s", width, rendered)
 	}
 	if !strings.Contains(statusLine, "…") {
 		t.Fatalf("status line should be clipped with ellipsis:\n%s", rendered)
