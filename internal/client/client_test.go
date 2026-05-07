@@ -2017,6 +2017,11 @@ func TestDisplayPanesOverlayDisplayOnly(t *testing.T) {
 		t.Fatalf("--display should include overlay labels, got:\n%s", resp.CmdOutput)
 	}
 
+	resp = cr.HandleCaptureRequest([]string{"--client"}, nil)
+	if !strings.Contains(resp.CmdOutput, "[1]") {
+		t.Fatalf("--client should include overlay labels from the display snapshot, got:\n%s", resp.CmdOutput)
+	}
+
 	resp = cr.HandleCaptureRequest([]string{}, nil)
 	if strings.Contains(resp.CmdOutput, "[1]") || strings.Contains(resp.CmdOutput, "[2]") {
 		t.Fatalf("plain capture request should not include overlay labels, got:\n%s", resp.CmdOutput)
@@ -2612,6 +2617,22 @@ func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 		t.Errorf("--display should contain pane status, got: %q", resp.CmdOutput)
 	}
 
+	resp = cr.HandleCaptureRequest([]string{"--client"}, nil)
+	if resp.CmdErr != "" {
+		t.Errorf("--client error: %s", resp.CmdErr)
+	}
+	if !strings.Contains(resp.CmdOutput, "pane-1") {
+		t.Errorf("--client should contain pane status, got: %q", resp.CmdOutput)
+	}
+
+	resp = cr.HandleCaptureRequest([]string{"--client", "pane-1"}, nil)
+	if resp.CmdErr != "" {
+		t.Errorf("--client pane error: %s", resp.CmdErr)
+	}
+	if !strings.Contains(resp.CmdOutput, "hello from pane 1") {
+		t.Errorf("--client pane should contain pane content from display snapshot, got: %q", resp.CmdOutput)
+	}
+
 	// --display is mutually exclusive with other flags.
 	for _, args := range [][]string{
 		{"--display", "--ansi"},
@@ -2622,6 +2643,18 @@ func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 		resp = cr.HandleCaptureRequest(args, nil)
 		if resp.CmdErr == "" {
 			t.Errorf("--display with %v should error", args[1:])
+		}
+	}
+
+	for _, args := range [][]string{
+		{"--client", "--ansi"},
+		{"--client", "--colors"},
+		{"--client", "--format", "json"},
+		{"--client", "--history", "pane-1"},
+	} {
+		resp = cr.HandleCaptureRequest(args, nil)
+		if resp.CmdErr == "" {
+			t.Errorf("--client with %v should error", args[1:])
 		}
 	}
 }

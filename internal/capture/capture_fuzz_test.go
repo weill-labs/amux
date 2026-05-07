@@ -27,6 +27,9 @@ func FuzzParseArgs(f *testing.F) {
 		"--history\x00--rewrap\x0080\x00--rewrap\x00pane-3",
 		"--rewrap",
 		"--rewrap\x0080\x00--rewrap",
+		"--client",
+		"--client\x00pane-1",
+		"--client\x00--format\x00json",
 		"--display",
 		"--display\x00pane-1",
 		"--ansi\x00--colors",
@@ -103,6 +106,9 @@ func assertCaptureValidationResult(t *testing.T, req Request) (error, error) {
 		if req.DisplayMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode || req.PaneRef != "") {
 			t.Fatalf("display request with other options validated: %+v", req)
 		}
+		if req.ClientMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode) {
+			t.Fatalf("client request with incompatible options validated: %+v", req)
+		}
 		if req.RewrapSpecified {
 			t.Fatalf("screen request with --rewrap validated without --history: %+v", req)
 		}
@@ -116,7 +122,7 @@ func assertCaptureValidationResult(t *testing.T, req Request) (error, error) {
 		if !req.HistoryMode || req.PaneRef == "" {
 			t.Fatalf("history request without required fields validated: %+v", req)
 		}
-		if req.IncludeANSI || req.ColorMap || req.DisplayMode {
+		if req.IncludeANSI || req.ColorMap || req.DisplayMode || req.ClientMode {
 			t.Fatalf("history request with mutually exclusive flags validated: %+v", req)
 		}
 		if req.RewrapSpecified && req.RewrapWidth <= 0 {

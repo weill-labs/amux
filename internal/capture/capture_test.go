@@ -47,6 +47,11 @@ func TestParseArgs(t *testing.T) {
 			args: []string{"--display"},
 			want: Request{DisplayMode: true},
 		},
+		{
+			name: "client",
+			args: []string{"--client", "pane-1"},
+			want: Request{ClientMode: true, PaneRef: "pane-1"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -91,6 +96,15 @@ func TestValidateScreenRequest(t *testing.T) {
 			name:    "display with history",
 			req:     Request{DisplayMode: true, HistoryMode: true},
 			wantErr: "--display is mutually exclusive with other flags",
+		},
+		{
+			name:    "client with json",
+			req:     Request{ClientMode: true, FormatJSON: true},
+			wantErr: "--client is mutually exclusive with --ansi, --colors, --format json, and --history",
+		},
+		{
+			name: "client with pane",
+			req:  Request{ClientMode: true, PaneRef: "pane-1"},
 		},
 	}
 
@@ -137,6 +151,11 @@ func TestValidateHistoryRequest(t *testing.T) {
 			name:    "ansi not allowed",
 			req:     Request{HistoryMode: true, IncludeANSI: true, PaneRef: "pane-1"},
 			wantErr: "--history is mutually exclusive with --ansi, --colors, and --display",
+		},
+		{
+			name:    "client not allowed",
+			req:     Request{HistoryMode: true, ClientMode: true, PaneRef: "pane-1"},
+			wantErr: "--history is mutually exclusive with --client",
 		},
 		{
 			name:    "missing pane ref",

@@ -90,6 +90,21 @@ func TestMainWaitUsage(t *testing.T) {
 	}
 }
 
+func TestMainCaptureHelpIncludesClientFlag(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "capture", "--help")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "--client") {
+		t.Fatalf("capture help should include --client:\n%s", out)
+	}
+	if strings.Contains(out, "connecting to server") {
+		t.Fatalf("capture help should not dispatch to the server:\n%s", out)
+	}
+}
+
 func TestMainMetaCommandsHelpFlagsPrintUsage(t *testing.T) {
 	t.Parallel()
 
