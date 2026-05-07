@@ -312,8 +312,9 @@ func (v *vtEmulator) ScrollbackLineText(y int) string {
 	}
 	var buf strings.Builder
 	for i := range line {
-		if line[i].Content != "" {
-			buf.WriteString(line[i].Content)
+		content := line[i].Content
+		if content != "" {
+			buf.WriteString(content)
 		}
 	}
 	return buf.String()
