@@ -59,7 +59,7 @@ func TestStatusStyleGoldenOutputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			assertGolden(t, tt.golden, renderStatusStyleFrame(tt.style))
+			assertGolden(t, tt.golden, renderStatusStyleFrame(tt.style)+"\n")
 		})
 	}
 }

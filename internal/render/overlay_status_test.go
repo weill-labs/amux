@@ -684,6 +684,64 @@ func TestBuildPowerlineStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
 	}
 }
 
+func TestBuildPowerlineStatusCellsUsesSeparatorColorTransitions(t *testing.T) {
+	t.Parallel()
+
+	const paneWidth = 48
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, paneWidth, 4)
+	grid := NewScreenGrid(paneWidth, 4)
+	buildStatusCellsPressedWithIconsAndStyle(grid, cell, true, false, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		host:  "gpu",
+		task:  "build",
+		color: config.AccentColor(0),
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
+	}, DefaultIconSet(), "powerline")
+
+	separators := powerlineSeparatorCells(grid, paneWidth)
+	if len(separators) < 3 {
+		t.Fatalf("powerline status row has %d separators, want at least 3", len(separators))
+	}
+
+	assertCellColors(t, separators[0], config.AccentColor(0), config.Surface1Hex)
+	assertCellColors(t, separators[1], config.Surface1Hex, config.GreenHex)
+	assertCellColors(t, separators[2], config.GreenHex, config.Surface1Hex)
+}
+
+func powerlineSeparatorCells(grid *ScreenGrid, width int) []ScreenCell {
+	var cells []ScreenCell
+	for x := 0; x < width; x++ {
+		cell := grid.Get(x, 0)
+		if cell.Char == powerlineRightSeparator {
+			cells = append(cells, cell)
+		}
+	}
+	return cells
+}
+
+func assertCellColors(t *testing.T, cell ScreenCell, wantFgHex, wantBgHex string) {
+	t.Helper()
+
+	wantFg := hexToColor(wantFgHex)
+	gotFg, ok := cell.Style.Fg.(interface {
+		RGBA() (uint32, uint32, uint32, uint32)
+	})
+	if !ok || !sameColor(gotFg, wantFg) {
+		t.Fatalf("separator fg = %v, want %s", cell.Style.Fg, wantFgHex)
+	}
+
+	wantBg := hexToColor(wantBgHex)
+	gotBg, ok := cell.Style.Bg.(interface {
+		RGBA() (uint32, uint32, uint32, uint32)
+	})
+	if !ok || !sameColor(gotBg, wantBg) {
+		t.Fatalf("separator bg = %v, want %s", cell.Style.Bg, wantBgHex)
+	}
+}
+
 func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
 	t.Parallel()
 

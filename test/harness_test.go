@@ -487,7 +487,8 @@ func extractBorderColors(line string) []string {
 // isGlobalBar returns true if the line looks like the global status bar.
 // Matches the structural pattern: " amux │ ... panes │ HH:MM "
 func isGlobalBar(line string) bool {
-	return strings.Contains(line, " amux ") && strings.Contains(line, "panes │")
+	return strings.Contains(line, " amux ") &&
+		(strings.Contains(line, "panes │") || strings.Contains(line, "panes "))
 }
 
 // hasWindowTab returns true if the global bar contains a tab for the given

@@ -288,7 +288,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 
 	// Global bar cells.
-	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	buildGlobalBarCellsWithStyle(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.StatusStyle())
 	buildWindowDropIndicatorCell(g, overlay.WindowDropIndicator, c.height-1)
 	if overlay.HelpBar != nil {
 		buildHelpBarCells(g, overlay.HelpBar)
@@ -314,7 +314,7 @@ type paneComposite struct {
 }
 
 func (c *Compositor) composePane(g *ScreenGrid, layoutHeight int, pane paneComposite) {
-	buildStatusCellsPressedWithIcons(g, pane.cell, pane.isActive, pane.pressed, pane.pd, c.IconSet())
+	buildStatusCellsPressedWithIconsAndStyle(g, pane.cell, pane.isActive, pane.pressed, pane.pd, c.IconSet(), c.StatusStyle())
 	contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
 	// Rebuild every row for both full redraws and dirty panes. TUI full-screen
 	// recomposes can move or clear lines without producing a pane-local dirty
@@ -399,7 +399,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		buildPaneOverlayCells(g, root, lookup, overlay.PaneLabels)
 	}
 
-	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	buildGlobalBarCellsWithStyle(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.StatusStyle())
 	buildWindowDropIndicatorCell(g, overlay.WindowDropIndicator, c.height-1)
 	if overlay.HelpBar != nil {
 		buildHelpBarCells(g, overlay.HelpBar)
@@ -671,6 +671,18 @@ func buildStatusCellsPressed(g *ScreenGrid, cell *mux.LayoutCell, isActive, pres
 }
 
 func buildStatusCellsPressedWithIcons(g *ScreenGrid, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, icons IconSet) {
+	buildStatusCellsPressedWithIconsAndStyle(g, cell, isActive, pressed, pd, icons, config.StatusStyleCompact)
+}
+
+func buildStatusCellsPressedWithIconsAndStyle(g *ScreenGrid, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, icons IconSet, statusStyle string) {
+	if normalizeStatusStyle(statusStyle) == config.StatusStylePowerline {
+		cells := buildPowerlinePaneStatusCells(cell.W, isActive, pressed, pd, icons)
+		for i := 0; i < cell.W; i++ {
+			g.Set(cell.X+i, cell.Y, screenCellFromStyledStatusCell(cells[i]))
+		}
+		return
+	}
+
 	y := cell.Y
 	bgHex := config.Surface0Hex
 	if pressed {
@@ -693,6 +705,20 @@ func buildStatusCellsPressedWithIcons(g *ScreenGrid, cell *mux.LayoutCell, isAct
 		}
 		g.Set(cell.X+i, y, sc)
 	}
+}
+
+func screenCellFromStyledStatusCell(cell styledStatusCell) ScreenCell {
+	style := uv.Style{
+		Fg: hexToColor(cell.style.fgHex),
+		Bg: hexToColor(cell.style.bgHex),
+	}
+	if cell.style.bold {
+		style.Attrs |= uv.AttrBold
+	}
+	if cell.style.strikethrough {
+		style.Attrs |= uv.AttrStrikethrough
+	}
+	return ScreenCell{Char: cell.char, Width: cell.width, Style: style}
 }
 
 // buildBorderCells writes border characters into the grid with proper colors.
@@ -722,6 +748,18 @@ func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeC
 
 // buildGlobalBarCells writes the global status bar into the grid.
 func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time) {
+	buildGlobalBarCellsWithStyle(g, sessionName, paneCount, width, yPos, windows, message, now, config.StatusStyleCompact)
+}
+
+func buildGlobalBarCellsWithStyle(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time, statusStyle string) {
+	if normalizeStatusStyle(statusStyle) == config.StatusStylePowerline {
+		cells := buildPowerlineGlobalBarCells(sessionName, paneCount, width, windows, message, now)
+		for i := 0; i < width && i < len(cells); i++ {
+			g.Set(i, yPos, screenCellFromStyledStatusCell(cells[i]))
+		}
+		return
+	}
+
 	bg := hexToColor(config.Surface0Hex)
 	textFg := hexToColor(config.TextColorHex)
 	redFg := hexToColor(config.RedHex)

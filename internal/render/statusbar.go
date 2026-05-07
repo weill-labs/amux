@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
@@ -22,6 +23,24 @@ const (
 	globalBarTitlePrefixVisibleWidth = 8 // " amux │ "
 	globalBarHelpVisibleWidth        = 6 // "? help"
 )
+
+const (
+	powerlineRightSeparator = "\ue0b0" // Nerd Font Powerline right-pointing solid separator.
+	powerlineLeftSeparator  = "\ue0b2" // Nerd Font Powerline left-pointing solid separator.
+)
+
+type statusCellStyle struct {
+	fgHex         string
+	bgHex         string
+	bold          bool
+	strikethrough bool
+}
+
+type styledStatusCell struct {
+	char  string
+	width int
+	style statusCellStyle
+}
 
 type globalBarWindowTab struct {
 	window  WindowInfo
@@ -78,6 +97,79 @@ func appendPaneStatusSegment(segments []paneStatusSegment, text string, role pan
 		return segments
 	}
 	return append(segments, paneStatusSegment{text: text, role: role})
+}
+
+func normalizeStatusStyle(style string) string {
+	resolved, err := config.ResolveStatusStyle(style)
+	if err != nil {
+		return config.StatusStyleCompact
+	}
+	return resolved
+}
+
+func statusBarBaseBgHex(pressed bool) string {
+	if pressed {
+		return config.Surface1Hex
+	}
+	return config.Surface0Hex
+}
+
+func alternatePowerlineBgHex(baseBg string) string {
+	if baseBg == config.Surface0Hex {
+		return config.Surface1Hex
+	}
+	return config.Surface0Hex
+}
+
+func appendStyledStatusCells(cells []styledStatusCell, text string, style statusCellStyle) []styledStatusCell {
+	for len(text) > 0 {
+		cluster, clusterWidth := ansi.FirstGraphemeCluster(text, ansi.GraphemeWidth)
+		if cluster == "" {
+			break
+		}
+		if clusterWidth <= 0 {
+			clusterWidth = 1
+		}
+		cells = append(cells, styledStatusCell{char: cluster, width: clusterWidth, style: style})
+		for i := 1; i < clusterWidth; i++ {
+			cells = append(cells, styledStatusCell{char: " ", width: 0, style: style})
+		}
+		text = text[len(cluster):]
+	}
+	return cells
+}
+
+func appendSingleWidthStatusCell(cells []styledStatusCell, char string, style statusCellStyle) []styledStatusCell {
+	return append(cells, styledStatusCell{char: char, width: 1, style: style})
+}
+
+func writeStyledStatusCellsWithProfile(buf *strings.Builder, cells []styledStatusCell, profile termenv.Profile) {
+	for _, cell := range cells {
+		if cell.width == 0 {
+			continue
+		}
+		buf.WriteString(statusCellStyleANSIWithProfile(cell.style, profile))
+		buf.WriteString(cell.char)
+	}
+	buf.WriteString(Reset)
+}
+
+func statusCellStyleANSIWithProfile(style statusCellStyle, profile termenv.Profile) string {
+	var buf strings.Builder
+	buf.WriteString(Reset)
+	if style.bgHex != "" {
+		buf.WriteString(bgHexSequence(style.bgHex, profile))
+	}
+	if style.fgHex != "" {
+		buf.WriteString(fgHexSequence(style.fgHex, profile))
+	}
+	if style.bold {
+		buf.WriteString(Bold)
+	}
+	if style.strikethrough {
+		buf.WriteString(StrikeOn)
+	}
+	return buf.String()
 }
 
 func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData, icons IconSet) []paneStatusSegment {
@@ -231,6 +323,123 @@ func trimPaneStatusSegmentsRight(segments []paneStatusSegment) []paneStatusSegme
 	return segments
 }
 
+func buildPowerlinePaneStatusCells(cellWidth int, isActive, pressed bool, pd PaneData, icons IconSet) []styledStatusCell {
+	baseBg := statusBarBaseBgHex(pressed)
+	paneColor := paneStatusColorHex(pd)
+	segments := buildPaneStatusSegmentsWithIcons(cellWidth, isActive, pd, icons)
+	cells := make([]styledStatusCell, 0, cellWidth)
+
+	for i, segment := range segments {
+		if isPowerlinePaneSeparatorSegment(segment) {
+			prevRole, prevOK := previousVisiblePaneStatusRole(segments, i)
+			nextRole, nextOK := nextVisiblePaneStatusRole(segments, i)
+			if prevOK && nextOK {
+				prevBg := panePowerlineRoleBgHex(prevRole, paneColor, baseBg)
+				nextBg := panePowerlineRoleBgHex(nextRole, paneColor, baseBg)
+				if prevBg != nextBg {
+					cells = appendSingleWidthStatusCell(cells, powerlineRightSeparator, statusCellStyle{
+						fgHex: prevBg,
+						bgHex: nextBg,
+					})
+					continue
+				}
+				cells = appendStyledStatusCells(cells, segment.text, panePowerlineRoleStyle(nextRole, paneColor, baseBg))
+				continue
+			}
+		}
+
+		cells = appendStyledStatusCells(cells, segment.text, panePowerlineRoleStyle(segment.role, paneColor, baseBg))
+	}
+
+	used := len(cells)
+	if used < cellWidth {
+		if lastRole, ok := lastVisiblePaneStatusRole(segments); ok {
+			lastBg := panePowerlineRoleBgHex(lastRole, paneColor, baseBg)
+			if lastBg != baseBg {
+				cells = appendSingleWidthStatusCell(cells, powerlineRightSeparator, statusCellStyle{
+					fgHex: lastBg,
+					bgHex: baseBg,
+				})
+				used++
+			}
+		}
+	}
+	for len(cells) < cellWidth {
+		cells = appendSingleWidthStatusCell(cells, " ", statusCellStyle{bgHex: baseBg})
+	}
+	if len(cells) > cellWidth {
+		return cells[:cellWidth]
+	}
+	return cells
+}
+
+func isPowerlinePaneSeparatorSegment(segment paneStatusSegment) bool {
+	return segment.role == paneStatusSegmentBackground && strings.TrimSpace(segment.text) == ""
+}
+
+func previousVisiblePaneStatusRole(segments []paneStatusSegment, index int) (paneStatusSegmentRole, bool) {
+	for i := index - 1; i >= 0; i-- {
+		if segments[i].text == "" || segments[i].role == paneStatusSegmentBackground {
+			continue
+		}
+		return segments[i].role, true
+	}
+	return paneStatusSegmentBackground, false
+}
+
+func nextVisiblePaneStatusRole(segments []paneStatusSegment, index int) (paneStatusSegmentRole, bool) {
+	for i := index + 1; i < len(segments); i++ {
+		if segments[i].text == "" || segments[i].role == paneStatusSegmentBackground {
+			continue
+		}
+		return segments[i].role, true
+	}
+	return paneStatusSegmentBackground, false
+}
+
+func lastVisiblePaneStatusRole(segments []paneStatusSegment) (paneStatusSegmentRole, bool) {
+	for i := len(segments) - 1; i >= 0; i-- {
+		if segments[i].text == "" || segments[i].role == paneStatusSegmentBackground {
+			continue
+		}
+		return segments[i].role, true
+	}
+	return paneStatusSegmentBackground, false
+}
+
+func panePowerlineRoleBgHex(role paneStatusSegmentRole, paneColor, baseBg string) string {
+	switch role {
+	case paneStatusSegmentPane, paneStatusSegmentPaneBold:
+		return paneColor
+	case paneStatusSegmentDim, paneStatusSegmentCompletedMeta:
+		return config.DimColorHex
+	case paneStatusSegmentText:
+		return alternatePowerlineBgHex(baseBg)
+	case paneStatusSegmentYellow:
+		return config.YellowHex
+	case paneStatusSegmentGreen:
+		return config.GreenHex
+	case paneStatusSegmentRed:
+		return config.RedHex
+	default:
+		return baseBg
+	}
+}
+
+func panePowerlineRoleStyle(role paneStatusSegmentRole, paneColor, baseBg string) statusCellStyle {
+	bg := panePowerlineRoleBgHex(role, paneColor, baseBg)
+	fg := config.Surface0Hex
+	if role == paneStatusSegmentText || bg == baseBg {
+		fg = config.TextColorHex
+	}
+	return statusCellStyle{
+		fgHex:         fg,
+		bgHex:         bg,
+		bold:          role == paneStatusSegmentPaneBold,
+		strikethrough: role == paneStatusSegmentCompletedMeta,
+	}
+}
+
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
 //
@@ -251,7 +460,16 @@ func renderPaneStatusPressedWithProfile(buf *strings.Builder, cell *mux.LayoutCe
 }
 
 func renderPaneStatusPressedWithProfileAndIcons(buf *strings.Builder, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, profile termenv.Profile, icons IconSet) {
+	renderPaneStatusPressedWithProfileAndIconsAndStyle(buf, cell, isActive, pressed, pd, profile, icons, config.StatusStyleCompact)
+}
+
+func renderPaneStatusPressedWithProfileAndIconsAndStyle(buf *strings.Builder, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, profile termenv.Profile, icons IconSet, statusStyle string) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
+
+	if normalizeStatusStyle(statusStyle) == config.StatusStylePowerline {
+		writeStyledStatusCellsWithProfile(buf, buildPowerlinePaneStatusCells(cell.W, isActive, pressed, pd, icons), profile)
+		return
+	}
 
 	styles := newStatusBarStylesPressed(paneStatusColorHex(pd), pressed)
 	segments := buildPaneStatusSegmentsWithIcons(cell.W, isActive, pd, icons)
@@ -531,6 +749,80 @@ func globalBarStatusRightText(paneCount int, showHelp bool, now time.Time) strin
 	return right + now.Format("15:04") + " "
 }
 
+func powerlineGlobalBarStatusRightCells(paneCount int, showHelp bool, now time.Time, baseBg string) []styledStatusCell {
+	helpBg := alternatePowerlineBgHex(baseBg)
+	cells := make([]styledStatusCell, 0, 32)
+	baseStyle := statusCellStyle{fgHex: config.TextColorHex, bgHex: baseBg}
+	helpStyle := statusCellStyle{fgHex: config.TextColorHex, bgHex: helpBg, bold: true}
+
+	cells = appendStyledStatusCells(cells, " "+strconv.Itoa(paneCount)+" panes ", baseStyle)
+	if showHelp {
+		cells = appendSingleWidthStatusCell(cells, powerlineLeftSeparator, statusCellStyle{fgHex: helpBg, bgHex: baseBg})
+		cells = appendStyledStatusCells(cells, " ", helpStyle)
+		cells = appendStyledStatusCells(cells, "? help ", helpStyle)
+		cells = appendSingleWidthStatusCell(cells, powerlineLeftSeparator, statusCellStyle{fgHex: baseBg, bgHex: helpBg})
+		cells = appendStyledStatusCells(cells, " ", baseStyle)
+	} else {
+		cells = appendSingleWidthStatusCell(cells, powerlineLeftSeparator, statusCellStyle{fgHex: baseBg, bgHex: baseBg})
+		cells = appendStyledStatusCells(cells, " ", baseStyle)
+	}
+	cells = appendStyledStatusCells(cells, now.Format("15:04")+" ", baseStyle)
+	return cells
+}
+
+func buildPowerlineGlobalBarCells(sessionName string, paneCount int, width int, windows []WindowInfo, message string, now time.Time) []styledStatusCell {
+	baseBg := config.Surface0Hex
+	titleStyle := statusCellStyle{fgHex: config.Surface0Hex, bgHex: config.BlueHex, bold: true}
+	baseStyle := statusCellStyle{fgHex: config.TextColorHex, bgHex: baseBg}
+	focusedStyle := statusCellStyle{fgHex: config.BlueHex, bgHex: baseBg, bold: true}
+	errorStyle := statusCellStyle{fgHex: config.RedHex, bgHex: baseBg}
+
+	cells := make([]styledStatusCell, 0, width)
+	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
+	tabs := buildGlobalBarWindowTabs(windows)
+
+	cells = appendStyledStatusCells(cells, " amux ", titleStyle)
+	cells = appendSingleWidthStatusCell(cells, powerlineRightSeparator, statusCellStyle{fgHex: config.BlueHex, bgHex: baseBg})
+	cells = appendStyledStatusCells(cells, " ", baseStyle)
+
+	if len(tabs) > 0 {
+		for _, tab := range tabs {
+			style := baseStyle
+			if tab.window.IsActive {
+				style = focusedStyle
+			}
+			cells = appendStyledStatusCells(cells, tab.display, style)
+			cells = appendStyledStatusCells(cells, " ", baseStyle)
+		}
+		cells = appendSingleWidthStatusCell(cells, powerlineRightSeparator, statusCellStyle{fgHex: baseBg, bgHex: baseBg})
+		cells = appendStyledStatusCells(cells, " ", baseStyle)
+	} else {
+		cells = appendStyledStatusCells(cells, sessionName+" ", baseStyle)
+	}
+
+	var right []styledStatusCell
+	if message != "" {
+		maxText := width - len(cells) - 2
+		right = appendStyledStatusCells(right, " "+truncateRunes(message, maxText)+" ", errorStyle)
+	} else {
+		right = powerlineGlobalBarStatusRightCells(paneCount, showHelp, now, baseBg)
+	}
+
+	fill := width - len(cells) - len(right)
+	for i := 0; i < fill; i++ {
+		cells = appendSingleWidthStatusCell(cells, " ", statusCellStyle{bgHex: baseBg})
+	}
+	cells = append(cells, right...)
+
+	for len(cells) < width {
+		cells = appendSingleWidthStatusCell(cells, " ", statusCellStyle{bgHex: baseBg})
+	}
+	if len(cells) > width {
+		return cells[:width]
+	}
+	return cells
+}
+
 func globalBarStatusRightWidth(paneCount int, showHelp bool, now time.Time) int {
 	return utf8.RuneCountInString(globalBarStatusRightText(paneCount, showHelp, now))
 }
@@ -622,7 +914,16 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 }
 
 func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time, profile termenv.Profile) {
+	renderGlobalBarWithProfileAndStyle(buf, sessionName, paneCount, width, yPos, windows, message, now, profile, config.StatusStyleCompact)
+}
+
+func renderGlobalBarWithProfileAndStyle(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time, profile termenv.Profile, statusStyle string) {
 	writeCursorTo(buf, yPos+1, 1)
+	if normalizeStatusStyle(statusStyle) == config.StatusStylePowerline {
+		writeStyledStatusCellsWithProfile(buf, buildPowerlineGlobalBarCells(sessionName, paneCount, width, windows, message, now), profile)
+		return
+	}
+
 	styles := newStatusBarStyles(config.TextColorHex)
 
 	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
