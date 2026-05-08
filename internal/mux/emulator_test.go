@@ -291,6 +291,27 @@ func TestRenderWithCursorRoundTripPreservesSoftWrapForResize(t *testing.T) {
 	}
 }
 
+func TestRenderWithCursorRoundTripPreservesWrappedTrailingSpaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 4
+		wideWidth = 20
+		output    = "abc  def"
+	)
+	emu1 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+output))
+
+	emu2 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+
+	emu2.Resize(wideWidth, height)
+	if got := EmulatorContentLines(emu2)[0]; got != output {
+		t.Fatalf("after replay and widen row 0 = %q, want %q", got, output)
+	}
+}
+
 func TestRenderWithCursorRoundTripPreservesHiddenCursor(t *testing.T) {
 	t.Parallel()
 
