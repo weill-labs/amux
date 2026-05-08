@@ -186,6 +186,8 @@ Capture a single pane:
 amux capture --format json pane-1
 ```
 
+Single-pane capture reads server-owned pane state by default and works without an attached interactive client. Use `--client` when you need the attached client's displayed view.
+
 History-aware pane capture:
 
 ```bash
