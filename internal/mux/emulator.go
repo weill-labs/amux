@@ -85,6 +85,9 @@ type TerminalEmulator interface {
 	// Continuation cells (Width==0) are skipped, trailing spaces trimmed.
 	ScreenLineText(y int) string
 
+	// LineWrapped reports whether screen line y is a soft-wrap continuation.
+	LineWrapped(y int) bool
+
 	// ScreenContains returns true if any screen line contains substr.
 	ScreenContains(substr string) bool
 
@@ -360,6 +363,10 @@ func (v *vtEmulator) ScreenLineText(y int) string {
 	return v.screenLineTextInner(w, y)
 }
 
+func (v *vtEmulator) LineWrapped(y int) bool {
+	return v.emu.LineWrapped(y)
+}
+
 func (v *vtEmulator) CellAt(col, row int) *uv.Cell {
 	return v.emu.CellAt(col, row)
 }
@@ -547,8 +554,12 @@ func RenderWithCursor(emu TerminalEmulator) string {
 	}
 	buf.WriteString(renderMouseProtocol(emu.MouseProtocol()))
 	for i, line := range lines {
-		// Position cursor at start of each row (CUP is 1-indexed)
-		buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
+		// Position cursor at start of each non-continuation row (CUP is
+		// 1-indexed). Continuation rows must replay through autowrap so the
+		// emulator restores soft-wrap metadata for future resizes.
+		if !emu.LineWrapped(i) {
+			buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
+		}
 		buf.WriteString(line)
 	}
 
