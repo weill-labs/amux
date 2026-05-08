@@ -42,11 +42,12 @@ func (v *vtEmulator) captureShrinkReflow(oldWidth, oldHeight, newWidth int) (res
 		cells := captureResizeReflowCells(func(x int) *uv.Cell {
 			return v.emu.CellAt(x, y)
 		}, oldWidth, preserveCols...)
-		if resizeLineEnd(func(x int) *uv.Cell { return v.emu.CellAt(x, y) }, oldWidth) > newWidth {
+		rowOverflows := resizeLineEnd(func(x int) *uv.Cell { return v.emu.CellAt(x, y) }, oldWidth) > newWidth
+		if rowOverflows {
 			hasOverflow = true
 		}
 
-		if y == 0 || !lineUsesFullWidth(oldWidth, func(x int) *uv.Cell { return v.emu.CellAt(x, y-1) }) {
+		if y == 0 || !lineUsesFullWidth(oldWidth, func(x int) *uv.Cell { return v.emu.CellAt(x, y-1) }) || !rowOverflows {
 			snapshot.lines = append(snapshot.lines, resizeReflowLine{cells: cells})
 			rowLogical[y] = len(snapshot.lines) - 1
 			rowBase[y] = 0
