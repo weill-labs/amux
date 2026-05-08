@@ -107,6 +107,56 @@ func TestVTEmulatorResizeShrinkKeepsHardNewlineAfterFullWidthRow(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorResizeShrinkKeepsCursorLineVisible(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 40
+		shrinkWidth = 10
+		height      = 4
+	)
+	emu := NewVTEmulatorWithDrain(width, height)
+	longLine := strings.Repeat("x", width*2)
+	prompt := "PROMPT$ "
+	mustWrite(t, emu, []byte("\x1b[2J\x1b[H"+longLine+"\r\n"+prompt))
+
+	emu.Resize(shrinkWidth, height)
+	afterShrink := EmulatorContentLines(emu)
+	if !strings.Contains(strings.Join(afterShrink, "\n"), prompt) {
+		t.Fatalf("after shrink rows = %#v, want cursor line containing %q to remain visible", afterShrink, prompt)
+	}
+}
+
+func TestVTEmulatorResizeShrinkPreservesActiveStyle(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 20
+		shrinkWidth = 12
+		height      = 4
+	)
+	emu := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu, []byte("\x1b[31mABCDEFGHIJKLMNOPQRST"))
+
+	emu.Resize(shrinkWidth, height)
+	mustWrite(t, emu, []byte("Z"))
+
+	screenWidth, screenHeight := emu.Size()
+	for y := 0; y < screenHeight; y++ {
+		for x := 0; x < screenWidth; x++ {
+			cell := emu.CellAt(x, y)
+			if cell == nil || cell.Content != "Z" {
+				continue
+			}
+			if cell.Style.Fg == nil {
+				t.Fatalf("CellAt(%d, %d).Style.Fg = nil, want active red style preserved after shrink repaint", x, y)
+			}
+			return
+		}
+	}
+	t.Fatalf("screen after shrink and write did not contain Z: %#v", EmulatorContentLines(emu))
+}
+
 func resizeSmearReproLine(i, width int) string {
 	letter := string(rune('A' + i - 1))
 	prefix := fmt.Sprintf("LINE_%d_BEGIN_", i)
