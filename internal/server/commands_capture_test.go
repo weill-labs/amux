@@ -13,6 +13,8 @@ import (
 )
 
 func TestCaptureDefaultSinglePaneDoesNotSendClientCaptureRequest(t *testing.T) {
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 	sess.captureTiming.responseTimeout = 20 * time.Millisecond
@@ -41,6 +43,8 @@ func TestCaptureDefaultSinglePaneDoesNotSendClientCaptureRequest(t *testing.T) {
 }
 
 func TestCaptureDefaultSinglePaneJSONDoesNotSendClientCaptureRequest(t *testing.T) {
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 	sess.captureTiming.responseTimeout = 20 * time.Millisecond
@@ -191,6 +195,8 @@ func TestCaptureClientFlagRequiresAttachedClient(t *testing.T) {
 }
 
 func TestCaptureFullSessionStillForwardsToAttachedClient(t *testing.T) {
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
@@ -226,6 +232,8 @@ func TestCaptureFullSessionStillForwardsToAttachedClient(t *testing.T) {
 }
 
 func TestCaptureHistoryPaneUsesServerHistoryPath(t *testing.T) {
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 

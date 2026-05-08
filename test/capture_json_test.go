@@ -260,9 +260,9 @@ func TestCaptureJSON_ClientUIState(t *testing.T) {
 	}
 }
 
-func TestCapturePaneJSON_CopyMode(t *testing.T) {
+func TestCaptureLegacyClientPaneJSON_CopyMode(t *testing.T) {
 	t.Parallel()
-	h := newAmuxHarness(t)
+	h := newAmuxHarness(t, "AMUX_CAPTURE_LEGACY_CLIENT=1")
 
 	h.sendKeys("C-a", "[")
 	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
