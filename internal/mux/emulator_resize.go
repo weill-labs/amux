@@ -133,6 +133,7 @@ func (v *vtEmulator) blankShrinkOverflow(oldWidth, oldHeight, newWidth int) {
 			continue
 		}
 		buf.WriteString(fmt.Sprintf("\033[%d;%dH", y+1, start+1))
+		buf.WriteString(ansi.ResetStyle)
 		buf.WriteString(strings.Repeat(" ", oldWidth-start))
 	}
 	if buf.Len() > 0 {
