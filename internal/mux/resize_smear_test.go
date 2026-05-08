@@ -42,6 +42,36 @@ func TestVTEmulatorResizeShrinkThenWidenKeepsDenseRowsSeparate(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorResizeShrinkThenWidenPreservesLongShellRows(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 64
+		shrinkWidth = 24
+		height      = 8
+	)
+	emu := NewVTEmulatorWithDrain(width, height)
+	line := "nums: 100, 101, 102, 103, 104, 105, 106, 107"
+	mustWrite(t, emu, []byte("\x1b[2J\x1b[H"+line+"\r\nPROMPT$ "))
+
+	before := EmulatorContentLines(emu)
+	if got := before[0]; got != line {
+		t.Fatalf("before resize row 0 = %q, want %q", got, line)
+	}
+
+	emu.Resize(shrinkWidth, height)
+	afterShrink := EmulatorContentLines(emu)
+	if got := strings.Join(afterShrink[:3], ""); !strings.Contains(got, line) {
+		t.Fatalf("after shrink rows did not preserve line:\n%q\nwant substring %q", afterShrink[:3], line)
+	}
+
+	emu.Resize(width, height)
+	afterWiden := EmulatorContentLines(emu)
+	if got := afterWiden[0]; got != line {
+		t.Fatalf("after widen row 0 = %q, want %q", got, line)
+	}
+}
+
 func resizeSmearReproLine(i, width int) string {
 	letter := string(rune('A' + i - 1))
 	prefix := fmt.Sprintf("LINE_%d_BEGIN_", i)
