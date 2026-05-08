@@ -1,18 +1,10 @@
 package mux
 
-import (
-	"fmt"
-	"strings"
-
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
-)
+import uv "github.com/charmbracelet/ultraviolet"
 
 type resizeReflowSnapshot struct {
 	lines  []resizeReflowLine
 	cursor resizeReflowPosition
-	pen    uv.Style
-	link   uv.Link
 }
 
 type resizeReflowLine struct {
@@ -31,7 +23,6 @@ func (v *vtEmulator) captureShrinkReflow(oldWidth, oldHeight, newWidth int) (res
 	}
 
 	cursorCol, cursorRow := v.CursorPosition()
-	cursor := v.emu.Cursor()
 	cursorRow = clampInt(cursorRow, 0, oldHeight-1)
 	rowLogical := make([]int, oldHeight)
 	rowBase := make([]int, oldHeight)
@@ -66,8 +57,6 @@ func (v *vtEmulator) captureShrinkReflow(oldWidth, oldHeight, newWidth int) (res
 		logical: rowLogical[cursorRow],
 		offset:  rowBase[cursorRow] + max(cursorCol, 0),
 	}
-	snapshot.pen = cursor.Pen
-	snapshot.link = cursor.Link
 	return snapshot, hasOverflow
 }
 
@@ -125,108 +114,30 @@ func resizeLineEnd(cellAt func(int) *uv.Cell, width int, preserveCols ...int) in
 	return end
 }
 
-func (v *vtEmulator) blankShrinkOverflow(oldWidth, oldHeight, newWidth int) {
-	if oldWidth <= newWidth || newWidth <= 0 {
-		return
-	}
-	var buf strings.Builder
-	for y := 0; y < oldHeight; y++ {
-		if resizeLineEnd(func(x int) *uv.Cell { return v.emu.CellAt(x, y) }, oldWidth) <= newWidth {
-			continue
-		}
-		start := shrinkClearStart(func(x int) *uv.Cell { return v.emu.CellAt(x, y) }, newWidth)
-		if start >= oldWidth {
-			continue
-		}
-		buf.WriteString(fmt.Sprintf("\033[%d;%dH", y+1, start+1))
-		buf.WriteString(ansi.ResetStyle)
-		buf.WriteString(ansi.ResetHyperlink())
-		buf.WriteString(strings.Repeat(" ", oldWidth-start))
-	}
-	if buf.Len() > 0 {
-		_, _ = v.emu.Write([]byte(buf.String()))
-	}
-}
-
-func shrinkClearStart(cellAt func(int) *uv.Cell, width int) int {
-	start := width
-	boundary := width - 1
-	if boundary < 0 {
-		return 0
-	}
-	cell := cellAt(boundary)
-	if cell == nil {
-		return start
-	}
-	if cell.Width == 0 {
-		start = boundary
-		for start > 0 {
-			left := cellAt(start)
-			if left == nil || left.Width != 0 {
-				break
-			}
-			start--
-		}
-		return start
-	}
-	if cell.Width > 1 {
-		return boundary
-	}
-	return start
-}
-
 func (v *vtEmulator) repaintReflowedScreen(snapshot resizeReflowSnapshot, width, height int) {
 	if width <= 0 || height <= 0 {
 		return
 	}
 	rows, counts := wrapResizeReflowLines(snapshot.lines, width)
-	cursor := resizeWrappedPosition(counts, snapshot.cursor, width)
+	wrappedCursor := resizeWrappedPosition(counts, snapshot.cursor, width)
 	startRow := 0
 	if resizeReflowLineHasContent(snapshot.lines, snapshot.cursor.logical) {
-		startRow = resizeReflowStartRow(len(rows), cursor.Y, height)
+		_, currentCursorRow := v.CursorPosition()
+		startRow = resizeReflowStartRow(len(rows), wrappedCursor.Y, currentCursorRow, height)
 	}
 	if startRow > 0 {
 		rows = rows[startRow:]
-		cursor.Y -= startRow
 	}
-	cursor.X, cursor.Y = clampInt(cursor.X, 0, width-1), clampInt(cursor.Y, 0, height-1)
 
-	var buf strings.Builder
 	for y := 0; y < height; y++ {
-		buf.WriteString(fmt.Sprintf("\033[%d;1H", y+1))
-		buf.WriteString(ansi.ResetStyle)
-		buf.WriteString(ansi.ResetHyperlink())
-		var prev uv.Style
-		var prevLink uv.Link
 		for x := 0; x < width; x++ {
 			cell := uv.EmptyCell
 			if y < len(rows) && x < len(rows[y]) {
 				cell = rows[y][x]
 			}
-			if cell.Width == 0 {
-				continue
-			}
-			if !cell.Style.Equal(&prev) {
-				buf.WriteString(cell.Style.Diff(&prev))
-				prev = cell.Style
-			}
-			if !cell.Link.Equal(&prevLink) {
-				buf.WriteString(resizeReflowLinkSequence(cell.Link))
-				prevLink = cell.Link
-			}
-			content := cell.Content
-			if content == "" {
-				content = " "
-			}
-			buf.WriteString(content)
+			v.emu.SetCell(x, y, &cell)
 		}
-		buf.WriteString(ansi.ResetStyle)
-		buf.WriteString(ansi.ResetHyperlink())
 	}
-	buf.WriteString(fmt.Sprintf("\033[%d;%dH", cursor.Y+1, cursor.X+1))
-	buf.WriteString(snapshot.pen.String())
-	buf.WriteString(resizeReflowLinkSequence(snapshot.link))
-	_, _ = v.emu.Write([]byte(buf.String()))
 }
 
 func resizeReflowLineHasContent(lines []resizeReflowLine, index int) bool {
@@ -241,25 +152,12 @@ func resizeReflowLineHasContent(lines []resizeReflowLine, index int) bool {
 	return false
 }
 
-func resizeReflowStartRow(rowCount, cursorRow, height int) int {
-	if rowCount <= height {
+func resizeReflowStartRow(rowCount, cursorRow, targetRow, height int) int {
+	if rowCount <= height || cursorRow < height {
 		return 0
 	}
-	start := 0
-	if cursorRow >= height {
-		start = cursorRow - height + 1
-	}
+	start := cursorRow - clampInt(targetRow, 0, height-1)
 	return clampInt(start, 0, rowCount-height)
-}
-
-func resizeReflowLinkSequence(link uv.Link) string {
-	if link.IsZero() {
-		return ansi.ResetHyperlink()
-	}
-	if link.Params == "" {
-		return ansi.SetHyperlink(link.URL)
-	}
-	return ansi.SetHyperlink(link.URL, link.Params)
 }
 
 func wrapResizeReflowLines(lines []resizeReflowLine, width int) ([]uv.Line, []int) {
