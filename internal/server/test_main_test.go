@@ -4,10 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/testenv"
 )
 
 const serverSplitCountChildEnv = "AMUX_SERVER_SPLIT_COUNT_CHILD"
@@ -38,8 +39,8 @@ func currentTestCount() int {
 func runServerTestCountInChildren(count int) int {
 	args := serverTestArgsWithCount(os.Args[1:], 1)
 	for i := 0; i < count; i++ {
-		cmd := exec.Command(os.Args[0], args...)
-		cmd.Env = append(os.Environ(),
+		cmd := testenv.NewCommand(os.Args[0], args...)
+		cmd.Env = append(cmd.Env,
 			serverSplitCountChildEnv+"=1",
 			fmt.Sprintf("AMUX_SERVER_SPLIT_COUNT_INDEX=%d", i+1),
 		)
