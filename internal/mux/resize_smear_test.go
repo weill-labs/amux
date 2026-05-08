@@ -72,6 +72,41 @@ func TestVTEmulatorResizeShrinkThenWidenPreservesLongShellRows(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorResizeShrinkKeepsHardNewlineAfterFullWidthRow(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 20
+		shrinkWidth = 12
+		height      = 6
+	)
+	emu := NewVTEmulatorWithDrain(width, height)
+	fullWidthLine := "ABCDEFGHIJKLMNOPQRST"
+	nextLine := "short"
+	mustWrite(t, emu, []byte("\x1b[2J\x1b[H"+fullWidthLine+"\r\n"+nextLine))
+
+	emu.Resize(shrinkWidth, height)
+	afterShrink := EmulatorContentLines(emu)
+	if got, want := afterShrink[0], fullWidthLine[:shrinkWidth]; got != want {
+		t.Fatalf("after shrink row 0 = %q, want %q", got, want)
+	}
+	if got, want := afterShrink[1], fullWidthLine[shrinkWidth:]; got != want {
+		t.Fatalf("after shrink row 1 = %q, want %q", got, want)
+	}
+	if got := afterShrink[2]; got != nextLine {
+		t.Fatalf("after shrink row 2 = %q, want hard-newline row %q", got, nextLine)
+	}
+
+	emu.Resize(width, height)
+	afterWiden := EmulatorContentLines(emu)
+	if got := afterWiden[0]; got != fullWidthLine {
+		t.Fatalf("after widen row 0 = %q, want %q", got, fullWidthLine)
+	}
+	if got := afterWiden[1]; got != nextLine {
+		t.Fatalf("after widen row 1 = %q, want hard-newline row %q", got, nextLine)
+	}
+}
+
 func resizeSmearReproLine(i, width int) string {
 	letter := string(rune('A' + i - 1))
 	prefix := fmt.Sprintf("LINE_%d_BEGIN_", i)
