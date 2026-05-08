@@ -240,14 +240,9 @@ func (v *vtEmulator) Render() string {
 }
 
 func (v *vtEmulator) Resize(width, height int) {
-	oldWidth, oldHeight := v.Size()
-	reflow, shouldRepaint := v.captureShrinkReflow(oldWidth, oldHeight, width)
 	v.w.Store(int32(width))
 	v.h.Store(int32(height))
 	v.emu.Resize(width, height)
-	if shouldRepaint {
-		v.repaintReflowedScreen(reflow, width, height)
-	}
 }
 
 func (v *vtEmulator) Size() (int, int) {

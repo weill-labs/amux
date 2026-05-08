@@ -14,7 +14,7 @@ func TestVTEmulatorResizeShrinkThenWidenKeepsDenseRowsSeparate(t *testing.T) {
 	const (
 		width       = 214
 		shrinkWidth = 80
-		height      = 12
+		height      = 20
 	)
 	emu := NewVTEmulatorWithDrain(width, height)
 	lines := make([]string, 0, 5)
@@ -151,7 +151,7 @@ func TestVTEmulatorResizeShrinkPreservesActiveStyle(t *testing.T) {
 				continue
 			}
 			if cell.Style.Fg == nil {
-				t.Fatalf("CellAt(%d, %d).Style.Fg = nil, want active red style preserved after shrink repaint", x, y)
+				t.Fatalf("CellAt(%d, %d).Style.Fg = nil, want active red style preserved after resize", x, y)
 			}
 			return
 		}
@@ -177,7 +177,7 @@ func TestVTEmulatorResizeShrinkPreservesActiveHyperlink(t *testing.T) {
 		t.Fatal("CellAt(0, 0) = nil, want repainted cell")
 	}
 	if cell.Link.URL != "" {
-		t.Fatalf("CellAt(0, 0).Link.URL = %q, want repaint not to leak active hyperlink", cell.Link.URL)
+		t.Fatalf("CellAt(0, 0).Link.URL = %q, want resized cells not to leak active hyperlink", cell.Link.URL)
 	}
 
 	mustWrite(t, emu, []byte("Z"))
@@ -219,7 +219,7 @@ func TestVTEmulatorResizeShrinkPreservesPartialEscapeSequence(t *testing.T) {
 				continue
 			}
 			if cell.Style.Fg == nil {
-				t.Fatalf("CellAt(%d, %d).Style.Fg = nil, want partial red SGR to survive resize repaint", x, y)
+				t.Fatalf("CellAt(%d, %d).Style.Fg = nil, want partial red SGR to survive resize", x, y)
 			}
 			return
 		}
