@@ -90,6 +90,37 @@ func TestMainWaitUsage(t *testing.T) {
 	}
 }
 
+func TestMainCaptureHelpIncludesClientFlag(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "capture", "--help")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "--client") {
+		t.Fatalf("capture help should include --client:\n%s", out)
+	}
+	if strings.Contains(out, "connecting to server") {
+		t.Fatalf("capture help should not dispatch to the server:\n%s", out)
+	}
+}
+
+func TestRunWithRuntimeCaptureHelpPrintsUsageWithoutServer(t *testing.T) {
+	t.Parallel()
+
+	h := newCLIRuntimeHarness()
+	handler := layoutCLICommands()["capture"]
+	if code := handler(invocation{runtime: h.runtime()}, []string{"--help"}); code != 0 {
+		t.Fatalf("capture handler help exit = %d, want 0", code)
+	}
+	if !strings.Contains(h.stdout.String(), "--client") {
+		t.Fatalf("stdout should include --client:\n%s", h.stdout.String())
+	}
+	if len(h.calls) != 0 {
+		t.Fatalf("capture --help should not call runtime, got %#v", h.calls)
+	}
+}
+
 func TestMainMetaCommandsHelpFlagsPrintUsage(t *testing.T) {
 	t.Parallel()
 

@@ -41,6 +41,61 @@ func TestCaptureServerEnvSinglePaneDoesNotSendClientCaptureRequest(t *testing.T)
 	}
 }
 
+func TestCaptureClientFlagForcesClientCaptureWhenServerEnvEnabled(t *testing.T) {
+	t.Setenv("AMUX_CAPTURE_SERVER", "1")
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	pane.FeedOutput([]byte("SERVER-LOCAL\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	captureClient := attachCaptureClientForCommandTest(t, sess)
+	requestCh, errCh := respondToNextCaptureRequest(t, sess, captureClient, "CLIENT-PANE\n")
+
+	res := runTestCommand(t, srv, sess, "capture", "--client", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	if got, want := res.output, "CLIENT-PANE\n"; got != want {
+		t.Fatalf("capture output = %q, want %q", got, want)
+	}
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("reading capture request: %v", err)
+	case msg := <-requestCh:
+		if msg.Type != MsgTypeCaptureRequest {
+			t.Fatalf("message type = %v, want %v", msg.Type, MsgTypeCaptureRequest)
+		}
+		if want := []string{"--client", "pane-1"}; !slices.Equal(msg.CmdArgs, want) {
+			t.Fatalf("capture request args = %v, want %v", msg.CmdArgs, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for forwarded capture request")
+	}
+}
+
+func TestCaptureClientFlagRequiresAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.attachMaxRetries = 1
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	pane.FeedOutput([]byte("SERVER-LOCAL\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	res := runTestCommand(t, srv, sess, "capture", "--client", "pane-1")
+	if got, want := res.cmdErr, "no client attached"; got != want {
+		t.Fatalf("capture --client without client cmdErr = %q, want %q; output=%q", got, want, res.output)
+	}
+}
+
 func TestCaptureDefaultSinglePaneStillForwardsToAttachedClient(t *testing.T) {
 	t.Parallel()
 

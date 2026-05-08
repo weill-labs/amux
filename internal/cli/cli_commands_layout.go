@@ -26,6 +26,10 @@ func layoutCLICommands() map[string]commandHandler {
 			return inv.runSessionCommand(cmdName, cmdArgs)
 		},
 		"capture": func(inv invocation, args []string) int {
+			if hasHelpFlag(args) {
+				fmt.Fprintln(inv.runtime.Stdout, captureUsage)
+				return 0
+			}
 			return inv.runSessionCommand("capture", args)
 		},
 		"copy-mode": func(inv invocation, args []string) int {

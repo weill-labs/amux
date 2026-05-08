@@ -937,7 +937,7 @@ func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[ui
 		return clientFrameStatsResponse(cr.frameStats)
 	}
 	req := caputil.ParseArgs(args)
-	if !req.FormatJSON || req.IncludeANSI || req.ColorMap || req.DisplayMode {
+	if !req.FormatJSON || req.IncludeANSI || req.ColorMap || req.DisplayMode || req.ClientMode {
 		return cr.renderer.HandleCaptureRequest(args, agentStatus)
 	}
 	if req.PaneRef != "" {

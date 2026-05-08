@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -48,6 +49,90 @@ func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
 	}
 
 	close(actorRelease)
+}
+
+func TestCaptureDisplayDoesNotWaitForRendererActor(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 4)
+	t.Cleanup(cr.renderer.Close)
+
+	cr.HandleLayout(singlePane20x3())
+	cr.HandlePaneOutput(1, []byte("ready"))
+	cr.RenderDiff()
+
+	actorRelease := make(chan struct{})
+	actorStarted := make(chan struct{})
+	go cr.renderer.withActor(func(*rendererActorState) {
+		close(actorStarted)
+		<-actorRelease
+	})
+
+	select {
+	case <-actorStarted:
+	case <-time.After(time.Second):
+		t.Fatal("renderer actor did not start blocking command")
+	}
+
+	captureDone := make(chan string, 1)
+	go func() {
+		var out string
+		for i := 0; i < 100; i++ {
+			out = cr.CaptureDisplay()
+		}
+		captureDone <- out
+	}()
+
+	select {
+	case out := <-captureDone:
+		if !strings.Contains(out, "ready") {
+			t.Fatalf("display capture output = %q, want pane content", out)
+		}
+	case <-time.After(200 * time.Millisecond):
+		close(actorRelease)
+		out := <-captureDone
+		t.Fatalf("CaptureDisplay waited for renderer actor; output after release was %q", out)
+	}
+
+	close(actorRelease)
+}
+
+func TestCaptureDisplaySnapshotEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	var zero Renderer
+	if got := zero.CaptureDisplay(); got != "" {
+		t.Fatalf("zero renderer CaptureDisplay() = %q, want empty", got)
+	}
+	if got := zero.CaptureDisplayPane(1); got != "" {
+		t.Fatalf("zero renderer CaptureDisplayPane() = %q, want empty", got)
+	}
+
+	r := NewWithScrollback(20, 4, 100)
+	t.Cleanup(r.Close)
+
+	if got := r.CaptureDisplayPane(1); got != "" {
+		t.Fatalf("CaptureDisplayPane without layout = %q, want empty", got)
+	}
+
+	r.HandleLayout(singlePane20xN(10))
+	if got := r.CaptureDisplayPane(99); got != "" {
+		t.Fatalf("CaptureDisplayPane for missing pane = %q, want empty", got)
+	}
+	if got := r.CaptureDisplayPane(1); got != "" {
+		t.Fatalf("CaptureDisplayPane without snapshot = %q, want empty", got)
+	}
+
+	r.withActor(func(st *rendererActorState) {
+		next := *st.snapshot
+		next.layout = mux.NewLeafByID(1, 0, 0, 20, 10)
+		next.height = 4
+		st.snapshot = &next
+		r.publishSnapshot(&next)
+	})
+	if got := r.CaptureDisplayPane(1); got != "" {
+		t.Fatalf("clamped CaptureDisplayPane without snapshot = %q, want empty", got)
+	}
 }
 
 func TestPaneCaptureMissingWarmSnapshotReturnsBlank(t *testing.T) {

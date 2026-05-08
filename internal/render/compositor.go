@@ -3,6 +3,7 @@ package render
 import (
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -44,6 +45,7 @@ type Compositor struct {
 
 	// Previous frame's grid for diff rendering. Nil forces full paint.
 	prevGrid          *ScreenGrid
+	prevGridSnap      atomic.Pointer[ScreenGrid]
 	prevGridLayoutKey string
 	prevCursor        cursorRenderState
 	colorProfile      termenv.Profile
@@ -98,9 +100,7 @@ func (c *Compositor) Resize(width, height int) {
 	c.cachedBorderMap = nil
 	c.cachedBorderRoot = nil
 	c.cachedBorderH = 0
-	c.prevGrid = nil // force full repaint
-	c.prevGridLayoutKey = ""
-	c.prevCursor = cursorRenderState{}
+	c.clearPrevGrid()
 }
 
 // SetSessionName updates the session name shown in the global bar.
@@ -114,9 +114,7 @@ func (c *Compositor) SetColorProfile(profile termenv.Profile) {
 		return
 	}
 	c.colorProfile = profile
-	c.prevGrid = nil
-	c.prevGridLayoutKey = ""
-	c.prevCursor = cursorRenderState{}
+	c.clearPrevGrid()
 }
 
 // ColorProfile reports the compositor's current terminal color profile.
@@ -131,9 +129,7 @@ func (c *Compositor) SetIconSet(icons IconSet) {
 		return
 	}
 	c.iconSet = icons
-	c.prevGrid = nil
-	c.prevGridLayoutKey = ""
-	c.prevCursor = cursorRenderState{}
+	c.clearPrevGrid()
 }
 
 // IconSet reports the compositor's current human-facing status glyphs.
@@ -148,9 +144,7 @@ func (c *Compositor) SetStatusStyle(style string) {
 		return
 	}
 	c.statusStyle = style
-	c.prevGrid = nil
-	c.prevGridLayoutKey = ""
-	c.prevCursor = cursorRenderState{}
+	c.clearPrevGrid()
 }
 
 // StatusStyle reports the compositor's current human-facing status bar preset.
@@ -311,6 +305,7 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	newGrid, panesComposited := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid
+	c.publishPrevGridSnapshot(newGrid)
 	c.prevGridLayoutKey = layoutKey
 	nextCursor := c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight)
 	cursorChanged := !c.prevCursor.equal(nextCursor)
@@ -350,9 +345,22 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
 func (c *Compositor) ClearPrevGrid() {
+	c.clearPrevGrid()
+}
+
+func (c *Compositor) clearPrevGrid() {
 	c.prevGrid = nil
+	c.prevGridSnap.Store(nil)
 	c.prevGridLayoutKey = ""
 	c.prevCursor = cursorRenderState{}
+}
+
+func (c *Compositor) publishPrevGridSnapshot(g *ScreenGrid) {
+	if g == nil {
+		c.prevGridSnap.Store(nil)
+		return
+	}
+	c.prevGridSnap.Store(g.Clone())
 }
 
 func (c *Compositor) layoutReuseKey(root *mux.LayoutCell, activePaneID uint32, layoutHeight int) string {
@@ -390,10 +398,22 @@ func appendLayoutKeyInt(b *strings.Builder, v int) {
 // Each row is newline-separated; trailing spaces are trimmed.
 // Returns empty string if no previous grid exists (before first render).
 func (c *Compositor) PrevGridText() string {
-	if c.prevGrid == nil {
+	snap := c.prevGridSnap.Load()
+	if snap == nil {
 		return ""
 	}
-	return gridToText(c.prevGrid)
+	return gridToText(snap)
+}
+
+// PrevGridTextRect returns a plain-text crop of the previous frame's published
+// grid. The rectangle is clipped to the grid bounds and returns empty if no
+// snapshot has been published yet.
+func (c *Compositor) PrevGridTextRect(x, y, width, height int) string {
+	snap := c.prevGridSnap.Load()
+	if snap == nil {
+		return ""
+	}
+	return gridRectToText(snap, x, y, width, height)
 }
 
 // gridToText converts a ScreenGrid to plain text with trailing spaces trimmed.
@@ -414,6 +434,41 @@ func gridToText(g *ScreenGrid) string {
 				if preserveContinuations {
 					row = append(row, ' ')
 				}
+				continue
+			}
+			ch := cell.Char
+			if ch == "" {
+				ch = " "
+			}
+			row = append(row, ch...)
+		}
+		buf.WriteString(strings.TrimRight(string(row), " "))
+	}
+	return buf.String()
+}
+
+func gridRectToText(g *ScreenGrid, x, y, width, height int) string {
+	if g == nil || width <= 0 || height <= 0 {
+		return ""
+	}
+	startX := max(0, x)
+	startY := max(0, y)
+	endX := min(g.Width, x+width)
+	endY := min(g.Height, y+height)
+	if startX >= endX || startY >= endY {
+		return ""
+	}
+
+	var buf strings.Builder
+	row := make([]byte, 0, endX-startX)
+	for rowY := startY; rowY < endY; rowY++ {
+		if rowY > startY {
+			buf.WriteByte('\n')
+		}
+		row = row[:0]
+		for colX := startX; colX < endX; colX++ {
+			cell := g.Get(colX, rowY)
+			if cell.Width == 0 {
 				continue
 			}
 			ch := cell.Char

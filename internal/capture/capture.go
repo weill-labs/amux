@@ -16,6 +16,7 @@ type Request struct {
 	ColorMap        bool
 	FormatJSON      bool
 	DisplayMode     bool
+	ClientMode      bool
 	HistoryMode     bool
 	RewrapSpecified bool
 	RewrapRaw       string
@@ -35,6 +36,8 @@ func ParseArgs(args []string) Request {
 			req.ColorMap = true
 		case "--display":
 			req.DisplayMode = true
+		case "--client":
+			req.ClientMode = true
 		case "--history":
 			req.HistoryMode = true
 		case "--rewrap":
@@ -72,6 +75,9 @@ func ArgsForRequest(req Request) []string {
 	if req.DisplayMode {
 		args = append(args, "--display")
 	}
+	if req.ClientMode {
+		args = append(args, "--client")
+	}
 	if req.HistoryMode {
 		args = append(args, "--history")
 	}
@@ -97,8 +103,11 @@ func ValidateScreenRequest(req Request) error {
 		(req.ColorMap && req.FormatJSON) {
 		return fmt.Errorf("--ansi, --colors, and --format json are mutually exclusive")
 	}
-	if req.DisplayMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode || req.PaneRef != "") {
+	if req.DisplayMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.ClientMode || req.HistoryMode || req.PaneRef != "") {
 		return fmt.Errorf("--display is mutually exclusive with other flags")
+	}
+	if req.ClientMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode) {
+		return fmt.Errorf("--client is mutually exclusive with --ansi, --colors, --format json, and --history")
 	}
 	if req.RewrapSpecified {
 		return fmt.Errorf("--rewrap requires --history")
@@ -110,6 +119,9 @@ func ValidateScreenRequest(req Request) error {
 func ValidateHistoryRequest(req Request) error {
 	if !req.HistoryMode {
 		return fmt.Errorf("internal error: captureHistory called without --history")
+	}
+	if req.ClientMode {
+		return fmt.Errorf("--history is mutually exclusive with --client")
 	}
 	if req.IncludeANSI || req.ColorMap || req.DisplayMode {
 		return fmt.Errorf("--history is mutually exclusive with --ansi, --colors, and --display")

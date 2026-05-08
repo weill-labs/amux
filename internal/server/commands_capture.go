@@ -65,7 +65,7 @@ func cmdCapture(ctx *CommandContext) {
 			return
 		}
 	}
-	if captureServerPathEnabled() && req.PaneRef != "" && !req.HistoryMode {
+	if captureServerPathEnabled() && req.PaneRef != "" && !req.ClientMode && !req.HistoryMode {
 		ctx.applyCommandResult(commandpkg.Result{Message: captureLocally(ctx, ctx.Args)})
 		return
 	}
