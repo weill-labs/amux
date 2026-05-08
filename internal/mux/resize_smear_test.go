@@ -122,7 +122,7 @@ func TestVTEmulatorResizeShrinkKeepsCursorLineVisible(t *testing.T) {
 
 	emu.Resize(shrinkWidth, height)
 	afterShrink := EmulatorContentLines(emu)
-	if !strings.Contains(strings.Join(afterShrink, "\n"), prompt) {
+	if !strings.Contains(strings.Join(afterShrink, "\n"), strings.TrimRight(prompt, " ")) {
 		t.Fatalf("after shrink rows = %#v, want cursor line containing %q to remain visible", afterShrink, prompt)
 	}
 }
