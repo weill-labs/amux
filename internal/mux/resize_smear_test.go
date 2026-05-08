@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestVTEmulatorResizeShrinkThenWidenKeepsDenseRowsSeparate(t *testing.T) {
@@ -150,6 +152,44 @@ func TestVTEmulatorResizeShrinkPreservesActiveStyle(t *testing.T) {
 			}
 			if cell.Style.Fg == nil {
 				t.Fatalf("CellAt(%d, %d).Style.Fg = nil, want active red style preserved after shrink repaint", x, y)
+			}
+			return
+		}
+	}
+	t.Fatalf("screen after shrink and write did not contain Z: %#v", EmulatorContentLines(emu))
+}
+
+func TestVTEmulatorResizeShrinkPreservesActiveHyperlink(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 20
+		shrinkWidth = 12
+		height      = 4
+		linkURL     = "https://example.test"
+	)
+	emu := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu, []byte("\x1b[2J\x1b[HABCDEFGHIJKLMNOPQRST"+ansi.SetHyperlink(linkURL)))
+
+	emu.Resize(shrinkWidth, height)
+	cell := emu.CellAt(0, 0)
+	if cell == nil {
+		t.Fatal("CellAt(0, 0) = nil, want repainted cell")
+	}
+	if cell.Link.URL != "" {
+		t.Fatalf("CellAt(0, 0).Link.URL = %q, want repaint not to leak active hyperlink", cell.Link.URL)
+	}
+
+	mustWrite(t, emu, []byte("Z"))
+	screenWidth, screenHeight := emu.Size()
+	for y := 0; y < screenHeight; y++ {
+		for x := 0; x < screenWidth; x++ {
+			cell := emu.CellAt(x, y)
+			if cell == nil || cell.Content != "Z" {
+				continue
+			}
+			if cell.Link.URL != linkURL {
+				t.Fatalf("CellAt(%d, %d).Link.URL = %q, want active hyperlink preserved", x, y, cell.Link.URL)
 			}
 			return
 		}
