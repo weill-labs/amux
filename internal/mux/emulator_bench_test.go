@@ -87,6 +87,39 @@ func BenchmarkEmulatorContentLines(b *testing.B) {
 	})
 }
 
+func BenchmarkScrollbackLineText(b *testing.B) {
+	const (
+		width           = 200
+		height          = 60
+		scrollbackLines = 5000
+	)
+
+	emu := NewVTEmulatorWithScrollback(width, height, scrollbackLines)
+	defer emu.Close()
+
+	var payload strings.Builder
+	wideText := strings.Repeat("scrollback payload ", 16)
+	for line := 0; line < scrollbackLines+height; line++ {
+		fmt.Fprintf(&payload, "\033[3%dm%04d %s\033[0m\r\n", line%8, line, wideText)
+	}
+	mustWrite(b, emu, []byte(payload.String()))
+
+	rows := emu.ScrollbackLen()
+	if rows == 0 {
+		b.Fatal("expected scrollback rows")
+	}
+
+	total := 0
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		total += len(emu.ScrollbackLineText(i % rows))
+	}
+	if total == 0 {
+		b.Fatal("expected scrollback text")
+	}
+}
+
 func BenchmarkScreenContains(b *testing.B) {
 	emu := NewVTEmulatorWithDrain(80, 24)
 	payload := realisticTerminalPayload(80 * 24)
