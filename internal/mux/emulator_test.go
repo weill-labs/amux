@@ -312,6 +312,36 @@ func TestRenderWithCursorRoundTripPreservesWrappedTrailingSpaces(t *testing.T) {
 	}
 }
 
+func TestRenderWithCursorRoundTripPreservesBlankWrappedSpacesAtCursor(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 4
+		wideWidth = 20
+		output    = "abc     "
+	)
+	emu1 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+output))
+
+	emu2 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+	if !emu2.LineWrapped(1) {
+		t.Fatal("after replay LineWrapped(1) = false, want blank space continuation preserved")
+	}
+
+	emu2.Resize(wideWidth, height)
+	col, row := emu2.CursorPosition()
+	if col != len(output) || row != 0 {
+		t.Fatalf("after replay and widen cursor = (%d, %d), want (%d, 0)", col, row, len(output))
+	}
+
+	mustWrite(t, emu2, []byte("Z"))
+	if got := EmulatorContentLines(emu2)[0]; got != output+"Z" {
+		t.Fatalf("after replay, widen, and write row 0 = %q, want %q", got, output+"Z")
+	}
+}
+
 func TestRenderWithCursorRoundTripPreservesHiddenCursor(t *testing.T) {
 	t.Parallel()
 
