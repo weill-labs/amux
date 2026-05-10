@@ -17,8 +17,7 @@ func (w *Window) Resize(width, height int) {
 	w.Height = height
 	w.Root.ResizeAll(width, height)
 
-	w.resizePTYs()
-	w.restoreZoomedPaneSize()
+	w.resizePTYsPreservingZoomedPaneSize()
 }
 
 // ResizeBorder moves a border at position (x, y) by delta cells.
@@ -471,11 +470,28 @@ func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int, grow
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
 func (w *Window) resizePTYs() {
+	w.resizePTYsExcept(0)
+}
+
+func (w *Window) resizePTYsExcept(excludedPaneID uint32) {
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
-			_ = c.Pane.Resize(c.W, PaneContentHeight(c.H))
+		if c.Pane == nil {
+			return
 		}
+		if excludedPaneID != 0 && c.Pane.ID == excludedPaneID {
+			return
+		}
+		_ = c.Pane.Resize(c.W, PaneContentHeight(c.H))
 	})
+}
+
+func (w *Window) resizePTYsPreservingZoomedPaneSize() {
+	if w.ZoomedPaneID == 0 {
+		w.resizePTYs()
+		return
+	}
+	w.resizePTYsExcept(w.ZoomedPaneID)
+	w.restoreZoomedPaneSize()
 }
 
 func (w *Window) restoreZoomedPaneSize() {

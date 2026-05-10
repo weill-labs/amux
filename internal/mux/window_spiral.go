@@ -129,6 +129,11 @@ func (w *Window) finishTreeMutation() {
 	w.resizePTYs()
 }
 
+func (w *Window) finishTreeMutationPreservingZoomedPaneSize() {
+	w.Root.FixOffsets()
+	w.resizePTYsPreservingZoomedPaneSize()
+}
+
 // MovePaneToColumn reparents paneID into the logical column selected by
 // targetPaneID, appending the moved pane to the bottom of that column.
 func (w *Window) MovePaneToColumn(paneID, targetPaneID uint32) error {
@@ -298,8 +303,7 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		w.equalizeAnchoredLeadColumns()
 	}
 	w.Root.FixOffsets()
-	w.resizePTYs()
-	w.restoreZoomedPaneSize()
+	w.resizePTYsPreservingZoomedPaneSize()
 	if !opts.KeepFocus {
 		w.setActive(newPane)
 	}

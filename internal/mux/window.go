@@ -36,6 +36,10 @@ type SplitOptions struct {
 	TreatLeadPaneAsWindowRef bool
 }
 
+func (w *Window) shouldKeepZoomedPaneSize(paneID uint32, opts SplitOptions) bool {
+	return opts.KeepFocus && w.ZoomedPaneID != 0 && paneID == w.ZoomedPaneID
+}
+
 // NewWindow creates a window with a single pane.
 func NewWindow(pane *Pane, width, height int) *Window {
 	root := NewLeaf(pane, 0, 0, width, height)
@@ -150,8 +154,7 @@ func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, pare
 	}
 	w.Root.FixOffsets()
 
-	w.resizePTYs()
-	w.restoreZoomedPaneSize()
+	w.resizePTYsPreservingZoomedPaneSize()
 
 	if !opts.KeepFocus {
 		w.setActive(newPane)
@@ -219,15 +222,14 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 	} else if len(cell.Children) > 0 {
 		existingCell = cell.Children[0]
 	}
-	if existingCell != nil && existingCell.Pane != nil {
+	if existingCell != nil && existingCell.Pane != nil && !w.shouldKeepZoomedPaneSize(existingCell.Pane.ID, opts) {
 		if err := existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H)); err != nil {
 			return nil, err
 		}
 	}
 
 	w.Root.FixOffsets()
-	w.resizePTYs()
-	w.restoreZoomedPaneSize()
+	w.resizePTYsPreservingZoomedPaneSize()
 	if !opts.KeepFocus {
 		w.setActive(newPane)
 	}
@@ -344,8 +346,7 @@ func (w *Window) MovePaneIntoSplit(paneID, targetPaneID uint32, dir SplitDir, in
 	}
 
 	w.Root.FixOffsets()
-	w.resizePTYs()
-	w.restoreZoomedPaneSize()
+	w.resizePTYsPreservingZoomedPaneSize()
 	w.restoreActivePaneByID(activePaneID, sourcePane)
 	return nil
 }
@@ -851,8 +852,7 @@ func (w *Window) ReplacePane(oldPaneID uint32, replacement *Pane) error {
 		return err
 	}
 	cell.Pane = replacement
-	w.finishTreeMutation()
-	w.restoreZoomedPaneSize()
+	w.finishTreeMutationPreservingZoomedPaneSize()
 	if w.ActivePane != nil && w.ActivePane.ID == oldPaneID {
 		w.setActive(replacement)
 	}
