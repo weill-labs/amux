@@ -50,6 +50,10 @@ type TerminalEmulator interface {
 	// CursorPosition returns cursor column and row (0-indexed).
 	CursorPosition() (col, row int)
 
+	// CursorPhantom returns true when the cursor is pending autowrap after a
+	// printable landed in the last column.
+	CursorPhantom() bool
+
 	// CursorHidden returns true if the cursor is hidden.
 	CursorHidden() bool
 
@@ -263,6 +267,10 @@ func (v *vtEmulator) Reset() {
 func (v *vtEmulator) CursorPosition() (col, row int) {
 	pos := v.emu.CursorPosition()
 	return pos.X, pos.Y
+}
+
+func (v *vtEmulator) CursorPhantom() bool {
+	return v.emu.CursorPhantom()
 }
 
 func (v *vtEmulator) CursorHidden() bool {
@@ -542,6 +550,7 @@ func RenderWithCursor(emu TerminalEmulator) string {
 	lines := strings.Split(rendered, "\n")
 	width, height := emu.Size()
 	col, row := emu.CursorPosition()
+	cursorPhantom := emu.CursorPhantom()
 
 	var buf strings.Builder
 	if emu.IsAltScreen() {
@@ -566,8 +575,39 @@ func RenderWithCursor(emu TerminalEmulator) string {
 		buf.WriteString(line)
 	}
 
-	buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
+	if cursorPhantom {
+		writePhantomCursorReplay(&buf, emu, lines, width, height, col, row)
+	} else {
+		buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
+	}
 	return buf.String()
+}
+
+func writePhantomCursorReplay(
+	buf *strings.Builder,
+	emu TerminalEmulator,
+	lines []string,
+	width, height, cursorCol, cursorRow int,
+) {
+	if width <= 0 || cursorRow < 0 || cursorRow >= len(lines) {
+		buf.WriteString(fmt.Sprintf("\033[%d;%dH", cursorRow+1, cursorCol+1))
+		return
+	}
+
+	start := cursorRow
+	for start > 0 && emu.LineWrapped(start) {
+		start--
+	}
+	for line := start; line <= cursorRow; line++ {
+		if line == start {
+			buf.WriteString(fmt.Sprintf("\033[%d;1H", line+1))
+		}
+		targetWidth := replayLineTargetWidth(emu, line, width, height, cursorCol, cursorRow)
+		if line == cursorRow {
+			targetWidth = width
+		}
+		buf.WriteString(padReplayLineToWidth(lines[line], targetWidth))
+	}
 }
 
 func replayLineTargetWidth(emu TerminalEmulator, line, width, height, cursorCol, cursorRow int) int {
