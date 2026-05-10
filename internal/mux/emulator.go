@@ -577,8 +577,11 @@ func replayLineTargetWidth(emu TerminalEmulator, line, width, height, cursorCol,
 	if line+1 < height && emu.LineWrapped(line+1) {
 		return width
 	}
-	if line == cursorRow && cursorCol > 0 && emu.LineWrapped(line) {
-		return cursorCol
+	if emu.LineWrapped(line) {
+		if line == cursorRow && cursorCol > 0 {
+			return cursorCol
+		}
+		return 1
 	}
 	return 0
 }
