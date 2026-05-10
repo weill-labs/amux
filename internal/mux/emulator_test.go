@@ -342,6 +342,51 @@ func TestRenderWithCursorRoundTripPreservesBlankWrappedSpacesAtCursor(t *testing
 	}
 }
 
+func TestRenderWithCursorRoundTripPreservesBlankWrappedRowsBeforeHardNewline(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 5
+		wideWidth = 20
+	)
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{name: "single blank continuation", output: "abcde     \r\nNEXT"},
+		{name: "second blank continuation", output: "abcdeFGHIJ  \r\nNEXT"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emu1 := NewVTEmulatorWithDrain(width, height)
+			mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+tt.output))
+
+			emu2 := NewVTEmulatorWithDrain(width, height)
+			mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+
+			emu1.Resize(wideWidth, height)
+			emu2.Resize(wideWidth, height)
+
+			lines1 := EmulatorContentLines(emu1)
+			lines2 := EmulatorContentLines(emu2)
+			for i := range lines1 {
+				if lines1[i] != lines2[i] {
+					t.Fatalf("after replay and widen row %d = %q, want %q; all rows=%#v", i, lines2[i], lines1[i], lines2)
+				}
+			}
+			col1, row1 := emu1.CursorPosition()
+			col2, row2 := emu2.CursorPosition()
+			if col1 != col2 || row1 != row2 {
+				t.Fatalf("after replay and widen cursor = (%d, %d), want (%d, %d)", col2, row2, col1, row1)
+			}
+		})
+	}
+}
+
 func TestRenderWithCursorRoundTripPreservesHiddenCursor(t *testing.T) {
 	t.Parallel()
 
