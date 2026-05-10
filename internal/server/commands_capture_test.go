@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net"
 	"slices"
 	"strings"
@@ -11,8 +12,8 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func TestCaptureServerEnvSinglePaneDoesNotSendClientCaptureRequest(t *testing.T) {
-	t.Setenv("AMUX_CAPTURE_SERVER", "1")
+func TestCaptureDefaultSinglePaneDoesNotSendClientCaptureRequest(t *testing.T) {
+	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
@@ -41,8 +42,68 @@ func TestCaptureServerEnvSinglePaneDoesNotSendClientCaptureRequest(t *testing.T)
 	}
 }
 
-func TestCaptureClientFlagForcesClientCaptureWhenServerEnvEnabled(t *testing.T) {
-	t.Setenv("AMUX_CAPTURE_SERVER", "1")
+func TestCaptureDefaultSinglePaneJSONDoesNotSendClientCaptureRequest(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.responseTimeout = 20 * time.Millisecond
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	pane.FeedOutput([]byte("SERVER-JSON\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	captureClient := attachCaptureClientForCommandTest(t, sess)
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	var capturePane struct {
+		Name    string   `json:"name"`
+		Content []string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(res.output), &capturePane); err != nil {
+		t.Fatalf("json.Unmarshal capture output: %v\n%s", err, res.output)
+	}
+	if capturePane.Name != "pane-1" {
+		t.Fatalf("capture pane name = %q, want pane-1", capturePane.Name)
+	}
+	if len(capturePane.Content) == 0 || capturePane.Content[0] != "SERVER-JSON" {
+		t.Fatalf("capture content = %#v, want SERVER-JSON as first row", capturePane.Content)
+	}
+
+	if err := captureClient.SetReadDeadline(time.Now().Add(25 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	if msg, err := readMsgOnConn(captureClient); err == nil {
+		t.Fatalf("attached client received %v, want no client capture request", msg.Type)
+	}
+}
+
+func TestCaptureDefaultSinglePaneWorksWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	pane.FeedOutput([]byte("SERVER-LOCAL\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	res := runTestCommand(t, srv, sess, "capture", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	if got, want := res.output, "SERVER-LOCAL\n"; got != want {
+		t.Fatalf("capture output = %q, want %q", got, want)
+	}
+}
+
+func TestCaptureClientFlagForwardsToAttachedClient(t *testing.T) {
+	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
@@ -78,26 +139,8 @@ func TestCaptureClientFlagForcesClientCaptureWhenServerEnvEnabled(t *testing.T) 
 	}
 }
 
-func TestCaptureClientFlagRequiresAttachedClient(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, cleanup := newCommandTestSession(t)
-	defer cleanup()
-	sess.captureTiming.attachMaxRetries = 1
-
-	pane := newStandaloneProxyPane(1, "pane-1")
-	pane.FeedOutput([]byte("SERVER-LOCAL\r\n"))
-	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
-	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
-
-	res := runTestCommand(t, srv, sess, "capture", "--client", "pane-1")
-	if got, want := res.cmdErr, "no client attached"; got != want {
-		t.Fatalf("capture --client without client cmdErr = %q, want %q; output=%q", got, want, res.output)
-	}
-}
-
-func TestCaptureDefaultSinglePaneStillForwardsToAttachedClient(t *testing.T) {
-	t.Parallel()
+func TestCaptureLegacyClientEnvForwardsSinglePaneToAttachedClient(t *testing.T) {
+	t.Setenv("AMUX_CAPTURE_LEGACY_CLIENT", "1")
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
@@ -133,8 +176,26 @@ func TestCaptureDefaultSinglePaneStillForwardsToAttachedClient(t *testing.T) {
 	}
 }
 
-func TestCaptureServerEnvFullSessionStillForwardsInStepOne(t *testing.T) {
-	t.Setenv("AMUX_CAPTURE_SERVER", "1")
+func TestCaptureClientFlagRequiresAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.attachMaxRetries = 1
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	pane.FeedOutput([]byte("SERVER-LOCAL\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	res := runTestCommand(t, srv, sess, "capture", "--client", "pane-1")
+	if got, want := res.cmdErr, "no client attached"; got != want {
+		t.Fatalf("capture --client without client cmdErr = %q, want %q; output=%q", got, want, res.output)
+	}
+}
+
+func TestCaptureFullSessionStillForwardsToAttachedClient(t *testing.T) {
+	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
@@ -170,8 +231,8 @@ func TestCaptureServerEnvFullSessionStillForwardsInStepOne(t *testing.T) {
 	}
 }
 
-func TestCaptureServerEnvHistoryPaneStaysOnHistoryPath(t *testing.T) {
-	t.Setenv("AMUX_CAPTURE_SERVER", "1")
+func TestCaptureHistoryPaneUsesServerHistoryPath(t *testing.T) {
+	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()

@@ -24,8 +24,8 @@ func (ctx captureCommandContext) ForwardCapture(args []string) *Message {
 	return ctx.Sess.forwardCaptureForActor(ctx.ActorPaneID, args)
 }
 
-func captureServerPathEnabled() bool {
-	return os.Getenv("AMUX_CAPTURE_SERVER") == "1"
+func captureLegacyClientPathEnabled() bool {
+	return os.Getenv("AMUX_CAPTURE_LEGACY_CLIENT") == "1"
 }
 
 func captureLocally(ctx *CommandContext, args []string) *Message {
@@ -65,7 +65,7 @@ func cmdCapture(ctx *CommandContext) {
 			return
 		}
 	}
-	if captureServerPathEnabled() && req.PaneRef != "" && !req.ClientMode && !req.HistoryMode {
+	if req.PaneRef != "" && !req.ClientMode && !req.DisplayMode && !req.HistoryMode && !captureLegacyClientPathEnabled() {
 		ctx.applyCommandResult(commandpkg.Result{Message: captureLocally(ctx, ctx.Args)})
 		return
 	}
