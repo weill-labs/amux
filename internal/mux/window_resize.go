@@ -166,6 +166,17 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 // redistributed evenly. Returns true if the layout changed.
 func (w *Window) Equalize(widths, heights bool) bool {
 	w.assertOwner("Equalize")
+	return w.equalizeWithOptions(widths, heights, SplitOptions{})
+}
+
+// EqualizeWithOptions rebalances the window layout with explicit focus/zoom
+// behavior control.
+func (w *Window) EqualizeWithOptions(widths, heights bool, opts SplitOptions) bool {
+	w.assertOwner("EqualizeWithOptions")
+	return w.equalizeWithOptions(widths, heights, opts)
+}
+
+func (w *Window) equalizeWithOptions(widths, heights bool, opts SplitOptions) bool {
 	if w.Root == nil || (!widths && !heights) {
 		return false
 	}
@@ -193,7 +204,7 @@ func (w *Window) Equalize(widths, heights bool) bool {
 		return false
 	}
 
-	if w.ZoomedPaneID != 0 {
+	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		if err := w.Unzoom(); err != nil {
 			return false
 		}
@@ -212,7 +223,11 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	}
 
 	w.Root.FixOffsets()
-	w.resizePTYs()
+	if opts.KeepFocus {
+		w.resizePTYsPreservingZoomedPaneSize()
+	} else {
+		w.resizePTYs()
+	}
 	return true
 }
 
