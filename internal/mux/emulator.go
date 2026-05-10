@@ -540,7 +540,8 @@ func protoCellFromUVValue(cell uv.Cell, ok bool) proto.Cell {
 func RenderWithCursor(emu TerminalEmulator) string {
 	rendered := emu.Render()
 	lines := strings.Split(rendered, "\n")
-	width, _ := emu.Size()
+	width, height := emu.Size()
+	col, row := emu.CursorPosition()
 
 	var buf strings.Builder
 	if emu.IsAltScreen() {
@@ -561,15 +562,25 @@ func RenderWithCursor(emu TerminalEmulator) string {
 		if !emu.LineWrapped(i) {
 			buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
 		}
-		if i+1 < len(lines) && emu.LineWrapped(i+1) {
-			line = padReplayLineToWidth(line, width)
-		}
+		line = padReplayLineToWidth(line, replayLineTargetWidth(emu, i, width, height, col, row))
 		buf.WriteString(line)
 	}
 
-	col, row := emu.CursorPosition()
 	buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
 	return buf.String()
+}
+
+func replayLineTargetWidth(emu TerminalEmulator, line, width, height, cursorCol, cursorRow int) int {
+	if width <= 0 {
+		return 0
+	}
+	if line+1 < height && emu.LineWrapped(line+1) {
+		return width
+	}
+	if line == cursorRow && cursorCol > 0 && emu.LineWrapped(line) {
+		return cursorCol
+	}
+	return 0
 }
 
 func padReplayLineToWidth(line string, width int) string {
