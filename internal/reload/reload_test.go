@@ -446,7 +446,9 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	// Delete and recreate (simulates build tools that replace via rename)
@@ -596,7 +598,9 @@ func TestWatchBinaryInstallScriptSequence(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	toolDir := newInstallScriptToolDir(t, "newbuild")
@@ -644,7 +648,9 @@ func TestWatchBinaryInstallScriptSequenceViaSymlinkPath(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	toolDir := newInstallScriptToolDir(t, "newbuild")

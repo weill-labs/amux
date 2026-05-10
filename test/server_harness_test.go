@@ -153,7 +153,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 
 func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows int, configContent string, exitUnattached, keepalive bool, extraEnv ...string) *ServerHarness {
 	tb.Helper()
-	var b [4]byte
+	var b [8]byte
 	if session == "" {
 		mustRandRead(tb, b[:])
 		session = fmt.Sprintf("t-%x", b)
@@ -328,6 +328,19 @@ func (h *ServerHarness) signalServer(sig os.Signal) error {
 		return fmt.Errorf("server process %d no longer matches session %s", pid, h.session)
 	}
 	return h.cmd.Process.Signal(sig)
+}
+
+func TestServerHarnessWaitForSignaledServerExitReusesBackgroundWaiter(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
+
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 }
 
 // cleanup detaches the headless clients, sends SIGINT for graceful shutdown
@@ -1159,6 +1172,11 @@ func (h *ServerHarness) waitForProcessExit(timeout time.Duration) bool {
 	case <-time.After(timeout):
 		return false
 	}
+}
+
+func (h *ServerHarness) waitForSignaledServerExit(timeout time.Duration) bool {
+	h.tb.Helper()
+	return h.waitForProcessExit(timeout)
 }
 
 // capture returns the server-side composited screen (plain text 2D grid).

@@ -110,7 +110,7 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 		defer nestedHarnessStartupMu.Unlock()
 	}
 
-	var b [4]byte
+	var b [8]byte
 	mustRandRead(tb, b[:])
 	inner := fmt.Sprintf("t-%x", b)
 

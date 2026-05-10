@@ -28,7 +28,7 @@ func writeTestConfigFile(t *testing.T, configContent string) string {
 func randomTestSessionName(t *testing.T) string {
 	t.Helper()
 
-	var b [4]byte
+	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		t.Fatalf("rand.Read: %v", err)
 	}

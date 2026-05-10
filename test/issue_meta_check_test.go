@@ -372,6 +372,7 @@ printf '%s\n' "$FAKE_GITHUB_MAIN_SHA"
 func issueMetaScriptEnv(tempDir string, extra ...string) []string {
 	env := append([]string{}, hermeticMainEnv()...)
 	env = upsertIssueMetaEnv(env, "PATH", tempDir+string(os.PathListSeparator)+issueMetaEnvValue(env, "PATH"))
+	env = upsertIssueMetaEnv(env, "GOCACHE", childGoCachePath(tempDir))
 	env = upsertIssueMetaEnv(env, "AMUX_PANE", "7")
 	env = upsertIssueMetaEnv(env, "AMUX_SESSION", "test-session")
 	return append(env, extra...)

@@ -24,6 +24,10 @@ var gocoverDir string
 // gocoverOwned is true when TestMain created gocoverDir (vs. inheriting it).
 var gocoverOwned bool
 
+// childGoCacheDir isolates nested go build/go run commands from the user's
+// ambient cache while preserving reuse within this test process.
+var childGoCacheDir string
+
 const testRunLockPrefix = "test-run-"
 
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
@@ -46,11 +50,25 @@ func buildAmuxWithCommit(binPath, buildCommit string) error {
 		args = append(args, "-ldflags", "-X main.BuildCommit="+buildCommit)
 	}
 	args = append(args, "-o", binPath, "..")
-	out, err := exec.Command("go", args...).CombinedOutput()
+	cmd := exec.Command("go", args...)
+	cmd.Env = goBuildEnv(os.Environ(), binPath)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("building amux: %w\n%s", err, out)
 	}
 	return nil
+}
+
+func goBuildEnv(baseEnv []string, binPath string) []string {
+	env := append([]string{}, baseEnv...)
+	return upsertEnv(env, "GOCACHE", childGoCachePath(filepath.Dir(binPath)))
+}
+
+func childGoCachePath(fallbackParent string) string {
+	if childGoCacheDir != "" {
+		return childGoCacheDir
+	}
+	return filepath.Join(fallbackParent, ".gocache")
 }
 
 func privateAmuxBin(tb testing.TB) string {
@@ -92,7 +110,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "creating test-run lock: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.Remove(lockPath)
+	removeTestRunLock := func() { _ = os.Remove(lockPath) }
 
 	// Clean up orphaned test sessions from previous runs that may have
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
@@ -107,13 +125,16 @@ func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "amux-test-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
+		removeTestRunLock()
 		os.Exit(1)
 	}
 	defer os.RemoveAll(tmp)
 
 	amuxBin = tmp + "/amux"
+	childGoCacheDir = filepath.Join(tmp, ".gocache")
 	if err := buildAmux(amuxBin); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
+		removeTestRunLock()
 		os.Exit(1)
 	}
 
@@ -134,6 +155,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	removeTestRunLock()
 	os.Exit(code)
 }
 
@@ -166,9 +188,9 @@ func newTestHome(tb testing.TB) string {
 // and log files left behind by previous test runs that were killed by a
 // timeout panic.
 //
-// Only kills servers whose sockets are unresponsive (stale). Live servers
-// that accept connections are left alone, making this safe even if another
-// `go test` invocation is running concurrently.
+// A live test-run lock protects concurrent `go test` invocations. When no other
+// run owns a lock, any test server without a live test parent is stale even if
+// its socket still accepts connections.
 func cleanupStaleTestSessions() {
 	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 	if hasOtherActiveTestRun(socketDir, os.Getpid()) {
@@ -177,39 +199,31 @@ func cleanupStaleTestSessions() {
 	liveOwnedSessions := make(map[string]bool)
 	staleSessions := make(map[string]bool)
 
-	// Kill orphaned amux server processes, but only if their socket is stale
-	out, _ := exec.Command("pgrep", "-fl", "amux _server t-").Output()
+	// Kill orphaned amux server processes whose parent test process is gone.
+	out, _ := exec.Command("pgrep", "-af", "amux _server t-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
-			session := fields[len(fields)-1]
-			if serverHasLiveTestParent(fields[0]) {
+		pid, session, ok := parseAmuxServerProcessLine(line, isTestSession)
+		if ok {
+			if serverHasLiveTestParent(pid) {
 				liveOwnedSessions[session] = true
 				continue
 			}
-			if isSocketAlive(filepath.Join(socketDir, session)) {
-				continue // server is live, don't kill
-			}
 			staleSessions[session] = true
-			killStaleServerProcess(fields[0])
+			killStaleServerProcess(pid)
 		}
 	}
 
-	// Also kill orphaned benchmark amux servers (same liveness check)
-	out, _ = exec.Command("pgrep", "-fl", "amux _server bench-").Output()
+	// Also kill orphaned benchmark amux servers with the same parent check.
+	out, _ = exec.Command("pgrep", "-af", "amux _server bench-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && isBenchSession(fields[len(fields)-1]) {
-			session := fields[len(fields)-1]
-			if serverHasLiveTestParent(fields[0]) {
+		pid, session, ok := parseAmuxServerProcessLine(line, isBenchSession)
+		if ok {
+			if serverHasLiveTestParent(pid) {
 				liveOwnedSessions[session] = true
 				continue
 			}
-			if isSocketAlive(filepath.Join(socketDir, session)) {
-				continue
-			}
 			staleSessions[session] = true
-			killStaleServerProcess(fields[0])
+			killStaleServerProcess(pid)
 		}
 	}
 
@@ -252,7 +266,7 @@ func cleanupStaleTestSessions() {
 		}
 		if isTestSession(base) || isBenchSession(base) {
 			sockPath := filepath.Join(socketDir, base)
-			if !isSocketAlive(sockPath) {
+			if staleSessions[base] || !isSocketAlive(sockPath) {
 				os.Remove(filepath.Join(socketDir, name))
 			}
 		}
@@ -290,6 +304,24 @@ func hasOtherActiveTestRun(socketDir string, selfPID int) bool {
 		}
 	}
 	return false
+}
+
+func parseAmuxServerProcessLine(line string, matchSession func(string) bool) (pid, session string, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return "", "", false
+	}
+	if parsedPID, err := strconv.Atoi(fields[0]); err != nil || parsedPID <= 0 {
+		return "", "", false
+	}
+	session = fields[len(fields)-1]
+	if at := strings.Index(session, "@"); at >= 0 {
+		session = session[:at]
+	}
+	if !matchSession(session) {
+		return "", "", false
+	}
+	return fields[0], session, true
 }
 
 func parseTestRunLockPID(name string) (int, bool) {
@@ -413,22 +445,28 @@ func isSocketAlive(sockPath string) bool {
 	return true
 }
 
-// isTestSession returns true if the name matches the test session convention: t- followed by 8 hex chars.
-func isTestSession(name string) bool {
-	if len(name) != 10 || name[:2] != "t-" {
+func hasHexSuffix(name, prefix string, lengths ...int) bool {
+	if !strings.HasPrefix(name, prefix) {
 		return false
 	}
-	_, err := hex.DecodeString(name[2:])
-	return err == nil
+	suffix := strings.TrimPrefix(name, prefix)
+	for _, length := range lengths {
+		if len(suffix) == length {
+			_, err := hex.DecodeString(suffix)
+			return err == nil
+		}
+	}
+	return false
 }
 
-// isBenchSession returns true if the name matches the bench session convention: bench- followed by 8 hex chars.
+// isTestSession returns true if the name matches the test session convention.
+func isTestSession(name string) bool {
+	return hasHexSuffix(name, "t-", 8, 16)
+}
+
+// isBenchSession returns true if the name matches the bench session convention.
 func isBenchSession(name string) bool {
-	if len(name) != 14 || !strings.HasPrefix(name, "bench-") {
-		return false
-	}
-	_, err := hex.DecodeString(name[6:])
-	return err == nil
+	return hasHexSuffix(name, "bench-", 8, 16)
 }
 
 // ---------------------------------------------------------------------------

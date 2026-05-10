@@ -259,6 +259,7 @@ func TestHotReloadRebuildConvergesFromOutsideRepoWithMismatchedInstallMetadata(t
 	if !strings.Contains(before, "build: beforeoutside") {
 		t.Fatalf("status before binary rewrite = %q, want before build marker", before)
 	}
+	reloadGen := h.generation()
 	if err := buildAmuxAtomic(privateBin, "srvonlyreload"); err != nil {
 		t.Fatalf("rewriting private amux binary atomically: %v", err)
 	}
@@ -271,6 +272,7 @@ func TestHotReloadRebuildConvergesFromOutsideRepoWithMismatchedInstallMetadata(t
 	if !strings.Contains(after, "build: srvonlyreload") {
 		t.Fatalf("status after binary rewrite = %q, want new build marker", after)
 	}
+	h.waitForReloadedClient(reloadGen, 15*time.Second)
 
 	h.sendKeys("echo ONE_RELOAD_ONLY", "Enter")
 	if !h.waitFor("ONE_RELOAD_ONLY", 5*time.Second) {

@@ -55,13 +55,6 @@ func mustWrite(tb testing.TB, writer interface{ Write([]byte) (int, error) }, da
 	}
 }
 
-func ignoreCmdWait(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	_ = cmd.Wait() //nolint:errcheck // shutdown-path tests intentionally reap signaled processes
-}
-
 func ignoreProcessKill(proc *os.Process) {
 	if proc == nil {
 		return

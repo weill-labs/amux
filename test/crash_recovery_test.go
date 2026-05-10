@@ -64,8 +64,9 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	ignoreCmdWait(h.cmd)
-	h.cmd = nil // prevent cleanup from trying to kill again
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 
 	// Verify crash checkpoint file still exists (SIGKILL = no cleanup)
 	if _, err := os.Stat(cpWrite.path); err != nil {
@@ -165,8 +166,9 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	ignoreCmdWait(h.cmd)
-	h.cmd = nil
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 
 	h2 := startServerForSession(t, h.session, h.home)
 	h2.assertActive("pane-10")
@@ -205,8 +207,9 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	ignoreCmdWait(h.cmd)
-	h.cmd = nil
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 
 	h2 := startServerForSession(t, h.session, h.home)
 
@@ -235,8 +238,9 @@ func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	ignoreCmdWait(h.cmd)
-	h.cmd = nil
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 
 	h2 := startServerForSession(t, h.session, h.home)
 
@@ -266,8 +270,9 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	ignoreCmdWait(h.cmd)
-	h.cmd = nil
+	if !h.waitForSignaledServerExit(5 * time.Second) {
+		t.Fatal("server did not exit after SIGKILL")
+	}
 
 	h2 := startServerForSession(t, h.session, h.home)
 
@@ -503,7 +508,7 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	// Per-test cover dir
 	var coverDir string
 	if gocoverDir != "" {
-		var b [4]byte
+		var b [8]byte
 		mustRandRead(t, b[:])
 		coverDir = filepath.Join(gocoverDir, fmt.Sprintf("recover-%x", b))
 		mustMkdirAll(t, coverDir, 0755)
