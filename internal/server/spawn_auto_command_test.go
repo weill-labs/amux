@@ -83,6 +83,56 @@ func TestCommandSpawnAutoAppendsToShortestUnderfilledColumnAndEqualizes(t *testi
 	}
 }
 
+func TestCommandSpawnAutoKeepsZoomAndFocus(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	if _, err := w.SplitPaneWithOptions(p1.ID, mux.SplitHorizontal, p2, mux.SplitOptions{}); err != nil {
+		t.Fatalf("Split pane-1 horizontally: %v", err)
+	}
+	if _, err := w.SplitRoot(mux.SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot pane-3: %v", err)
+	}
+	if err := w.Zoom(p1.ID); err != nil {
+		t.Fatalf("Zoom pane-1: %v", err)
+	}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2, p3)
+
+	res := runTestCommand(t, srv, sess, "spawn", "--auto", "--name", "worker-4")
+	if res.cmdErr != "" {
+		t.Fatalf("spawn --auto failed: %s", res.cmdErr)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		activeID uint32
+		zoomedID uint32
+		hasPane  bool
+	} {
+		w := sess.activeWindow()
+		p4, err := sess.findPaneByRef("worker-4")
+		return struct {
+			activeID uint32
+			zoomedID uint32
+			hasPane  bool
+		}{
+			activeID: w.ActivePane.ID,
+			zoomedID: w.ZoomedPaneID,
+			hasPane:  err == nil && w.Root.FindPane(p4.ID) != nil,
+		}
+	})
+	if state.activeID != p1.ID || state.zoomedID != p1.ID || !state.hasPane {
+		t.Fatalf("state after spawn --auto = %+v, want active pane-1, zoomed pane-1, worker present", state)
+	}
+}
+
 func TestCommandSpawnAutoRootSplitsWhenColumnsAreFull(t *testing.T) {
 	t.Parallel()
 

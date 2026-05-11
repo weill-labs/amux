@@ -306,7 +306,7 @@ func placeCreatedPaneInWindow(w *mux.Window, placement createPanePlacement, snap
 				return err
 			}
 		}
-		w.Equalize(true, true)
+		w.EqualizeWithOptions(true, true, opts)
 		return nil
 	default:
 		return fmt.Errorf("unknown create-pane placement: %d", placement)
