@@ -50,6 +50,10 @@ type TerminalEmulator interface {
 	// CursorPosition returns cursor column and row (0-indexed).
 	CursorPosition() (col, row int)
 
+	// CursorPhantom returns true when the cursor is pending autowrap after a
+	// printable landed in the last column.
+	CursorPhantom() bool
+
 	// CursorHidden returns true if the cursor is hidden.
 	CursorHidden() bool
 
@@ -84,6 +88,9 @@ type TerminalEmulator interface {
 	// ScreenLineText returns the plain text of screen line y (0=top row).
 	// Continuation cells (Width==0) are skipped, trailing spaces trimmed.
 	ScreenLineText(y int) string
+
+	// LineWrapped reports whether screen line y is a soft-wrap continuation.
+	LineWrapped(y int) bool
 
 	// ScreenContains returns true if any screen line contains substr.
 	ScreenContains(substr string) bool
@@ -262,6 +269,10 @@ func (v *vtEmulator) CursorPosition() (col, row int) {
 	return pos.X, pos.Y
 }
 
+func (v *vtEmulator) CursorPhantom() bool {
+	return v.emu.CursorPhantom()
+}
+
 func (v *vtEmulator) CursorHidden() bool {
 	return v.cursorHidden.Load()
 }
@@ -358,6 +369,10 @@ func (v *vtEmulator) screenLineTextInner(w, y int) string {
 func (v *vtEmulator) ScreenLineText(y int) string {
 	w := int(v.w.Load())
 	return v.screenLineTextInner(w, y)
+}
+
+func (v *vtEmulator) LineWrapped(y int) bool {
+	return v.emu.LineWrapped(y)
 }
 
 func (v *vtEmulator) CellAt(col, row int) *uv.Cell {
@@ -532,7 +547,10 @@ func protoCellFromUVValue(cell uv.Cell, ok bool) proto.Cell {
 // have different widths across emulator instances.
 func RenderWithCursor(emu TerminalEmulator) string {
 	rendered := emu.Render()
-	lines := strings.Split(rendered, "\n")
+	width, height := emu.Size()
+	lines := replayRenderLines(rendered, height)
+	col, row := emu.CursorPosition()
+	cursorPhantom := emu.CursorPhantom()
 
 	var buf strings.Builder
 	if emu.IsAltScreen() {
@@ -547,12 +565,85 @@ func RenderWithCursor(emu TerminalEmulator) string {
 	}
 	buf.WriteString(renderMouseProtocol(emu.MouseProtocol()))
 	for i, line := range lines {
-		// Position cursor at start of each row (CUP is 1-indexed)
-		buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
+		// Position cursor at start of each non-continuation row (CUP is
+		// 1-indexed). Continuation rows must replay through autowrap so the
+		// emulator restores soft-wrap metadata for future resizes.
+		if !emu.LineWrapped(i) {
+			buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
+		}
+		line = padReplayLineToWidth(line, replayLineTargetWidth(emu, i, width, height, col, row))
 		buf.WriteString(line)
 	}
 
-	col, row := emu.CursorPosition()
-	buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
+	if cursorPhantom {
+		writePhantomCursorReplay(&buf, emu, lines, width, height, col, row)
+	} else {
+		buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
+	}
 	return buf.String()
+}
+
+func replayRenderLines(rendered string, height int) []string {
+	if height <= 0 {
+		return nil
+	}
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > height {
+		return lines[:height]
+	}
+	return lines
+}
+
+func writePhantomCursorReplay(
+	buf *strings.Builder,
+	emu TerminalEmulator,
+	lines []string,
+	width, height, cursorCol, cursorRow int,
+) {
+	if width <= 0 || cursorRow < 0 || cursorRow >= len(lines) {
+		buf.WriteString(fmt.Sprintf("\033[%d;%dH", cursorRow+1, cursorCol+1))
+		return
+	}
+
+	start := cursorRow
+	for start > 0 && emu.LineWrapped(start) {
+		start--
+	}
+	for line := start; line <= cursorRow; line++ {
+		if line == start {
+			buf.WriteString(fmt.Sprintf("\033[%d;1H", line+1))
+		}
+		targetWidth := replayLineTargetWidth(emu, line, width, height, cursorCol, cursorRow)
+		if line == cursorRow {
+			targetWidth = width
+		}
+		buf.WriteString(padReplayLineToWidth(lines[line], targetWidth))
+	}
+}
+
+func replayLineTargetWidth(emu TerminalEmulator, line, width, height, cursorCol, cursorRow int) int {
+	if width <= 0 {
+		return 0
+	}
+	if line+1 < height && emu.LineWrapped(line+1) {
+		return width
+	}
+	if emu.LineWrapped(line) {
+		if line == cursorRow && cursorCol > 0 {
+			return cursorCol
+		}
+		return 1
+	}
+	return 0
+}
+
+func padReplayLineToWidth(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	cells := ansi.StringWidth(line)
+	if cells >= width {
+		return line
+	}
+	return line + strings.Repeat(" ", width-cells)
 }

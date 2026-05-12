@@ -212,6 +212,40 @@ func TestRenderWithCursor(t *testing.T) {
 	}
 }
 
+type trailingNewlineRenderEmulator struct {
+	TerminalEmulator
+}
+
+func (e trailingNewlineRenderEmulator) Render() string {
+	return e.TerminalEmulator.Render() + "\n"
+}
+
+func (e trailingNewlineRenderEmulator) LineWrapped(y int) bool {
+	_, height := e.Size()
+	if y < 0 || y >= height {
+		panic(fmt.Sprintf("LineWrapped(%d) out of bounds for height %d", y, height))
+	}
+	return e.TerminalEmulator.LineWrapped(y)
+}
+
+func TestRenderWithCursorIgnoresTrailingRenderNewline(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(5, 3)
+	mustWrite(t, emu, []byte("abcdeFG"))
+
+	rendered := RenderWithCursor(trailingNewlineRenderEmulator{TerminalEmulator: emu})
+	if strings.Contains(rendered, "\x1b[4;1H") {
+		t.Fatalf("RenderWithCursor emitted CUP for row past terminal height: %q", rendered)
+	}
+
+	roundTrip := NewVTEmulatorWithDrain(5, 3)
+	mustWrite(t, roundTrip, []byte(rendered))
+	if got := EmulatorContentLines(roundTrip); got[0] != "abcde" || got[1] != "FG" {
+		t.Fatalf("round-trip content = %#v, want first rows %q and %q", got, "abcde", "FG")
+	}
+}
+
 func TestVTEmulatorClampsOversizedVerticalMargins(t *testing.T) {
 	t.Parallel()
 
@@ -267,6 +301,168 @@ func TestRenderWithCursorRoundTrip(t *testing.T) {
 		if s1 != s2 {
 			t.Errorf("line %d mismatch:\n  orig:   %q\n  replay: %q", i, s1, s2)
 		}
+	}
+}
+
+func TestRenderWithCursorRoundTripPreservesSoftWrapForResize(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width      = 12
+		height     = 4
+		wideWidth  = 24
+		longOutput = "ABCDEFGHIJKLMNOPQRSTUV"
+	)
+	emu1 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+longOutput))
+
+	emu2 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+
+	emu2.Resize(wideWidth, height)
+	if got := EmulatorContentLines(emu2)[0]; got != longOutput {
+		t.Fatalf("after replay and widen row 0 = %q, want %q", got, longOutput)
+	}
+}
+
+func TestRenderWithCursorRoundTripPreservesWrappedTrailingSpaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 4
+		wideWidth = 20
+		output    = "abc  def"
+	)
+	emu1 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+output))
+
+	emu2 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+
+	emu2.Resize(wideWidth, height)
+	if got := EmulatorContentLines(emu2)[0]; got != output {
+		t.Fatalf("after replay and widen row 0 = %q, want %q", got, output)
+	}
+}
+
+func TestRenderWithCursorRoundTripPreservesBlankWrappedSpacesAtCursor(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 4
+		wideWidth = 20
+		output    = "abc     "
+	)
+	emu1 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+output))
+
+	emu2 := NewVTEmulatorWithDrain(width, height)
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+	if !emu2.LineWrapped(1) {
+		t.Fatal("after replay LineWrapped(1) = false, want blank space continuation preserved")
+	}
+
+	emu2.Resize(wideWidth, height)
+	col, row := emu2.CursorPosition()
+	if col != len(output) || row != 0 {
+		t.Fatalf("after replay and widen cursor = (%d, %d), want (%d, 0)", col, row, len(output))
+	}
+
+	mustWrite(t, emu2, []byte("Z"))
+	if got := EmulatorContentLines(emu2)[0]; got != output+"Z" {
+		t.Fatalf("after replay, widen, and write row 0 = %q, want %q", got, output+"Z")
+	}
+}
+
+func TestRenderWithCursorRoundTripPreservesBlankWrappedRowsBeforeHardNewline(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 5
+		wideWidth = 20
+	)
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{name: "single blank continuation", output: "abcde     \r\nNEXT"},
+		{name: "second blank continuation", output: "abcdeFGHIJ  \r\nNEXT"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emu1 := NewVTEmulatorWithDrain(width, height)
+			mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+tt.output))
+
+			emu2 := NewVTEmulatorWithDrain(width, height)
+			mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+
+			emu1.Resize(wideWidth, height)
+			emu2.Resize(wideWidth, height)
+
+			lines1 := EmulatorContentLines(emu1)
+			lines2 := EmulatorContentLines(emu2)
+			for i := range lines1 {
+				if lines1[i] != lines2[i] {
+					t.Fatalf("after replay and widen row %d = %q, want %q; all rows=%#v", i, lines2[i], lines1[i], lines2)
+				}
+			}
+			col1, row1 := emu1.CursorPosition()
+			col2, row2 := emu2.CursorPosition()
+			if col1 != col2 || row1 != row2 {
+				t.Fatalf("after replay and widen cursor = (%d, %d), want (%d, %d)", col2, row2, col1, row1)
+			}
+		})
+	}
+}
+
+func TestRenderWithCursorRoundTripPreservesPhantomCursorForResize(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width     = 5
+		height    = 4
+		wideWidth = 20
+	)
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{name: "full first row", output: "abcde"},
+		{name: "full wrapped row", output: "abcdeFGHIJ"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emu1 := NewVTEmulatorWithDrain(width, height)
+			mustWrite(t, emu1, []byte("\x1b[2J\x1b[H"+tt.output))
+
+			emu2 := NewVTEmulatorWithDrain(width, height)
+			mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
+			if !emu2.CursorPhantom() {
+				t.Fatal("after replay CursorPhantom() = false, want pending autowrap preserved")
+			}
+
+			emu1.Resize(wideWidth, height)
+			emu2.Resize(wideWidth, height)
+			mustWrite(t, emu1, []byte("Z"))
+			mustWrite(t, emu2, []byte("Z"))
+
+			lines1 := EmulatorContentLines(emu1)
+			lines2 := EmulatorContentLines(emu2)
+			for i := range lines1 {
+				if lines1[i] != lines2[i] {
+					t.Fatalf("after replay, widen, and write row %d = %q, want %q; all rows=%#v", i, lines2[i], lines1[i], lines2)
+				}
+			}
+		})
 	}
 }
 
