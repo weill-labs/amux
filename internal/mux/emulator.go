@@ -547,8 +547,8 @@ func protoCellFromUVValue(cell uv.Cell, ok bool) proto.Cell {
 // have different widths across emulator instances.
 func RenderWithCursor(emu TerminalEmulator) string {
 	rendered := emu.Render()
-	lines := strings.Split(rendered, "\n")
 	width, height := emu.Size()
+	lines := replayRenderLines(rendered, height)
 	col, row := emu.CursorPosition()
 	cursorPhantom := emu.CursorPhantom()
 
@@ -581,6 +581,17 @@ func RenderWithCursor(emu TerminalEmulator) string {
 		buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
 	}
 	return buf.String()
+}
+
+func replayRenderLines(rendered string, height int) []string {
+	if height <= 0 {
+		return nil
+	}
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > height {
+		return lines[:height]
+	}
+	return lines
 }
 
 func writePhantomCursorReplay(

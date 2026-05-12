@@ -212,6 +212,40 @@ func TestRenderWithCursor(t *testing.T) {
 	}
 }
 
+type trailingNewlineRenderEmulator struct {
+	TerminalEmulator
+}
+
+func (e trailingNewlineRenderEmulator) Render() string {
+	return e.TerminalEmulator.Render() + "\n"
+}
+
+func (e trailingNewlineRenderEmulator) LineWrapped(y int) bool {
+	_, height := e.Size()
+	if y < 0 || y >= height {
+		panic(fmt.Sprintf("LineWrapped(%d) out of bounds for height %d", y, height))
+	}
+	return e.TerminalEmulator.LineWrapped(y)
+}
+
+func TestRenderWithCursorIgnoresTrailingRenderNewline(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(5, 3)
+	mustWrite(t, emu, []byte("abcdeFG"))
+
+	rendered := RenderWithCursor(trailingNewlineRenderEmulator{TerminalEmulator: emu})
+	if strings.Contains(rendered, "\x1b[4;1H") {
+		t.Fatalf("RenderWithCursor emitted CUP for row past terminal height: %q", rendered)
+	}
+
+	roundTrip := NewVTEmulatorWithDrain(5, 3)
+	mustWrite(t, roundTrip, []byte(rendered))
+	if got := EmulatorContentLines(roundTrip); got[0] != "abcde" || got[1] != "FG" {
+		t.Fatalf("round-trip content = %#v, want first rows %q and %q", got, "abcde", "FG")
+	}
+}
+
 func TestVTEmulatorClampsOversizedVerticalMargins(t *testing.T) {
 	t.Parallel()
 
