@@ -326,6 +326,37 @@ func TestCaptureFullSessionDefaultDoesNotSendClientCaptureRequest(t *testing.T) 
 	}
 }
 
+func TestCaptureFullSessionDuringBusyOutputDoesNotRequestClientRepaint(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.responseTimeout = 20 * time.Millisecond
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+	captureClient := attachCaptureClientForCommandTest(t, sess)
+
+	for i := 0; i < 5; i++ {
+		pane.FeedOutput([]byte("BUSY-TUI-FRAME\r\n"))
+		res := runTestCommand(t, srv, sess, "capture")
+		if res.cmdErr != "" {
+			t.Fatalf("capture #%d cmdErr = %q, want empty", i+1, res.cmdErr)
+		}
+		if !strings.Contains(res.output, "BUSY-TUI-FRAME") {
+			t.Fatalf("capture #%d output missing busy pane content:\n%s", i+1, res.output)
+		}
+	}
+
+	if err := captureClient.SetReadDeadline(time.Now().Add(25 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	if msg, err := readMsgOnConn(captureClient); err == nil {
+		t.Fatalf("attached client received %v, want no capture-induced repaint request", msg.Type)
+	}
+}
+
 func TestCaptureHistoryPaneUsesServerHistoryPath(t *testing.T) {
 	t.Parallel()
 
