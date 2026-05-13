@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -186,7 +187,7 @@ func BenchmarkVTEmulatorResizePreservationStyledScrollback(b *testing.B) {
 		}
 		emu.Resize(80, 24)
 		emu.Resize(132, 24)
-		if err := emu.Close(); err != nil && err != io.ErrClosedPipe {
+		if err := emu.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			b.Fatalf("Close(): %v", err)
 		}
 	}
