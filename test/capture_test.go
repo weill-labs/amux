@@ -178,8 +178,25 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 		t.Fatalf("history capture should work without attached client, got:\n%s\n%s", out, h.diagnosticSnapshot("history capture missing content after detach"))
 	}
 
-	if out := h.runCmd("capture"); !isCaptureUnavailable(out) {
-		t.Fatalf("full-screen capture without client should remain unavailable, got: %s\n%s", out, h.diagnosticSnapshot("unexpected full-screen capture state after pane fallback"))
+	full := h.runCmd("capture")
+	if isCaptureUnavailable(full) {
+		t.Fatalf("full-screen capture without client should use server state, got: %s\n%s", full, h.diagnosticSnapshot("full-screen capture unavailable after detach"))
+	}
+	if !strings.Contains(full, "NOCLIENT-35") || !strings.Contains(full, "[pane-1]") {
+		t.Fatalf("full-screen capture without client should include visible content and pane status, got:\n%s\n%s", full, h.diagnosticSnapshot("full-screen capture missing visible content after detach"))
+	}
+
+	fullJSON := h.runCmd("capture", "--format", "json")
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(fullJSON), &capture); err != nil {
+		t.Fatalf("json.Unmarshal full capture: %v\noutput:\n%s", err, fullJSON)
+	}
+	if capture.Error != nil {
+		t.Fatalf("full JSON capture error = %+v, want nil\n%s", capture.Error, h.diagnosticSnapshot("full json capture unavailable after detach"))
+	}
+	pane1 := h.jsonPane(capture, "pane-1")
+	if joined := strings.Join(pane1.Content, "\n"); !strings.Contains(joined, "NOCLIENT-35") {
+		t.Fatalf("full JSON capture should include visible content, got:\n%s\n%s", joined, h.diagnosticSnapshot("full json capture missing visible content after detach"))
 	}
 }
 
