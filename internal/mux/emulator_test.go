@@ -194,14 +194,23 @@ func BenchmarkVTEmulatorResizePreservationStyledScrollback(b *testing.B) {
 }
 
 func resizePreservationStyledScrollbackPayload(width, lines int) []byte {
+	const (
+		sgrOpen  = "\x1b[48;2;24;28;36m"
+		sgrReset = "\x1b[0m"
+		prompt   = "PROMPT$ "
+	)
+
 	var buf strings.Builder
-	buf.Grow(width * lines)
+	// Each line: SGR open + visible cells + SGR reset + CRLF.
+	rowBytes := len(sgrOpen) + max(width, len("row-000 ")) + len(sgrReset) + len("\r\n")
+	buf.Grow(rowBytes*lines + len(prompt))
 	for i := 0; i < lines; i++ {
-		fmt.Fprintf(&buf, "\x1b[48;2;24;28;36mrow-%03d ", i)
+		fmt.Fprintf(&buf, "%srow-%03d ", sgrOpen, i)
 		buf.WriteString(strings.Repeat(" ", max(width-8, 0)))
-		buf.WriteString("\x1b[0m\r\n")
+		buf.WriteString(sgrReset)
+		buf.WriteString("\r\n")
 	}
-	buf.WriteString("PROMPT$ ")
+	buf.WriteString(prompt)
 	return []byte(buf.String())
 }
 
