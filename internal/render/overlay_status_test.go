@@ -1097,6 +1097,25 @@ func TestBuildGlobalBarCellsColorsActiveTab(t *testing.T) {
 	}
 }
 
+func TestBuildGlobalBarWindowTabsMarksZoomedWindow(t *testing.T) {
+	t.Parallel()
+
+	tabs := buildGlobalBarWindowTabs([]WindowInfo{
+		{Index: 1, Name: "main", IsActive: true, Zoomed: true},
+		{Index: 2, Name: "logs", IsActive: false},
+	})
+
+	if len(tabs) != 2 {
+		t.Fatalf("buildGlobalBarWindowTabs returned %d tabs, want 2", len(tabs))
+	}
+	if got := tabs[0].display; got != "1:mainZ" {
+		t.Fatalf("zoomed tab display = %q, want %q", got, "1:mainZ")
+	}
+	if got := tabs[1].display; got != "2:logs" {
+		t.Fatalf("unzoomed tab display = %q, want %q", got, "2:logs")
+	}
+}
+
 func TestBuildGlobalBarCellsPowerline(t *testing.T) {
 	t.Parallel()
 
