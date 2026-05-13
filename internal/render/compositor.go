@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
@@ -51,6 +52,7 @@ type Compositor struct {
 	prevGridLayoutKey string
 	prevCursor        cursorRenderState
 	lastEmittedCell   emittedCellState
+	preciseSGR        bool
 	colorProfile      termenv.Profile
 	iconSet           IconSet
 	statusStyle       string
@@ -82,6 +84,7 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 		height:          height,
 		sessionName:     sessionName,
 		lastEmittedCell: defaultEmittedCellState(),
+		preciseSGR:      preciseSGREnabled(),
 		colorProfile:    defaultColorProfile,
 		iconSet:         DefaultIconSet(),
 		statusStyle:     config.StatusStyleCompact,
@@ -332,7 +335,7 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	if len(changes) > 0 || !nextCursor.visible {
 		buf.WriteString(HideCursor)
 	}
-	if preciseSGREnabled() {
+	if c.preciseSGR {
 		buf.WriteString(emitDiffWithProfileState(changes, c.colorProfile, &c.lastEmittedCell, false))
 	} else {
 		// Legacy soak path: keep the exact blanket-reset prefix until the
@@ -345,6 +348,9 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 
 	// Position cursor.
 	c.renderCursorTransition(&buf, nextCursor, len(changes) > 0)
+	if c.preciseSGR && nextCursor.visible && nextCursor.positioned {
+		c.resetLastEmittedStyle()
+	}
 
 	return buf.String(), RenderStats{
 		CellsDiffed:     len(changes),
@@ -367,6 +373,12 @@ func (c *Compositor) clearPrevGrid() {
 
 func (c *Compositor) resetLastEmittedCell() {
 	c.lastEmittedCell = defaultEmittedCellState()
+}
+
+func (c *Compositor) resetLastEmittedStyle() {
+	// SGR reset restores only text style; OSC-8 hyperlink state is independent.
+	c.lastEmittedCell.hasStyle = true
+	c.lastEmittedCell.style = uv.Style{}
 }
 
 func preciseSGREnabled() bool {
