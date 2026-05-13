@@ -392,6 +392,40 @@ func TestRenderDiffPreciseSGRResizeResetsEmitState(t *testing.T) {
 	}
 }
 
+func TestRenderDiffPreciseSGRCursorResetInvalidatesEmitState(t *testing.T) {
+	t.Setenv("AMUX_PRECISE_SGR", "1")
+
+	const (
+		width  = 8
+		height = 3
+	)
+	redBG := uv.Style{Bg: ansi.RGBColor{R: 1, G: 2, B: 3}}
+	pane := &styledPaneData{
+		fakePaneData: fakePaneData{id: 1, name: "pane-1"},
+		cells: [][]ScreenCell{{
+			{Char: "A", Width: 1},
+		}},
+	}
+	root := mux.NewLeafByID(1, 0, 0, width, height-GlobalBarHeight)
+	lookup := func(paneID uint32) PaneData { return pane }
+	c := newTestCompositor(width, height, "lab-1642")
+
+	c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, nil, true)
+	pane.cells = [][]ScreenCell{{
+		{Char: "B", Width: 1, Style: redBG},
+	}}
+	c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+	pane.cells = [][]ScreenCell{{
+		{Char: "C", Width: 1, Style: redBG},
+	}}
+	third := c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+
+	firstCellPrefix := prefixBeforeFirstPrintable(third)
+	if !strings.Contains(firstCellPrefix, "48;2;1;2;3") {
+		t.Fatalf("third-frame first cell prefix = %q, want bg SGR after cursor reset in diff %q", firstCellPrefix, third)
+	}
+}
+
 func TestRenderDiffLegacyKeepsBlanketResetWhenPreciseSGRDisabled(t *testing.T) {
 	t.Setenv("AMUX_PRECISE_SGR", "0")
 
