@@ -10,6 +10,7 @@ import (
 
 	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestCaptureDefaultSinglePaneDoesNotSendClientCaptureRequest(t *testing.T) {
@@ -124,6 +125,82 @@ func TestCaptureFullSessionTextUsesServerLayoutWithoutAttachedClient(t *testing.
 		if !strings.Contains(res.output, want) {
 			t.Fatalf("capture output missing %q:\n%s", want, res.output)
 		}
+	}
+}
+
+func TestCaptureFullSessionJSONUsesServerPaneMetadataWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.attachMaxRetries = 1
+
+	pane1 := newStandaloneProxyPane(1, "pane-1")
+	pane2 := newStandaloneProxyPane(2, "pane-2")
+	pane1.FeedOutput([]byte("JSON-SERVER-ONE\r\n"))
+	pane2.FeedOutput([]byte("JSON-SERVER-TWO\r\n"))
+	pane1.Meta.Task = "ship"
+	pane1.Meta.GitBranch = "feature/full-session-capture"
+	pane1.Meta.PR = "1760"
+	pane1.Meta.KV = map[string]string{"issue": "LAB-1760", "owner": "codex"}
+	pane1.Meta.TrackedPRs = []proto.TrackedPR{{Number: 1760, Status: proto.TrackedStatusActive}}
+	pane1.Meta.TrackedIssues = []proto.TrackedIssue{{ID: "LAB-1760", Status: proto.TrackedStatusActive}}
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(res.output), &capture); err != nil {
+		t.Fatalf("json.Unmarshal capture output: %v\n%s", err, res.output)
+	}
+	if capture.Error != nil {
+		t.Fatalf("capture error = %+v, want nil", capture.Error)
+	}
+	if capture.Session != "test-command-queue" {
+		t.Fatalf("capture session = %q, want test-command-queue", capture.Session)
+	}
+	if capture.Window.ID != 1 || capture.Window.Name != "main" || capture.Window.Index != 1 {
+		t.Fatalf("capture window = %+v, want active main window", capture.Window)
+	}
+	if len(capture.Panes) != 2 {
+		t.Fatalf("capture panes = %d, want 2: %+v", len(capture.Panes), capture.Panes)
+	}
+
+	var pane *proto.CapturePane
+	for i := range capture.Panes {
+		if capture.Panes[i].Position == nil {
+			t.Fatalf("pane %s missing position", capture.Panes[i].Name)
+		}
+		if capture.Panes[i].Name == "pane-1" {
+			pane = &capture.Panes[i]
+		}
+	}
+	if pane == nil {
+		t.Fatalf("pane-1 missing from capture: %+v", capture.Panes)
+	}
+	if pane.Task != "ship" || pane.Meta.Task != "ship" {
+		t.Fatalf("pane task fields = top-level %q meta %q, want ship", pane.Task, pane.Meta.Task)
+	}
+	if pane.GitBranch != "feature/full-session-capture" || pane.Meta.GitBranch != "feature/full-session-capture" {
+		t.Fatalf("pane git branch fields = top-level %q meta %q", pane.GitBranch, pane.Meta.GitBranch)
+	}
+	if pane.PR != "1760" || pane.Meta.PR != "1760" {
+		t.Fatalf("pane PR fields = top-level %q meta %q", pane.PR, pane.Meta.PR)
+	}
+	if got := pane.Meta.KV["issue"]; got != "LAB-1760" {
+		t.Fatalf("pane meta issue = %q, want LAB-1760", got)
+	}
+	if len(pane.Meta.TrackedPRs) != 1 || pane.Meta.TrackedPRs[0].Number != 1760 {
+		t.Fatalf("pane tracked PRs = %+v, want PR 1760", pane.Meta.TrackedPRs)
+	}
+	if len(pane.Meta.TrackedIssues) != 1 || pane.Meta.TrackedIssues[0].ID != "LAB-1760" {
+		t.Fatalf("pane tracked issues = %+v, want LAB-1760", pane.Meta.TrackedIssues)
+	}
+	if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, "JSON-SERVER-ONE") {
+		t.Fatalf("pane content = %q, want JSON-SERVER-ONE", joined)
 	}
 }
 
