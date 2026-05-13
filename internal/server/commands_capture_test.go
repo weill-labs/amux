@@ -296,11 +296,12 @@ func TestCaptureClientFlagRequiresAttachedClient(t *testing.T) {
 	}
 }
 
-func TestCaptureFullSessionStillForwardsToAttachedClient(t *testing.T) {
+func TestCaptureFullSessionDefaultDoesNotSendClientCaptureRequest(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
+	sess.captureTiming.responseTimeout = 20 * time.Millisecond
 
 	pane := newStandaloneProxyPane(1, "pane-1")
 	pane.FeedOutput([]byte("SERVER-LOCAL\r\n"))
@@ -308,28 +309,20 @@ func TestCaptureFullSessionStillForwardsToAttachedClient(t *testing.T) {
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
 
 	captureClient := attachCaptureClientForCommandTest(t, sess)
-	requestCh, errCh := respondToNextCaptureRequest(t, sess, captureClient, "CLIENT-FULL\n")
 
 	res := runTestCommand(t, srv, sess, "capture")
 	if res.cmdErr != "" {
 		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
 	}
-	if got, want := res.output, "CLIENT-FULL\n"; got != want {
-		t.Fatalf("capture output = %q, want %q", got, want)
+	if !strings.Contains(res.output, "SERVER-LOCAL") || !strings.Contains(res.output, "[pane-1]") {
+		t.Fatalf("capture output should include server-rendered pane content, got:\n%s", res.output)
 	}
 
-	select {
-	case err := <-errCh:
-		t.Fatalf("reading capture request: %v", err)
-	case msg := <-requestCh:
-		if msg.Type != MsgTypeCaptureRequest {
-			t.Fatalf("message type = %v, want %v", msg.Type, MsgTypeCaptureRequest)
-		}
-		if len(msg.CmdArgs) != 0 {
-			t.Fatalf("capture request args = %v, want empty", msg.CmdArgs)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for forwarded capture request")
+	if err := captureClient.SetReadDeadline(time.Now().Add(25 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	if msg, err := readMsgOnConn(captureClient); err == nil {
+		t.Fatalf("attached client received %v, want no client capture request", msg.Type)
 	}
 }
 
