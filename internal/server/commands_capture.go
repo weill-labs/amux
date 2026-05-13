@@ -51,6 +51,16 @@ func captureSinglePaneLocally(ctx *CommandContext, req caputil.Request) *Message
 	return ctx.Sess.capturePaneDirect(caputil.ArgsForRequest(req), target)
 }
 
+func shouldCaptureLocally(req caputil.Request) bool {
+	if req.ClientMode || req.DisplayMode || captureLegacyClientPathEnabled() {
+		return false
+	}
+	if req.PaneRef == "" {
+		return !req.HistoryMode || req.FormatJSON
+	}
+	return !req.HistoryMode
+}
+
 func cmdCapture(ctx *CommandContext) {
 	req := caputil.ParseArgs(ctx.Args)
 	if req.PaneRef != "" {
@@ -65,19 +75,7 @@ func cmdCapture(ctx *CommandContext) {
 			return
 		}
 	}
-	if !req.ClientMode && !req.DisplayMode && !captureLegacyClientPathEnabled() {
-		if req.PaneRef == "" && (!req.HistoryMode || req.FormatJSON) {
-			ctx.applyCommandResult(commandpkg.Result{Message: captureLocally(ctx, ctx.Args)})
-			return
-		}
-		if req.PaneRef == "" {
-			ctx.applyCommandResult(capturecmd.Capture(captureCommandContext{ctx}, ctx.Args))
-			return
-		}
-		if req.HistoryMode {
-			ctx.applyCommandResult(capturecmd.Capture(captureCommandContext{ctx}, ctx.Args))
-			return
-		}
+	if shouldCaptureLocally(req) {
 		ctx.applyCommandResult(commandpkg.Result{Message: captureLocally(ctx, ctx.Args)})
 		return
 	}
