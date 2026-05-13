@@ -48,6 +48,7 @@ func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 		Name:         w.Name,
 		Index:        index,
 		ActivePaneID: activePaneID,
+		Zoomed:       zoomedPaneID != 0,
 		ZoomedPaneID: zoomedPaneID,
 		LeadPaneID:   leadPaneID,
 		Root:         root,

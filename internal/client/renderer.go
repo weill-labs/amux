@@ -449,7 +449,7 @@ func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.Pane
 	for _, ws := range snap.windows {
 		if ws.ID == snap.activeWinID {
 			capture.Window = proto.CaptureWindow{
-				ID: ws.ID, Name: ws.Name, Index: ws.Index,
+				ID: ws.ID, Name: ws.Name, Index: ws.Index, Zoomed: ws.Zoomed || ws.ZoomedPaneID != 0,
 			}
 			break
 		}

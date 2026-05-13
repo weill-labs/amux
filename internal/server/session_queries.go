@@ -32,20 +32,21 @@ type killTargetSnapshot struct {
 }
 
 type paneListEntry struct {
-	paneID     uint32
-	name       string
-	host       string
-	windowName string
-	task       string
-	cwd        string
-	gitBranch  string
-	idle       string
-	pr         string
-	kv         map[string]string
-	prs        []proto.TrackedPR
-	issues     []proto.TrackedIssue
-	active     bool
-	lead       bool
+	paneID       uint32
+	name         string
+	host         string
+	windowName   string
+	windowZoomed bool
+	task         string
+	cwd          string
+	gitBranch    string
+	idle         string
+	pr           string
+	kv           map[string]string
+	prs          []proto.TrackedPR
+	issues       []proto.TrackedIssue
+	active       bool
+	lead         bool
 }
 
 type sessionStatusSnapshot struct {
@@ -59,6 +60,7 @@ type windowListEntry struct {
 	name      string
 	paneCount int
 	active    bool
+	zoomed    bool
 }
 
 type clientListEntry struct {
@@ -321,6 +323,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 			default:
 				if pw := s.findWindowByPaneID(p.ID); pw != nil {
 					entry.windowName = pw.Name
+					entry.windowZoomed = pw.ZoomedPaneID != 0
 					entry.lead = pw.LeadPaneID == p.ID
 				}
 			}
@@ -381,6 +384,7 @@ func (s *Session) queryWindowList() ([]windowListEntry, error) {
 				name:      w.Name,
 				paneCount: w.PaneCount(),
 				active:    w.ID == s.ActiveWindowID,
+				zoomed:    w.ZoomedPaneID != 0,
 			})
 		}
 		return entries, nil

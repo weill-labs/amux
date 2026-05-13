@@ -50,6 +50,70 @@ func TestZoomToggle(t *testing.T) {
 	})
 }
 
+func TestZoomIndicatorAppearsInWindowListsAndClears(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+
+	if out := h.runCmd("list"); strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list should not include zoom marker:\n%s", out)
+	}
+	if out := h.runCmd("list-windows"); strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list-windows should not include zoom marker:\n%s", out)
+	}
+
+	h.runCmd("zoom", "pane-1")
+
+	if out := h.runCmd("list"); !strings.Contains(out, "window-1Z") {
+		t.Fatalf("zoomed list should include zoom marker:\n%s", out)
+	}
+	if out := h.runCmd("list-windows"); !strings.Contains(out, "window-1Z") {
+		t.Fatalf("zoomed list-windows should include zoom marker:\n%s", out)
+	}
+
+	h.runCmd("zoom", "pane-1")
+
+	if out := h.runCmd("list"); strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list should clear zoom marker:\n%s", out)
+	}
+	if out := h.runCmd("list-windows"); strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list-windows should clear zoom marker:\n%s", out)
+	}
+}
+
+func TestZoomedWindowJSONFields(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+
+	assertWindowZoomed := func(label string, want bool) {
+		t.Helper()
+
+		layout := h.layoutSnapshot()
+		if len(layout.Windows) != 1 {
+			t.Fatalf("%s: layout has %d windows, want 1", label, len(layout.Windows))
+		}
+		if got := layout.Windows[0].Zoomed; got != want {
+			t.Fatalf("%s: layout window zoomed = %v, want %v\nlayout: %+v", label, got, want, layout.Windows[0])
+		}
+
+		capture := h.captureJSON()
+		if got := capture.Window.Zoomed; got != want {
+			t.Fatalf("%s: capture window zoomed = %v, want %v\ncapture: %+v", label, got, want, capture.Window)
+		}
+	}
+
+	assertWindowZoomed("before zoom", false)
+
+	h.runCmd("zoom", "pane-1")
+	assertWindowZoomed("after zoom", true)
+
+	h.runCmd("zoom", "pane-1")
+	assertWindowZoomed("after unzoom", false)
+}
+
 func TestZoomSinglePaneFails(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

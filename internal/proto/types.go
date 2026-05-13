@@ -28,6 +28,7 @@ type WindowSnapshot struct {
 	Name         string         `json:"name"`
 	Index        int            `json:"index"` // 1-based display order
 	ActivePaneID uint32         `json:"active_pane_id"`
+	Zoomed       bool           `json:"zoomed"`
 	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
 	LeadPaneID   uint32         `json:"lead_pane_id,omitempty"`
 	Root         CellSnapshot   `json:"root"`
@@ -87,9 +88,10 @@ type CaptureUI struct {
 
 // CaptureWindow identifies the captured window.
 type CaptureWindow struct {
-	ID    uint32 `json:"id"`
-	Name  string `json:"name"`
-	Index int    `json:"index"`
+	ID     uint32 `json:"id"`
+	Name   string `json:"name"`
+	Index  int    `json:"index"`
+	Zoomed bool   `json:"zoomed"`
 }
 
 // CaptureMeta holds user-managed pane metadata for JSON capture.

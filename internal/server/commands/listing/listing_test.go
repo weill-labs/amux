@@ -85,3 +85,65 @@ func TestFormatPaneListPreservesPaneNameColumnWhenLeadPresent(t *testing.T) {
 		t.Fatalf("row should include lead metadata, got: %q", lines[1])
 	}
 }
+
+func TestFormatWindowNameAddsZoomMarker(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		window string
+		zoomed bool
+		want   string
+	}{
+		{
+			name:   "normal window",
+			window: "main",
+			zoomed: false,
+			want:   "main",
+		},
+		{
+			name:   "zoomed window",
+			window: "main",
+			zoomed: true,
+			want:   "mainZ",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := FormatWindowName(tt.window, tt.zoomed); got != tt.want {
+				t.Fatalf("FormatWindowName(%q, %v) = %q, want %q", tt.window, tt.zoomed, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatPaneListMarksZoomedWindow(t *testing.T) {
+	t.Parallel()
+
+	out := FormatPaneList([]PaneEntry{
+		{
+			PaneID:       1,
+			Name:         "pane-1",
+			Host:         "local",
+			WindowName:   "main",
+			WindowZoomed: true,
+		},
+		{
+			PaneID:     2,
+			Name:       "pane-2",
+			Host:       "local",
+			WindowName: "logs",
+		},
+	}, "", false)
+
+	if !strings.Contains(out, "mainZ") {
+		t.Fatalf("zoomed window should include Z marker:\n%s", out)
+	}
+	if strings.Contains(out, "logsZ") {
+		t.Fatalf("unzoomed window should not include Z marker:\n%s", out)
+	}
+}
