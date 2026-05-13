@@ -102,6 +102,31 @@ func TestCaptureDefaultSinglePaneWorksWithoutAttachedClient(t *testing.T) {
 	}
 }
 
+func TestCaptureFullSessionTextUsesServerLayoutWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.attachMaxRetries = 1
+
+	pane1 := newStandaloneProxyPane(1, "pane-1")
+	pane2 := newStandaloneProxyPane(2, "pane-2")
+	pane1.FeedOutput([]byte("LEFT-SERVER\r\n"))
+	pane2.FeedOutput([]byte("RIGHT-SERVER\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
+
+	res := runTestCommand(t, srv, sess, "capture")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	for _, want := range []string{"LEFT-SERVER", "RIGHT-SERVER", "[pane-1]", "[pane-2]", "test-command-queue"} {
+		if !strings.Contains(res.output, want) {
+			t.Fatalf("capture output missing %q:\n%s", want, res.output)
+		}
+	}
+}
+
 func TestCaptureClientFlagForwardsToAttachedClient(t *testing.T) {
 	t.Parallel()
 
