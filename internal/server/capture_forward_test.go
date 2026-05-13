@@ -853,7 +853,7 @@ func TestForwardCaptureJSONReturnsSessionShuttingDownWhileWaiting(t *testing.T) 
 func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := newCommandTestSession(t)
+	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
 	pane1 := newTestPane(sess, 1, "pane-1")
@@ -1002,7 +1002,11 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 			cmdErr string
 		}, 1)
 		go func() {
-			results <- runTestCommand(t, srv, sess, "capture", "--format", "json")
+			resp := sess.forwardCapture([]string{"--format", "json"})
+			results <- struct {
+				output string
+				cmdErr string
+			}{output: resp.CmdOutput, cmdErr: resp.CmdErr}
 		}()
 
 		var responseGate chan struct{}

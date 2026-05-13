@@ -604,12 +604,10 @@ func TestServerReloadBorderColors(t *testing.T) {
 	ansiBefore := h.captureANSI()
 	colorsBefore := extractBorderColors(pickContentLine(ansiBefore))
 
+	reloadGen := h.generation()
 	h.runCmd("reload-server")
+	h.waitForReloadedClient(reloadGen, 10*time.Second)
 
-	if !h.waitFor("[pane-", 5*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("session did not recover after reload\nScreen:\n%s", screen)
-	}
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
 	}, 5*time.Second) {
@@ -617,7 +615,9 @@ func TestServerReloadBorderColors(t *testing.T) {
 		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
 	}
 
-	ansiAfter := h.captureANSI()
+	ansiAfter := waitForOutput(t, 5*time.Second, h.captureANSI, func(out string) bool {
+		return len(extractBorderColors(pickContentLine(out))) > 0
+	})
 	colorsAfter := extractBorderColors(pickContentLine(ansiAfter))
 
 	if len(colorsBefore) == 0 {
