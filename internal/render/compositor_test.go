@@ -91,6 +91,18 @@ func (f *fakePaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return f.copyOverlay
 }
 
+type styledPaneData struct {
+	fakePaneData
+	cells [][]ScreenCell
+}
+
+func (s *styledPaneData) CellAt(col, row int, active bool) ScreenCell {
+	if row < 0 || row >= len(s.cells) || col < 0 || col >= len(s.cells[row]) {
+		return ScreenCell{Char: " ", Width: 1}
+	}
+	return s.cells[row][col]
+}
+
 type countingPaneData struct {
 	base      *fakePaneData
 	cellReads *int
@@ -295,6 +307,120 @@ func TestRenderDiffRepaintsMovedPaneHeaders(t *testing.T) {
 	}
 }
 
+func TestRenderDiffPreciseSGRDropsBlanketResetForSingleBGChange(t *testing.T) {
+	t.Setenv("AMUX_PRECISE_SGR", "1")
+
+	const (
+		width  = 8
+		height = 3
+	)
+	redBG := uv.Style{Bg: ansi.RGBColor{R: 1, G: 2, B: 3}}
+	pane := &styledPaneData{
+		fakePaneData: fakePaneData{id: 1, name: "pane-1", cursorHidden: true},
+		cells: [][]ScreenCell{{
+			{Char: "A", Width: 1},
+		}},
+	}
+	root := mux.NewLeafByID(1, 0, 0, width, height-GlobalBarHeight)
+	lookup := func(paneID uint32) PaneData { return pane }
+	c := newTestCompositor(width, height, "lab-1642")
+
+	c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, nil, true)
+	pane.cells = [][]ScreenCell{{
+		{Char: "B", Width: 1, Style: redBG},
+	}}
+	second := c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+
+	if strings.Contains(second, Reset) {
+		t.Fatalf("precise SGR diff contains blanket reset: %q", second)
+	}
+	if !strings.Contains(second, "\x1b[48;2;1;2;3m") {
+		t.Fatalf("precise SGR diff = %q, want changed cell bg SGR", second)
+	}
+}
+
+func TestRenderDiffPreciseSGRStartsFromLastEmittedState(t *testing.T) {
+	t.Setenv("AMUX_PRECISE_SGR", "1")
+
+	const (
+		width  = 8
+		height = 3
+	)
+	pane := &styledPaneData{
+		fakePaneData: fakePaneData{id: 1, name: "pane-1", cursorHidden: true},
+		cells: [][]ScreenCell{{
+			{Char: "A", Width: 1},
+		}},
+	}
+	root := mux.NewLeafByID(1, 0, 0, width, height-GlobalBarHeight)
+	lookup := func(paneID uint32) PaneData { return pane }
+	c := newTestCompositor(width, height, "lab-1642")
+
+	c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, nil, true)
+	lastStyle := c.prevGrid.Get(width-1, height-1).Style
+	pane.cells = [][]ScreenCell{{
+		{Char: "Z", Width: 1, Style: lastStyle},
+	}}
+	second := c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+
+	firstCellPrefix := prefixBeforeFirstPrintable(second)
+	if strings.Contains(firstCellPrefix, surface0BGParams()) {
+		t.Fatalf("first changed cell redundantly emitted bg SGR in prefix %q of diff %q", firstCellPrefix, second)
+	}
+}
+
+func TestRenderDiffPreciseSGRResizeResetsEmitState(t *testing.T) {
+	t.Setenv("AMUX_PRECISE_SGR", "1")
+
+	const height = 1
+	pane := &styledPaneData{
+		fakePaneData: fakePaneData{id: 1, name: "pane-1", cursorHidden: true},
+	}
+	lookup := func(paneID uint32) PaneData { return pane }
+	c := newTestCompositor(20, height, "lab-1642")
+
+	c.RenderDiffWithOverlayDirty(mux.NewLeafByID(1, 0, 0, 20, 0), 1, lookup, OverlayState{}, nil, true)
+	c.Resize(21, height)
+	second := c.RenderDiffWithOverlayDirty(mux.NewLeafByID(1, 0, 0, 21, 0), 1, lookup, OverlayState{}, nil, true)
+
+	if strings.Contains(second, Reset) {
+		t.Fatalf("precise SGR post-resize diff contains blanket reset: %q", second)
+	}
+	firstCellPrefix := prefixBeforeFirstPrintable(second)
+	if !strings.Contains(firstCellPrefix, surface0BGParams()) {
+		t.Fatalf("post-resize first cell prefix = %q, want fresh bg SGR in diff %q", firstCellPrefix, second)
+	}
+}
+
+func TestRenderDiffLegacyKeepsBlanketResetWhenPreciseSGRDisabled(t *testing.T) {
+	t.Setenv("AMUX_PRECISE_SGR", "0")
+
+	const (
+		width  = 8
+		height = 3
+	)
+	redBG := uv.Style{Bg: ansi.RGBColor{R: 1, G: 2, B: 3}}
+	pane := &styledPaneData{
+		fakePaneData: fakePaneData{id: 1, name: "pane-1", cursorHidden: true},
+		cells: [][]ScreenCell{{
+			{Char: "A", Width: 1},
+		}},
+	}
+	root := mux.NewLeafByID(1, 0, 0, width, height-GlobalBarHeight)
+	lookup := func(paneID uint32) PaneData { return pane }
+	c := newTestCompositor(width, height, "lab-1642")
+
+	c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, nil, true)
+	pane.cells = [][]ScreenCell{{
+		{Char: "B", Width: 1, Style: redBG},
+	}}
+	second := c.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+
+	if !strings.Contains(second, Reset) {
+		t.Fatalf("legacy diff = %q, want blanket reset while precise SGR is disabled", second)
+	}
+}
+
 type screenPos struct {
 	row int
 	col int
@@ -380,6 +506,26 @@ func parseCUPHeaderDraws(stream string) map[string][]screenPos {
 		draws[header] = append(draws[header], pos)
 	}
 	return draws
+}
+
+func prefixBeforeFirstPrintable(stream string) string {
+	for i := 0; i < len(stream); {
+		if stream[i] == '\x1b' {
+			if next := skipANSISequence(stream, i); next > i {
+				i = next
+				continue
+			}
+		}
+		if stream[i] >= ' ' {
+			return stream[:i]
+		}
+		i++
+	}
+	return stream
+}
+
+func surface0BGParams() string {
+	return strings.TrimSuffix(strings.TrimPrefix(bgHexSequence(config.Surface0Hex, termenv.TrueColor), "\x1b["), "m")
 }
 
 func lab1610PaneData() map[uint32]*fakePaneData {
