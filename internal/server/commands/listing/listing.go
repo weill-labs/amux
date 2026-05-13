@@ -60,6 +60,7 @@ type PaneEntry struct {
 	Name          string
 	Host          string
 	WindowName    string
+	WindowZoomed  bool
 	Task          string
 	Cwd           string
 	GitBranch     string
@@ -97,6 +98,13 @@ func FormatPaneListBranch(entry PaneEntry) string {
 	return branch
 }
 
+func FormatWindowName(name string, zoomed bool) string {
+	if zoomed {
+		return name + "Z"
+	}
+	return name
+}
+
 func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 	active := " "
 	if entry.Active {
@@ -109,12 +117,13 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 	if idle == "" {
 		idle = "--"
 	}
+	windowName := FormatWindowName(entry.WindowName, entry.WindowZoomed)
 	if showCwd {
 		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n",
-			paneID, entry.Name, entry.Host, branch, idle, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)
+			paneID, entry.Name, entry.Host, branch, idle, FormatListCwd(entry.Cwd, home, ListCwdWidth), windowName, entry.Task, meta)
 	}
 	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n",
-		paneID, entry.Name, entry.Host, branch, idle, entry.WindowName, entry.Task, meta)
+		paneID, entry.Name, entry.Host, branch, idle, windowName, entry.Task, meta)
 }
 
 func formatPaneListMeta(entry PaneEntry) string {
@@ -276,6 +285,7 @@ type WindowEntry struct {
 	Name      string
 	PaneCount int
 	Active    bool
+	Zoomed    bool
 }
 
 func FormatWindowList(entries []WindowEntry) string {
@@ -287,7 +297,7 @@ func FormatWindowList(entries []WindowEntry) string {
 			active = "*"
 		}
 		output.WriteString(fmt.Sprintf("%-6s %-20s %-8d\n",
-			fmt.Sprintf("%s%d:", active, entry.Index), entry.Name, entry.PaneCount))
+			fmt.Sprintf("%s%d:", active, entry.Index), FormatWindowName(entry.Name, entry.Zoomed), entry.PaneCount))
 	}
 	return output.String()
 }

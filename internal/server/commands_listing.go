@@ -12,6 +12,7 @@ func toListingPaneEntry(entry paneListEntry) listingcmd.PaneEntry {
 		Name:          entry.name,
 		Host:          entry.host,
 		WindowName:    entry.windowName,
+		WindowZoomed:  entry.windowZoomed,
 		Task:          entry.task,
 		Cwd:           entry.cwd,
 		GitBranch:     entry.gitBranch,
@@ -49,6 +50,7 @@ func toListingWindowEntries(entries []windowListEntry) []listingcmd.WindowEntry 
 			Name:      entry.name,
 			PaneCount: entry.paneCount,
 			Active:    entry.active,
+			Zoomed:    entry.zoomed,
 		})
 	}
 	return out

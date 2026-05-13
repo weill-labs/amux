@@ -127,6 +127,7 @@ func windowInfoFromSnapshot(windows []proto.WindowSnapshot, activeWinID uint32) 
 			Name:     ws.Name,
 			IsActive: ws.ID == activeWinID,
 			Panes:    len(ws.Panes),
+			Zoomed:   ws.Zoomed || ws.ZoomedPaneID != 0,
 		}
 	}
 	return out

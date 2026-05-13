@@ -21,6 +21,7 @@ type WindowInfo struct {
 	Name     string
 	IsActive bool
 	Panes    int
+	Zoomed   bool
 }
 
 // RenderStats captures lightweight render counters alongside ANSI output.

@@ -515,6 +515,7 @@ func globalBarWindowInfos(cr *ClientRenderer) []render.WindowInfo {
 			Name:     ws.Name,
 			IsActive: ws.ID == activeWindowID,
 			Panes:    len(ws.Panes),
+			Zoomed:   ws.Zoomed || ws.ZoomedPaneID != 0,
 		}
 	}
 	return infos

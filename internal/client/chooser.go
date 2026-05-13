@@ -433,7 +433,7 @@ func chooserListHeight(screenH int) int {
 }
 
 func chooserWindowFilterValue(ws proto.WindowSnapshot, includePanes bool) string {
-	parts := []string{strconv.Itoa(ws.Index), ws.Name}
+	parts := []string{strconv.Itoa(ws.Index), chooserWindowName(ws)}
 	if includePanes {
 		for _, ps := range ws.Panes {
 			parts = append(parts, chooserPaneFilterTerms(ps)...)
@@ -465,7 +465,14 @@ func formatChooserWindowRow(ws proto.WindowSnapshot, active bool) string {
 	if active {
 		marker = "*"
 	}
-	return marker + " " + strconv.Itoa(ws.Index) + ":" + ws.Name + " (" + strconv.Itoa(len(ws.Panes)) + " panes)"
+	return marker + " " + strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + strconv.Itoa(len(ws.Panes)) + " panes)"
+}
+
+func chooserWindowName(ws proto.WindowSnapshot) string {
+	if ws.Zoomed || ws.ZoomedPaneID != 0 {
+		return ws.Name + "Z"
+	}
+	return ws.Name
 }
 
 func formatChooserPaneRow(ps proto.PaneSnapshot, active bool) string {

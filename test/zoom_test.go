@@ -56,28 +56,28 @@ func TestZoomIndicatorAppearsInWindowListsAndClears(t *testing.T) {
 
 	h.splitH()
 
-	if out := h.runCmd("list"); strings.Contains(out, "mainZ") {
+	if out := h.runCmd("list"); strings.Contains(out, "window-1Z") {
 		t.Fatalf("unzoomed list should not include zoom marker:\n%s", out)
 	}
-	if out := h.runCmd("list-windows"); strings.Contains(out, "mainZ") {
+	if out := h.runCmd("list-windows"); strings.Contains(out, "window-1Z") {
 		t.Fatalf("unzoomed list-windows should not include zoom marker:\n%s", out)
 	}
 
 	h.runCmd("zoom", "pane-1")
 
-	if out := h.runCmd("list"); !strings.Contains(out, "mainZ") {
+	if out := h.runCmd("list"); !strings.Contains(out, "window-1Z") {
 		t.Fatalf("zoomed list should include zoom marker:\n%s", out)
 	}
-	if out := h.runCmd("list-windows"); !strings.Contains(out, "mainZ") {
+	if out := h.runCmd("list-windows"); !strings.Contains(out, "window-1Z") {
 		t.Fatalf("zoomed list-windows should include zoom marker:\n%s", out)
 	}
 
 	h.runCmd("zoom", "pane-1")
 
-	if out := h.runCmd("list"); strings.Contains(out, "mainZ") {
+	if out := h.runCmd("list"); strings.Contains(out, "window-1Z") {
 		t.Fatalf("unzoomed list should clear zoom marker:\n%s", out)
 	}
-	if out := h.runCmd("list-windows"); strings.Contains(out, "mainZ") {
+	if out := h.runCmd("list-windows"); strings.Contains(out, "window-1Z") {
 		t.Fatalf("unzoomed list-windows should clear zoom marker:\n%s", out)
 	}
 }

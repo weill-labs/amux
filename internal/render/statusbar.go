@@ -731,7 +731,7 @@ func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 	tabs := make([]globalBarWindowTab, 0, len(windows))
 	col := globalBarTitlePrefixVisibleWidth
 	for _, w := range windows {
-		label := strconv.Itoa(w.Index) + ":" + w.Name
+		label := strconv.Itoa(w.Index) + ":" + globalBarWindowName(w)
 		display := label
 
 		width := utf8.RuneCountInString(display)
@@ -744,6 +744,13 @@ func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 		col += width + 1
 	}
 	return tabs
+}
+
+func globalBarWindowName(window WindowInfo) string {
+	if window.Zoomed {
+		return window.Name + "Z"
+	}
+	return window.Name
 }
 
 func globalBarTabColorHex(window WindowInfo) string {
