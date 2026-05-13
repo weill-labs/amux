@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -171,6 +172,36 @@ func TestVTEmulatorResizeWiderPreservesWideCharContinuations(t *testing.T) {
 				tt.col, cell.Content, cell.Width, tt.wantContent, tt.wantWidth)
 		}
 	}
+}
+
+func BenchmarkVTEmulatorResizePreservationStyledScrollback(b *testing.B) {
+	payload := resizePreservationStyledScrollbackPayload(132, 260)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	for i := 0; i < b.N; i++ {
+		emu := NewVTEmulatorWithDrainAndScrollback(132, 24, 512)
+		if _, err := emu.Write(payload); err != nil {
+			b.Fatalf("Write(): %v", err)
+		}
+		emu.Resize(80, 24)
+		emu.Resize(132, 24)
+		if err := emu.Close(); err != nil && err != io.ErrClosedPipe {
+			b.Fatalf("Close(): %v", err)
+		}
+	}
+}
+
+func resizePreservationStyledScrollbackPayload(width, lines int) []byte {
+	var buf strings.Builder
+	buf.Grow(width * lines)
+	for i := 0; i < lines; i++ {
+		fmt.Fprintf(&buf, "\x1b[48;2;24;28;36mrow-%03d ", i)
+		buf.WriteString(strings.Repeat(" ", max(width-8, 0)))
+		buf.WriteString("\x1b[0m\r\n")
+	}
+	buf.WriteString("PROMPT$ ")
+	return []byte(buf.String())
 }
 
 func TestVTEmulatorCursorPosition(t *testing.T) {
