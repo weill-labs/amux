@@ -124,6 +124,10 @@ amux capture --format json
 amux capture --history --format json
 ```
 
+Full-session capture reads server-owned pane state by default and does not
+require an attached interactive client. Use `--client` when you need the
+attached client's displayed view, including client-local overlays.
+
 Returns a JSON object with session metadata, window info, and per-pane state:
 
 ```json

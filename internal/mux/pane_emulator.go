@@ -5,11 +5,33 @@ import (
 	"os"
 	"strings"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
 func newPaneEmulator(cols, rows, scrollbackLines int) TerminalEmulator {
 	return NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
+}
+
+// PaneRenderSnapshot is a consistent copy of a pane's renderable terminal
+// state. It is safe to use after the pane actor has been released.
+type PaneRenderSnapshot struct {
+	CaptureSnapshot
+	Height           int
+	Rendered         string
+	RenderedNoCursor string
+	ScreenCells      []uv.Cell
+}
+
+func (s PaneRenderSnapshot) CellAt(col, row int) (uv.Cell, bool) {
+	if col < 0 || row < 0 || col >= s.Width || row >= s.Height {
+		return uv.Cell{}, false
+	}
+	idx := row*s.Width + col
+	if idx < 0 || idx >= len(s.ScreenCells) {
+		return uv.Cell{}, false
+	}
+	return s.ScreenCells[idx], true
 }
 
 // wireScrollbackCallbacks connects the emulator's scrollback push/clear
@@ -200,35 +222,71 @@ func (p *Pane) TerminalSnapshot() PaneTerminalSnapshot {
 	})
 }
 
+func (p *Pane) captureSnapshotLocked() CaptureSnapshot {
+	baseHistory := p.loadBaseHistory()
+	liveHistory := EmulatorScrollbackHistoryLines(p.emulator, p.loadScrollbackWidths())
+	baseHistory, liveHistory, history := p.captureScrollback(baseHistory, liveHistory)
+	contentRows := EmulatorContentHistoryLines(p.emulator)
+	terminal := p.terminalSnapshot()
+	width, _ := p.emulator.Size()
+	snap := CaptureSnapshot{
+		BaseHistory:    append([]string(nil), baseHistory...),
+		LiveHistory:    append([]CaptureHistoryLine(nil), liveHistory...),
+		History:        history,
+		ContentRows:    append([]CaptureHistoryLine(nil), contentRows...),
+		Content:        captureHistoryLineText(contentRows),
+		Terminal:       terminal.Terminal,
+		Width:          width,
+		CursorCol:      terminal.CursorCol,
+		CursorRow:      terminal.CursorRow,
+		CursorHidden:   terminal.CursorHidden,
+		HasCursorBlock: false,
+	}
+	if blockCol, blockRow, ok := p.emulator.CursorBlockPosition(); ok {
+		snap.CursorBlockCol = blockCol
+		snap.CursorBlockRow = blockRow
+		snap.HasCursorBlock = true
+	}
+	return snap
+}
+
 // CaptureSnapshot returns a consistent plain-text snapshot of retained
 // scrollback, visible screen content, and cursor state.
 func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 	return paneActorValue(p, func() CaptureSnapshot {
-		baseHistory := p.loadBaseHistory()
-		liveHistory := EmulatorScrollbackHistoryLines(p.emulator, p.loadScrollbackWidths())
-		baseHistory, liveHistory, history := p.captureScrollback(baseHistory, liveHistory)
-		contentRows := EmulatorContentHistoryLines(p.emulator)
-		terminal := p.terminalSnapshot()
-		width, _ := p.emulator.Size()
-		snap := CaptureSnapshot{
-			BaseHistory:    append([]string(nil), baseHistory...),
-			LiveHistory:    append([]CaptureHistoryLine(nil), liveHistory...),
-			History:        history,
-			ContentRows:    append([]CaptureHistoryLine(nil), contentRows...),
-			Content:        captureHistoryLineText(contentRows),
-			Terminal:       terminal.Terminal,
-			Width:          width,
-			CursorCol:      terminal.CursorCol,
-			CursorRow:      terminal.CursorRow,
-			CursorHidden:   terminal.CursorHidden,
-			HasCursorBlock: false,
+		return p.captureSnapshotLocked()
+	})
+}
+
+// CaptureRenderSnapshot returns a consistent snapshot of the pane data needed
+// by the full-session compositor.
+func (p *Pane) CaptureRenderSnapshot() PaneRenderSnapshot {
+	return paneActorValue(p, func() PaneRenderSnapshot {
+		snap := p.captureSnapshotLocked()
+		width, height := p.emulator.Size()
+		cells := make([]uv.Cell, width*height)
+		for row := 0; row < height; row++ {
+			for col := 0; col < width; col++ {
+				cell := uv.Cell{Content: " ", Width: 1}
+				if got := p.emulator.CellAt(col, row); got != nil {
+					cell = *got
+				}
+				cells[row*width+col] = cell
+			}
 		}
-		if blockCol, blockRow, ok := p.emulator.CursorBlockPosition(); ok {
-			snap.CursorBlockCol = blockCol
-			snap.CursorBlockRow = blockRow
-			snap.HasCursorBlock = true
+
+		rendered := p.emulator.Render()
+		renderedNoCursor := rendered
+		if snap.HasCursorBlock {
+			renderedNoCursor = p.emulator.RenderWithoutCursorBlock()
 		}
-		return snap
+		return PaneRenderSnapshot{
+			CaptureSnapshot:  snap,
+			Height:           height,
+			Rendered:         rendered,
+			RenderedNoCursor: renderedNoCursor,
+			ScreenCells:      cells,
+		}
 	})
 }
 

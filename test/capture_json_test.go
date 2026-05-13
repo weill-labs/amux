@@ -238,7 +238,7 @@ func TestCaptureJSON_RoundTrip(t *testing.T) {
 
 func TestCaptureJSON_ClientUIState(t *testing.T) {
 	t.Parallel()
-	h := newAmuxHarness(t)
+	h := newAmuxHarness(t, "AMUX_CAPTURE_LEGACY_CLIENT=1")
 
 	h.sendClientKeys("C-a", "q")
 	h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
