@@ -177,13 +177,17 @@ func EmitDiff(changes []CellChange) string {
 }
 
 func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
+	var state emittedCellState
+	return emitDiffWithProfileState(changes, profile, &state, true)
+}
+
+func emitDiffWithProfileState(changes []CellChange, profile termenv.Profile, state *emittedCellState, closeHyperlink bool) string {
 	if len(changes) == 0 {
 		return ""
 	}
 	var buf strings.Builder
 	buf.Grow(len(changes) * 8)
 
-	var state emittedCellState
 	expectX, expectY := -1, -1
 
 	for _, ch := range changes {
@@ -213,7 +217,9 @@ func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
 		}
 		expectX = ch.X + w
 	}
-	state.closeHyperlink(&buf)
+	if closeHyperlink {
+		state.closeHyperlink(&buf)
+	}
 	return buf.String()
 }
 
@@ -540,6 +546,10 @@ type emittedCellState struct {
 	hasStyle bool
 	style    uv.Style
 	link     uv.Link
+}
+
+func defaultEmittedCellState() emittedCellState {
+	return emittedCellState{hasStyle: true}
 }
 
 func (s *emittedCellState) stylePtr() *uv.Style {

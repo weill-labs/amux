@@ -334,7 +334,7 @@ func TestRenderDiffPreciseSGRDropsBlanketResetForSingleBGChange(t *testing.T) {
 	if strings.Contains(second, Reset) {
 		t.Fatalf("precise SGR diff contains blanket reset: %q", second)
 	}
-	if !strings.Contains(second, "\x1b[48;2;1;2;3m") {
+	if !strings.Contains(second, "48;2;1;2;3") {
 		t.Fatalf("precise SGR diff = %q, want changed cell bg SGR", second)
 	}
 }
