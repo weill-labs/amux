@@ -57,14 +57,28 @@ type paneHistoryReader struct {
 	lr *io.LimitedReader
 }
 
-// PaneHistoryPayloadCache memoizes one encoded pane-history payload for a
-// pane content version. It is safe for concurrent writers serving multiple
-// attached clients.
+type paneHistoryPayloadRange struct {
+	start int
+	end   int
+}
+
+// PaneHistoryPayloadChunk identifies one retained-history line range in a
+// cached chunked pane-history payload plan.
+type PaneHistoryPayloadChunk struct {
+	Start int
+	End   int
+}
+
+// PaneHistoryPayloadCache memoizes encoded pane-history payloads for a pane
+// content version. It is safe for concurrent writers serving multiple attached
+// clients.
 type PaneHistoryPayloadCache struct {
-	mu      sync.Mutex
-	version uint64
-	payload []byte
-	valid   bool
+	mu            sync.Mutex
+	version       uint64
+	payload       []byte
+	valid         bool
+	chunkPayloads map[paneHistoryPayloadRange][]byte
+	chunkPlans    map[int][]PaneHistoryPayloadChunk
 }
 
 // SetPaneHistoryPayloadCache attaches server-local cache metadata for binary
@@ -75,6 +89,20 @@ func (m *Message) SetPaneHistoryPayloadCache(cache *PaneHistoryPayloadCache, ver
 	}
 	m.paneHistoryPayloadCache = cache
 	m.paneHistoryPayloadVersion = version
+	m.paneHistoryPayloadRange = paneHistoryPayloadRange{}
+	m.paneHistoryPayloadRangeOK = false
+}
+
+// SetPaneHistoryPayloadCacheRange attaches cache metadata for a chunked
+// pane-history line range. The metadata is not encoded on the wire.
+func (m *Message) SetPaneHistoryPayloadCacheRange(cache *PaneHistoryPayloadCache, version uint64, start, end int) {
+	if m == nil {
+		return
+	}
+	m.paneHistoryPayloadCache = cache
+	m.paneHistoryPayloadVersion = version
+	m.paneHistoryPayloadRange = paneHistoryPayloadRange{start: start, end: end}
+	m.paneHistoryPayloadRangeOK = true
 }
 
 func (c *PaneHistoryPayloadCache) get(version uint64) ([]byte, bool) {
@@ -89,6 +117,19 @@ func (c *PaneHistoryPayloadCache) get(version uint64) ([]byte, bool) {
 	return c.payload, true
 }
 
+func (c *PaneHistoryPayloadCache) getChunkPayload(version uint64, r paneHistoryPayloadRange) ([]byte, bool) {
+	if c == nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.version != version || len(c.chunkPayloads) == 0 {
+		return nil, false
+	}
+	payload, ok := c.chunkPayloads[r]
+	return payload, ok
+}
+
 // PayloadLen reports the cached payload length for version when present.
 func (c *PaneHistoryPayloadCache) PayloadLen(version uint64) (int, bool) {
 	payload, ok := c.get(version)
@@ -98,16 +139,76 @@ func (c *PaneHistoryPayloadCache) PayloadLen(version uint64) (int, bool) {
 	return len(payload), true
 }
 
+// ChunkPlan reports a cached chunking plan for version and maxChunkSize.
+func (c *PaneHistoryPayloadCache) ChunkPlan(version uint64, maxChunkSize int) ([]PaneHistoryPayloadChunk, bool) {
+	if c == nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.version != version || len(c.chunkPlans) == 0 {
+		return nil, false
+	}
+	chunks, ok := c.chunkPlans[maxChunkSize]
+	if !ok {
+		return nil, false
+	}
+	return clonePaneHistoryPayloadChunks(chunks), true
+}
+
+// StoreChunkPlan remembers a chunking plan for version and maxChunkSize.
+func (c *PaneHistoryPayloadCache) StoreChunkPlan(version uint64, maxChunkSize int, chunks []PaneHistoryPayloadChunk) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resetForVersionLocked(version)
+	if c.chunkPlans == nil {
+		c.chunkPlans = make(map[int][]PaneHistoryPayloadChunk)
+	}
+	c.chunkPlans[maxChunkSize] = clonePaneHistoryPayloadChunks(chunks)
+}
+
 func (c *PaneHistoryPayloadCache) store(version uint64, payload []byte) []byte {
 	if c == nil {
 		return payload
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.version = version
+	c.resetForVersionLocked(version)
 	c.payload = payload
 	c.valid = true
 	return c.payload
+}
+
+func (c *PaneHistoryPayloadCache) storeChunkPayload(version uint64, r paneHistoryPayloadRange, payload []byte) []byte {
+	if c == nil {
+		return payload
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resetForVersionLocked(version)
+	if c.chunkPayloads == nil {
+		c.chunkPayloads = make(map[paneHistoryPayloadRange][]byte)
+	}
+	c.chunkPayloads[r] = payload
+	return c.chunkPayloads[r]
+}
+
+func (c *PaneHistoryPayloadCache) resetForVersionLocked(version uint64) {
+	if c.version == version {
+		return
+	}
+	c.version = version
+	c.payload = nil
+	c.valid = false
+	c.chunkPayloads = nil
+	c.chunkPlans = nil
+}
+
+func clonePaneHistoryPayloadChunks(src []PaneHistoryPayloadChunk) []PaneHistoryPayloadChunk {
+	return append([]PaneHistoryPayloadChunk(nil), src...)
 }
 
 func newPaneHistoryReader(r io.Reader, limit int64) *paneHistoryReader {
@@ -191,13 +292,20 @@ func encodePaneHistoryPayload(msg *Message) ([]byte, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("nil message")
 	}
-	if payload, ok := msg.paneHistoryPayloadCache.get(msg.paneHistoryPayloadVersion); ok {
+	if msg.paneHistoryPayloadRangeOK {
+		if payload, ok := msg.paneHistoryPayloadCache.getChunkPayload(msg.paneHistoryPayloadVersion, msg.paneHistoryPayloadRange); ok {
+			return payload, nil
+		}
+	} else if payload, ok := msg.paneHistoryPayloadCache.get(msg.paneHistoryPayloadVersion); ok {
 		return payload, nil
 	}
 
 	payload, err := encodePaneHistoryPayloadFresh(msg)
 	if err != nil {
 		return nil, err
+	}
+	if msg.paneHistoryPayloadRangeOK {
+		return msg.paneHistoryPayloadCache.storeChunkPayload(msg.paneHistoryPayloadVersion, msg.paneHistoryPayloadRange, payload), nil
 	}
 	return msg.paneHistoryPayloadCache.store(msg.paneHistoryPayloadVersion, payload), nil
 }
