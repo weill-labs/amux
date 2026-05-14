@@ -47,6 +47,42 @@ func BenchmarkEmulatorWrite(b *testing.B) {
 	}
 }
 
+var benchmarkParserBufferWorkloadSink []TerminalEmulator
+
+func BenchmarkPaneParserDataBufferWorkload(b *testing.B) {
+	const (
+		panes       = 16
+		chunkSize   = 1024
+		chunkCount  = 60
+		paneWidth   = 120
+		paneHeight  = 40
+		payloadSize = chunkSize * chunkCount
+	)
+
+	payload := realisticTerminalPayload(payloadSize)
+	chunks := make([][]byte, 0, chunkCount)
+	for offset := 0; offset < len(payload); offset += chunkSize {
+		chunks = append(chunks, payload[offset:offset+chunkSize])
+	}
+
+	b.SetBytes(int64(panes * payloadSize))
+	b.ReportAllocs()
+	for b.Loop() {
+		emulators := make([]TerminalEmulator, panes)
+		for pane := range panes {
+			emu := NewVTEmulatorWithScrollback(paneWidth, paneHeight, DefaultScrollbackLines)
+			for _, chunk := range chunks {
+				mustWrite(b, emu, chunk)
+			}
+			emulators[pane] = emu
+		}
+		for _, emu := range emulators {
+			_ = emu.Close()
+		}
+		benchmarkParserBufferWorkloadSink = emulators
+	}
+}
+
 func BenchmarkEmulatorRender(b *testing.B) {
 	emu := NewVTEmulatorWithDrain(80, 24)
 
