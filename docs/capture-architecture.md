@@ -101,7 +101,7 @@ Roll out the change compatibly:
 1. Before LAB-1644: `amux capture` called client-side rendering and could flicker.
 2. LAB-1644: add server-side single-pane capture as a parallel implementation behind `AMUX_CAPTURE_SERVER=1`.
 3. LAB-1753: flip single-pane capture to server-side by default. `amux capture --client pane-3` opts into the user-perspective behavior. `AMUX_CAPTURE_LEGACY_CLIENT=1` temporarily restores the old single-pane client-forwarded default as an emergency rollback knob during soak.
-4. LAB-1754: flip full-session capture to server-side once the compositor adapter path is ready.
+4. LAB-1760: flip full-session capture to server-side by default using the same `AMUX_CAPTURE_LEGACY_CLIENT=1` emergency rollback knob during soak.
 5. Later: deprecate the redundant `--display` flag, making it equivalent to `--client` without overlay metadata, or keep it as a fast-path alias.
 
 Existing scripts continue working. Most scripts call `amux capture --format json`, which is already a structural read that translates cleanly to server-side capture.

@@ -31,7 +31,7 @@ func captureLegacyClientPathEnabled() bool {
 func captureLocally(ctx *CommandContext, args []string) *Message {
 	req := caputil.ParseArgs(args)
 	if req.PaneRef == "" {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: "server-side full-session capture is not implemented"}
+		return captureFullSessionLocally(ctx, args)
 	}
 	return captureSinglePaneLocally(ctx, req)
 }
@@ -51,6 +51,16 @@ func captureSinglePaneLocally(ctx *CommandContext, req caputil.Request) *Message
 	return ctx.Sess.capturePaneDirect(caputil.ArgsForRequest(req), target)
 }
 
+func shouldCaptureLocally(req caputil.Request) bool {
+	if req.ClientMode || req.DisplayMode || captureLegacyClientPathEnabled() {
+		return false
+	}
+	if req.PaneRef == "" {
+		return !req.HistoryMode || req.FormatJSON
+	}
+	return !req.HistoryMode
+}
+
 func cmdCapture(ctx *CommandContext) {
 	req := caputil.ParseArgs(ctx.Args)
 	if req.PaneRef != "" {
@@ -65,7 +75,7 @@ func cmdCapture(ctx *CommandContext) {
 			return
 		}
 	}
-	if req.PaneRef != "" && !req.ClientMode && !req.DisplayMode && !req.HistoryMode && !captureLegacyClientPathEnabled() {
+	if shouldCaptureLocally(req) {
 		ctx.applyCommandResult(commandpkg.Result{Message: captureLocally(ctx, ctx.Args)})
 		return
 	}

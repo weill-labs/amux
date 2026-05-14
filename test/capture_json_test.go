@@ -80,7 +80,7 @@ func TestCaptureJSON_FullScreen(t *testing.T) {
 	}
 }
 
-func TestCaptureJSON_FullScreenHistoryPrependsScrollback(t *testing.T) {
+func TestCaptureJSON_FullScreenHistorySeparatesScrollback(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -96,26 +96,19 @@ func TestCaptureJSON_FullScreenHistoryPrependsScrollback(t *testing.T) {
 	capture := captureJSONWithArgsFor(t, h.runCmd, "capture", "--history", "--format", "json")
 	pane1 := jsonPaneFor(t, capture, "pane-1")
 
-	firstIdx, lastIdx := -1, -1
-	for i, line := range pane1.Content {
-		switch {
-		case firstIdx == -1 && strings.Contains(line, "JSONFULL-01"):
-			firstIdx = i
-		case strings.Contains(line, "JSONFULL-40"):
-			lastIdx = i
-		}
+	history := strings.Join(pane1.History, "\n")
+	content := strings.Join(pane1.Content, "\n")
+	if !strings.Contains(history, "JSONFULL-01") {
+		t.Fatalf("pane-1 history should include off-screen scrollback, got: %v", pane1.History)
 	}
-	if firstIdx == -1 {
-		t.Fatalf("pane-1 content should include off-screen history, got: %v", pane1.Content)
+	if strings.Contains(content, "JSONFULL-01") {
+		t.Fatalf("pane-1 content should not include off-screen scrollback, got: %v", pane1.Content)
 	}
-	if lastIdx == -1 {
+	if !strings.Contains(content, "JSONFULL-40") {
 		t.Fatalf("pane-1 content should include visible viewport lines, got: %v", pane1.Content)
 	}
-	if firstIdx >= lastIdx {
-		t.Fatalf("pane-1 content should prepend history before viewport, got: %v", pane1.Content)
-	}
-	if len(pane1.Content) < 40 {
-		t.Fatalf("pane-1 content should include the emitted history plus viewport, got %d lines", len(pane1.Content))
+	if len(pane1.History)+len(pane1.Content) < 40 {
+		t.Fatalf("pane-1 history plus content should include emitted lines, got history=%d content=%d", len(pane1.History), len(pane1.Content))
 	}
 }
 
@@ -238,7 +231,7 @@ func TestCaptureJSON_RoundTrip(t *testing.T) {
 
 func TestCaptureJSON_ClientUIState(t *testing.T) {
 	t.Parallel()
-	h := newAmuxHarness(t)
+	h := newAmuxHarness(t, "AMUX_CAPTURE_LEGACY_CLIENT=1")
 
 	h.sendClientKeys("C-a", "q")
 	h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")

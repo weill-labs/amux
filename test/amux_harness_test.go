@@ -548,10 +548,8 @@ func (h *AmuxHarness) captureJSON() proto.CaptureJSON {
 	return captureJSONFor(h.tb, h.runCmd)
 }
 
-// waitForCaptureJSONReady blocks until the inner session can serve a
-// client-backed JSON capture without returning an error object. Outer pane
-// text like "[pane-" can be stale across reloads, so it is not a reliable
-// signal that the re-execed inner client has finished reattaching.
+// waitForCaptureJSONReady blocks until the inner session can serve a JSON
+// capture without returning an error object.
 func (h *AmuxHarness) waitForCaptureJSONReady(timeout time.Duration) proto.CaptureJSON {
 	h.tb.Helper()
 
@@ -579,11 +577,40 @@ func (h *AmuxHarness) waitForCaptureJSONReady(timeout time.Duration) proto.Captu
 	return proto.CaptureJSON{}
 }
 
+func (h *AmuxHarness) waitForClientDisplayCaptureReady(timeout time.Duration) string {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	var last string
+	for time.Now().Before(deadline) {
+		last = strings.TrimSpace(h.runCmd("cursor", "ui"))
+		if _, err := strconv.ParseUint(last, 10, 64); err != nil {
+			<-ticker.C
+			continue
+		}
+
+		last = h.runCmd("capture", "--client")
+		if !isCaptureUnavailable(last) &&
+			!isTransientSessionQueryFailure(last) &&
+			!strings.Contains(last, "capture timed out") &&
+			strings.Contains(last, "[pane-") {
+			return last
+		}
+
+		<-ticker.C
+	}
+
+	h.tb.Fatalf("inner client display capture did not become ready within %v\nlast output:\n%s\nouter:\n%s", timeout, last, h.captureOuter())
+	return ""
+}
+
 // waitForReloadedClient blocks until hot-reload has attached a fresh client.
-// A capture request can still succeed against the pre-reload client if it is
-// issued before the reload disconnect/reattach cycle completes, so first wait
-// for layout generation to advance past the pre-reload value, then require a
-// client-backed JSON capture from the reattached client.
+// Server-side JSON capture can now succeed without a client, so this uses the
+// explicit client display snapshot path to prove that the re-execed client has
+// rendered at least one frame after the reload.
 func (h *AmuxHarness) waitForReloadedClient(afterGen uint64, timeout time.Duration) proto.CaptureJSON {
 	h.tb.Helper()
 
@@ -594,7 +621,8 @@ func (h *AmuxHarness) waitForReloadedClient(afterGen uint64, timeout time.Durati
 	if remaining <= 0 {
 		remaining = time.Millisecond
 	}
-	return h.waitForCaptureJSONReady(remaining)
+	h.waitForClientDisplayCaptureReady(remaining)
+	return h.captureJSON()
 }
 
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
