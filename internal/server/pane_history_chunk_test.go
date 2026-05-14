@@ -270,6 +270,52 @@ func TestChunkedPaneHistoryCacheHitReusesPayloads(t *testing.T) {
 	}
 }
 
+func TestChunkPaneHistoryMessagesWithCacheRejectsInvalidChunkSize(t *testing.T) {
+	t.Parallel()
+
+	_, err := chunkPaneHistoryMessagesWithCache(1, []proto.StyledLine{{Text: "line"}}, 0, true, nil, 1)
+	if err == nil || !strings.Contains(err.Error(), "invalid pane history chunk size") {
+		t.Fatalf("chunkPaneHistoryMessagesWithCache invalid size error = %v, want invalid chunk size", err)
+	}
+}
+
+func TestChunkPaneHistoryMessagesWithCacheSurfacesEncodeErrors(t *testing.T) {
+	t.Parallel()
+
+	history := []proto.StyledLine{{
+		Text:  "x",
+		Cells: []proto.Cell{{Char: "x", Width: -1}},
+	}}
+	_, err := chunkPaneHistoryMessagesWithCache(1, history, 1024, true, nil, 1)
+	if err == nil || !strings.Contains(err.Error(), "negative cell width") {
+		t.Fatalf("chunkPaneHistoryMessagesWithCache encode error = %v, want negative cell width", err)
+	}
+}
+
+func TestPaneHistoryMessagesFromCachedChunksRejectsInvalidRanges(t *testing.T) {
+	t.Parallel()
+
+	history := []proto.StyledLine{{Text: "line"}}
+	tests := []struct {
+		name  string
+		chunk proto.PaneHistoryPayloadChunk
+	}{
+		{name: "negative start", chunk: proto.PaneHistoryPayloadChunk{Start: -1, End: 1}},
+		{name: "empty range", chunk: proto.PaneHistoryPayloadChunk{Start: 0, End: 0}},
+		{name: "past end", chunk: proto.PaneHistoryPayloadChunk{Start: 0, End: 2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			messages, ok := paneHistoryMessagesFromCachedChunks(1, history, []proto.PaneHistoryPayloadChunk{tt.chunk}, nil, 1)
+			if ok || messages != nil {
+				t.Fatalf("paneHistoryMessagesFromCachedChunks = (%v, %v), want nil false", messages, ok)
+			}
+		})
+	}
+}
+
 func encodePaneHistoryBinaryForTest(t *testing.T, msg *Message) []byte {
 	t.Helper()
 
