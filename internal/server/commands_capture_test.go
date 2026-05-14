@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -201,6 +202,45 @@ func TestCaptureFullSessionJSONUsesServerPaneMetadataWithoutAttachedClient(t *te
 	}
 	if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, "JSON-SERVER-ONE") {
 		t.Fatalf("pane content = %q, want JSON-SERVER-ONE", joined)
+	}
+}
+
+func TestCaptureFullSessionHistoryJSONSeparatesScrollback(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.captureTiming.attachMaxRetries = 1
+
+	pane := newStandaloneProxyPane(1, "pane-1")
+	var output strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&output, "SERVER-HISTORY-%02d\r\n", i)
+	}
+	pane.FeedOutput([]byte(output.String()))
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	res := runTestCommand(t, srv, sess, "capture", "--history", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(res.output), &capture); err != nil {
+		t.Fatalf("json.Unmarshal capture output: %v\n%s", err, res.output)
+	}
+	if len(capture.Panes) != 1 {
+		t.Fatalf("capture panes = %d, want 1: %+v", len(capture.Panes), capture.Panes)
+	}
+	paneCapture := capture.Panes[0]
+	if got := strings.Join(paneCapture.History, "\n"); !strings.Contains(got, "SERVER-HISTORY-01") {
+		t.Fatalf("pane history = %q, want SERVER-HISTORY-01; full pane: %+v", got, paneCapture)
+	}
+	if got := strings.Join(paneCapture.Content, "\n"); strings.Contains(got, "SERVER-HISTORY-01") {
+		t.Fatalf("pane content should not contain scrollback history, got %q", got)
+	}
+	if got := strings.Join(paneCapture.Content, "\n"); !strings.Contains(got, "SERVER-HISTORY-30") {
+		t.Fatalf("pane content = %q, want SERVER-HISTORY-30", got)
 	}
 }
 

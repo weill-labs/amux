@@ -28,7 +28,7 @@ func (s PaneRenderSnapshot) CellAt(col, row int) (uv.Cell, bool) {
 		return uv.Cell{}, false
 	}
 	idx := row*s.Width + col
-	if idx < 0 || idx >= len(s.ScreenCells) {
+	if idx >= len(s.ScreenCells) {
 		return uv.Cell{}, false
 	}
 	return s.ScreenCells[idx], true

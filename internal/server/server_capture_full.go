@@ -72,10 +72,9 @@ func (s serverFullSessionCapture) buildJSON(req caputil.Request, agentStatus map
 	includeHistory := req.HistoryMode && req.FormatJSON
 	for _, pane := range s.panes {
 		content := append([]string(nil), pane.render.Content...)
+		var history []string
 		if includeHistory {
-			content = make([]string, 0, len(pane.render.History)+len(pane.render.Content))
-			content = append(content, pane.render.History...)
-			content = append(content, pane.render.Content...)
+			history = append([]string(nil), pane.render.History...)
 		}
 		cp := caputil.BuildPane(caputil.PaneInput{
 			ID:            pane.info.ID,
@@ -101,6 +100,7 @@ func (s serverFullSessionCapture) buildJSON(req caputil.Request, agentStatus map
 			),
 			Terminal: caputil.TerminalFromState(pane.render.Terminal),
 			Content:  content,
+			History:  history,
 		}, agentStatus)
 		cp.Position = &proto.CapturePos{
 			X:      pane.position.X,
@@ -118,9 +118,6 @@ type serverPaneData struct {
 }
 
 func (p *serverPaneData) RenderScreen(active bool) string {
-	if p == nil || p.pane == nil {
-		return ""
-	}
 	if !active && p.pane.render.HasCursorBlock {
 		return p.pane.render.RenderedNoCursor
 	}
@@ -128,9 +125,6 @@ func (p *serverPaneData) RenderScreen(active bool) string {
 }
 
 func (p *serverPaneData) CellAt(col, row int, active bool) render.ScreenCell {
-	if p == nil || p.pane == nil {
-		return render.ScreenCell{Char: " ", Width: 1}
-	}
 	cell, ok := p.pane.render.CellAt(col, row)
 	sc := render.CellFromUVValue(cell, ok)
 	if !active && p.pane.render.HasCursorBlock && col == p.pane.render.CursorBlockCol && row == p.pane.render.CursorBlockRow {
