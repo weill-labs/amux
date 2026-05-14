@@ -69,9 +69,9 @@ type PaneHistoryPayloadChunk struct {
 	End   int
 }
 
-// PaneHistoryPayloadCache memoizes one encoded pane-history payload for a
-// pane content version. It is safe for concurrent writers serving multiple
-// attached clients.
+// PaneHistoryPayloadCache memoizes encoded pane-history payloads for a pane
+// content version. It is safe for concurrent writers serving multiple attached
+// clients.
 type PaneHistoryPayloadCache struct {
 	mu            sync.Mutex
 	version       uint64
