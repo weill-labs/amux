@@ -1,6 +1,7 @@
 package render
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -8,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
@@ -49,6 +51,8 @@ type Compositor struct {
 	prevGridSnap      atomic.Pointer[ScreenGrid]
 	prevGridLayoutKey string
 	prevCursor        cursorRenderState
+	lastEmittedCell   emittedCellState
+	preciseSGR        bool
 	colorProfile      termenv.Profile
 	iconSet           IconSet
 	statusStyle       string
@@ -76,12 +80,14 @@ func (c *Compositor) SetWindows(windows []WindowInfo) {
 // NewCompositor creates a compositor for the given terminal dimensions.
 func NewCompositor(width, height int, sessionName string) *Compositor {
 	return &Compositor{
-		width:        width,
-		height:       height,
-		sessionName:  sessionName,
-		colorProfile: defaultColorProfile,
-		iconSet:      DefaultIconSet(),
-		statusStyle:  config.StatusStyleCompact,
+		width:           width,
+		height:          height,
+		sessionName:     sessionName,
+		lastEmittedCell: defaultEmittedCellState(),
+		preciseSGR:      preciseSGREnabled(),
+		colorProfile:    defaultColorProfile,
+		iconSet:         DefaultIconSet(),
+		statusStyle:     config.StatusStyleCompact,
 	}
 }
 
@@ -304,6 +310,10 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 	layoutKey := c.layoutReuseKey(root, activePaneID, layoutHeight)
 	newGrid, panesComposited := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
+	firstFrame := c.prevGrid == nil
+	if firstFrame {
+		c.resetLastEmittedCell()
+	}
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid
 	c.publishPrevGridSnapshot(newGrid)
@@ -325,18 +335,22 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	if len(changes) > 0 || !nextCursor.visible {
 		buf.WriteString(HideCursor)
 	}
-	// Reset all styles before emitting diffs. The terminal retains the
-	// "current style" from the previous frame's last cell write (typically
-	// the global bar with bg=surface0). Without a reset, EmitDiff's first
-	// StyleDiff(nil → cell) only sets the needed attributes, leaving stale
-	// bg/fg from the prior frame to bleed into content cells.
-	if len(changes) > 0 {
-		buf.WriteString(Reset)
+	if c.preciseSGR {
+		buf.WriteString(emitDiffWithProfileState(changes, c.colorProfile, &c.lastEmittedCell, false))
+	} else {
+		// Legacy soak path: keep the exact blanket-reset prefix until the
+		// precise SGR state machine becomes the default.
+		if len(changes) > 0 {
+			buf.WriteString(Reset)
+		}
+		buf.WriteString(emitDiffWithProfile(changes, c.colorProfile))
 	}
-	buf.WriteString(emitDiffWithProfile(changes, c.colorProfile))
 
 	// Position cursor.
 	c.renderCursorTransition(&buf, nextCursor, len(changes) > 0)
+	if c.preciseSGR && nextCursor.visible && nextCursor.positioned {
+		c.resetLastEmittedStyle()
+	}
 
 	return buf.String(), RenderStats{
 		CellsDiffed:     len(changes),
@@ -354,6 +368,21 @@ func (c *Compositor) clearPrevGrid() {
 	c.prevGridSnap.Store(nil)
 	c.prevGridLayoutKey = ""
 	c.prevCursor = cursorRenderState{}
+	c.resetLastEmittedCell()
+}
+
+func (c *Compositor) resetLastEmittedCell() {
+	c.lastEmittedCell = defaultEmittedCellState()
+}
+
+func (c *Compositor) resetLastEmittedStyle() {
+	// SGR reset restores only text style; OSC-8 hyperlink state is independent.
+	c.lastEmittedCell.hasStyle = true
+	c.lastEmittedCell.style = uv.Style{}
+}
+
+func preciseSGREnabled() bool {
+	return os.Getenv("AMUX_PRECISE_SGR") == "1"
 }
 
 func (c *Compositor) publishPrevGridSnapshot(g *ScreenGrid) {
