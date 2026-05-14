@@ -180,6 +180,8 @@ type Message struct {
 	// intentionally unexported so gob and JSON never include it on the wire.
 	paneHistoryPayloadCache   *PaneHistoryPayloadCache
 	paneHistoryPayloadVersion uint64
+	paneHistoryPayloadRange   paneHistoryPayloadRange
+	paneHistoryPayloadRangeOK bool
 
 	// MsgTypeLayout
 	Layout *LayoutSnapshot
