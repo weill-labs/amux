@@ -224,6 +224,52 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 	}
 }
 
+func TestChunkedPaneHistoryCacheHitReusesPayloads(t *testing.T) {
+	// Not parallel: testing.AllocsPerRun panics inside parallel tests.
+	const (
+		paneID       = 7
+		lineCount    = 48
+		lineWidth    = 160
+		chunkSize    = 2048
+		cacheVersion = 1
+	)
+	history := styledHistoryWithAlternatingCellRuns(lineCount, lineWidth)
+	var cache proto.PaneHistoryPayloadCache
+
+	firstMessages, err := chunkPaneHistoryMessagesWithCache(paneID, history, chunkSize, true, &cache, cacheVersion)
+	if err != nil {
+		t.Fatalf("first chunkPaneHistoryMessagesWithCache: %v", err)
+	}
+	if len(firstMessages) < 2 {
+		t.Fatalf("first chunk count = %d, want multiple chunks", len(firstMessages))
+	}
+	first := encodePaneHistoryBinaryMessagesForTest(t, firstMessages)
+
+	secondMessages, err := chunkPaneHistoryMessagesWithCache(paneID, history, chunkSize, true, &cache, cacheVersion)
+	if err != nil {
+		t.Fatalf("second chunkPaneHistoryMessagesWithCache: %v", err)
+	}
+	second := encodePaneHistoryBinaryMessagesForTest(t, secondMessages)
+	if !bytes.Equal(first, second) {
+		t.Fatal("chunked pane history bytes changed between stable cacheable sends")
+	}
+
+	var dst countingWriter
+	writer := proto.NewWriter(&dst)
+	writer.SetBinaryPaneHistory(true)
+	allocs := testing.AllocsPerRun(100, func() {
+		dst.Reset()
+		for _, msg := range secondMessages {
+			if err := writer.WriteMsg(msg); err != nil {
+				t.Fatalf("cached chunk WriteMsg: %v", err)
+			}
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("cached chunk write allocations = %.1f, want 0", allocs)
+	}
+}
+
 func encodePaneHistoryBinaryForTest(t *testing.T, msg *Message) []byte {
 	t.Helper()
 
@@ -234,6 +280,33 @@ func encodePaneHistoryBinaryForTest(t *testing.T, msg *Message) []byte {
 		t.Fatalf("WriteMsg: %v", err)
 	}
 	return append([]byte(nil), buf.Bytes()...)
+}
+
+func encodePaneHistoryBinaryMessagesForTest(t *testing.T, messages []*Message) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := proto.NewWriter(&buf)
+	writer.SetBinaryPaneHistory(true)
+	for _, msg := range messages {
+		if err := writer.WriteMsg(msg); err != nil {
+			t.Fatalf("WriteMsg: %v", err)
+		}
+	}
+	return append([]byte(nil), buf.Bytes()...)
+}
+
+type countingWriter struct {
+	n int
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.n += len(p)
+	return len(p), nil
+}
+
+func (w *countingWriter) Reset() {
+	w.n = 0
 }
 
 func largeHistoryLines(lineCount, lineWidth int) []string {
@@ -259,6 +332,45 @@ func BenchmarkNewPaneHistoryMessage(b *testing.B) {
 	}
 }
 
+func BenchmarkChunkPaneHistoryMessagesWithCache(b *testing.B) {
+	const (
+		paneID       = 7
+		lineCount    = 160
+		lineWidth    = 320
+		chunkSize    = 16 * 1024
+		cacheVersion = 1
+	)
+	history := styledHistoryWithAlternatingCellRuns(lineCount, lineWidth)
+	var cache proto.PaneHistoryPayloadCache
+
+	messages, err := chunkPaneHistoryMessagesWithCache(paneID, history, chunkSize, true, &cache, cacheVersion)
+	if err != nil {
+		b.Fatalf("warm chunkPaneHistoryMessagesWithCache: %v", err)
+	}
+	var dst countingWriter
+	writer := proto.NewWriter(&dst)
+	writer.SetBinaryPaneHistory(true)
+	for _, msg := range messages {
+		if err := writer.WriteMsg(msg); err != nil {
+			b.Fatalf("warm WriteMsg: %v", err)
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		messages, err := chunkPaneHistoryMessagesWithCache(paneID, history, chunkSize, true, &cache, cacheVersion)
+		if err != nil {
+			b.Fatalf("chunkPaneHistoryMessagesWithCache: %v", err)
+		}
+		dst.Reset()
+		for _, msg := range messages {
+			if err := writer.WriteMsg(msg); err != nil {
+				b.Fatalf("WriteMsg: %v", err)
+			}
+		}
+	}
+}
+
 func largeStyledHistoryLines(lineCount, lineWidth int) []proto.StyledLine {
 	lines := make([]proto.StyledLine, lineCount)
 	for i := range lines {
@@ -273,6 +385,28 @@ func largeStyledHistoryLines(lineCount, lineWidth int) []proto.StyledLine {
 		}
 		lines[i] = proto.StyledLine{
 			Text:  text,
+			Cells: cells,
+		}
+	}
+	return lines
+}
+
+func styledHistoryWithAlternatingCellRuns(lineCount, lineWidth int) []proto.StyledLine {
+	lines := make([]proto.StyledLine, lineCount)
+	for i := range lines {
+		var text strings.Builder
+		text.Grow(lineWidth)
+		cells := make([]proto.Cell, lineWidth)
+		for j := range cells {
+			ch := string(byte('a' + ((i + j) % 2)))
+			text.WriteString(ch)
+			cells[j] = proto.Cell{
+				Char:  ch,
+				Width: 1,
+			}
+		}
+		lines[i] = proto.StyledLine{
+			Text:  text.String(),
 			Cells: cells,
 		}
 	}
