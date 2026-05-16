@@ -298,11 +298,39 @@ func BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB(b *testing.B) {
 	b.SetBytes(payloadSize)
 	b.ReportAllocs()
 	b.ResetTimer()
+	var state paneScrollbackSnapshotState
 	for b.Loop() {
 		if _, err := emu.Write(payload); err != nil {
 			b.Fatalf("write payload: %v", err)
 		}
-		_ = capturePaneRenderSnapshot(emu)
+		_, state = capturePaneRenderSnapshot(emu, state)
+	}
+}
+
+func BenchmarkCapturePaneRenderSnapshotIncrementalScrollback(b *testing.B) {
+	const (
+		width           = 80
+		height          = 24
+		scrollbackLines = 5000
+	)
+
+	emu := mux.NewVTEmulatorWithScrollback(width, height, scrollbackLines)
+	defer emu.Close()
+	if _, err := emu.Write(benchScrollbackPayload(1, scrollbackLines+height)); err != nil {
+		b.Fatalf("preload scrollback: %v", err)
+	}
+
+	_, state := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	payload := []byte("incremental scrollback append\r\n")
+
+	b.SetBytes(int64(len(payload)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := emu.Write(payload); err != nil {
+			b.Fatalf("write payload: %v", err)
+		}
+		_, state = capturePaneRenderSnapshot(emu, state)
 	}
 }
 

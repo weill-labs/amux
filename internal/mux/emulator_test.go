@@ -96,6 +96,59 @@ func TestVTEmulatorRespectsScrollbackLimitUnderFlood(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorScrollbackPushedCountsOverflowRows(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(20, 2, 3)
+	if got := emu.ScrollbackPushed(); got != 0 {
+		t.Fatalf("initial ScrollbackPushed() = %d, want 0", got)
+	}
+
+	for i := 1; i <= 4; i++ {
+		mustWrite(t, emu, []byte(fmt.Sprintf("line-%02d\r\n", i)))
+	}
+	before := emu.ScrollbackPushed()
+	if before != 3 {
+		t.Fatalf("ScrollbackPushed() after 4 lines = %d, want 3", before)
+	}
+	if got := emu.ScrollbackLen(); got != 3 {
+		t.Fatalf("ScrollbackLen() after 4 lines = %d, want capped 3", got)
+	}
+
+	for i := 5; i <= 6; i++ {
+		mustWrite(t, emu, []byte(fmt.Sprintf("line-%02d\r\n", i)))
+	}
+	after := emu.ScrollbackPushed()
+	if after < before {
+		t.Fatalf("ScrollbackPushed() decreased from %d to %d", before, after)
+	}
+	if got := after - before; got != 2 {
+		t.Fatalf("ScrollbackPushed() delta = %d, want 2", got)
+	}
+}
+
+func TestVTEmulatorScrollbackPushedSurvivesScrollbackClear(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(20, 2, 5)
+	for i := 1; i <= 4; i++ {
+		mustWrite(t, emu, []byte(fmt.Sprintf("line-%02d\r\n", i)))
+	}
+	before := emu.ScrollbackPushed()
+	if before == 0 {
+		t.Fatal("expected scrollback pushes before clear")
+	}
+
+	mustWrite(t, emu, []byte("\x1b[3J"))
+
+	if got := emu.ScrollbackLen(); got != 0 {
+		t.Fatalf("ScrollbackLen() after clear = %d, want 0", got)
+	}
+	if got := emu.ScrollbackPushed(); got != before {
+		t.Fatalf("ScrollbackPushed() after clear = %d, want %d", got, before)
+	}
+}
+
 func TestVTEmulatorResizeWiderReflowsVisibleRows(t *testing.T) {
 	t.Parallel()
 

@@ -1,13 +1,228 @@
 package client
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+type captureSnapshotFakeEmulator struct {
+	width, height int
+	scrollback    []string
+	screen        []string
+	pushed        uint64
+	lineReads     []int
+}
+
+func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnapshotFakeEmulator {
+	return &captureSnapshotFakeEmulator{
+		width:      4,
+		height:     2,
+		scrollback: append([]string(nil), lines...),
+		screen:     []string{"screen-0", "screen-1"},
+		pushed:     pushed,
+	}
+}
+
+func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) { return len(data), nil }
+func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool       { return false }
+func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error)       { return 0, io.EOF }
+func (e *captureSnapshotFakeEmulator) Close() error                   { return nil }
+func (e *captureSnapshotFakeEmulator) Render() string                 { return strings.Join(e.screen, "\n") }
+func (e *captureSnapshotFakeEmulator) Resize(width, height int)       { e.width, e.height = width, height }
+func (e *captureSnapshotFakeEmulator) Size() (int, int)               { return e.width, e.height }
+func (e *captureSnapshotFakeEmulator) Reset()                         {}
+func (e *captureSnapshotFakeEmulator) CursorPosition() (int, int)     { return 0, 0 }
+func (e *captureSnapshotFakeEmulator) CursorPhantom() bool            { return false }
+func (e *captureSnapshotFakeEmulator) CursorHidden() bool             { return false }
+func (e *captureSnapshotFakeEmulator) TerminalState() mux.TerminalState {
+	return mux.TerminalState{}
+}
+func (e *captureSnapshotFakeEmulator) ScrollbackLen() int { return len(e.scrollback) }
+func (e *captureSnapshotFakeEmulator) ScrollbackPushed() uint64 {
+	return e.pushed
+}
+func (e *captureSnapshotFakeEmulator) ScrollbackLineText(y int) string {
+	e.lineReads = append(e.lineReads, y)
+	if y < 0 || y >= len(e.scrollback) {
+		return ""
+	}
+	return e.scrollback[y]
+}
+func (e *captureSnapshotFakeEmulator) ScrollbackCellAt(int, int) (uv.Cell, bool) {
+	return uv.Cell{}, false
+}
+func (e *captureSnapshotFakeEmulator) RenderWithoutCursorBlock() string {
+	return e.Render()
+}
+func (e *captureSnapshotFakeEmulator) HasCursorBlock() bool { return false }
+func (e *captureSnapshotFakeEmulator) CursorBlockPosition() (int, int, bool) {
+	return 0, 0, false
+}
+func (e *captureSnapshotFakeEmulator) ScreenLineText(y int) string {
+	if y < 0 || y >= len(e.screen) {
+		return ""
+	}
+	return e.screen[y]
+}
+func (e *captureSnapshotFakeEmulator) LineWrapped(int) bool       { return false }
+func (e *captureSnapshotFakeEmulator) ScreenContains(string) bool { return false }
+func (e *captureSnapshotFakeEmulator) CellAt(int, int) *uv.Cell   { return nil }
+func (e *captureSnapshotFakeEmulator) IsAltScreen() bool          { return false }
+func (e *captureSnapshotFakeEmulator) MouseProtocol() mux.MouseProtocol {
+	return mux.MouseProtocol{}
+}
+func (e *captureSnapshotFakeEmulator) EncodeMouse(mouse.Event, int, int) []byte {
+	return nil
+}
+
+func scrollbackState(lines []string, pushed uint64) paneScrollbackSnapshotState {
+	return paneScrollbackSnapshotState{
+		scrollbackLen:    len(lines),
+		scrollbackPushed: pushed,
+		scrollback:       paneBufferLines(lines),
+	}
+}
+
+func paneBufferLines(lines []string) []paneBufferLine {
+	out := make([]paneBufferLine, len(lines))
+	for i, line := range lines {
+		out[i] = paneBufferLine{text: line}
+	}
+	return out
+}
+
+func sameScrollbackBacking(a, b []paneBufferLine) bool {
+	return len(a) > 0 && len(b) > 0 && &a[0] == &b[0]
+}
+
+func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		prev       paneScrollbackSnapshotState
+		lines      []string
+		pushed     uint64
+		wantLines  []string
+		wantReads  []int
+		wantReuse  bool
+		wantPushed uint64
+	}{
+		{
+			name:       "cold start rebuilds all scrollback",
+			lines:      []string{"a", "b", "c"},
+			pushed:     3,
+			wantLines:  []string{"a", "b", "c"},
+			wantReads:  []int{0, 1, 2},
+			wantPushed: 3,
+		},
+		{
+			name:       "no change reuses previous slice",
+			prev:       scrollbackState([]string{"a", "b"}, 2),
+			lines:      []string{"a", "b"},
+			pushed:     2,
+			wantLines:  []string{"a", "b"},
+			wantReuse:  true,
+			wantPushed: 2,
+		},
+		{
+			name:       "appended rows read only new tail rows",
+			prev:       scrollbackState([]string{"a", "b"}, 2),
+			lines:      []string{"a", "b", "c", "d"},
+			pushed:     4,
+			wantLines:  []string{"a", "b", "c", "d"},
+			wantReads:  []int{2, 3},
+			wantPushed: 4,
+		},
+		{
+			name:       "trimmed rows drop from previous front without reads",
+			prev:       scrollbackState([]string{"a", "b", "c", "d"}, 4),
+			lines:      []string{"c", "d"},
+			pushed:     4,
+			wantLines:  []string{"c", "d"},
+			wantReads:  nil,
+			wantReuse:  true,
+			wantPushed: 4,
+		},
+		{
+			name:       "appended and trimmed rows reuse tail then append new rows",
+			prev:       scrollbackState([]string{"a", "b", "c"}, 3),
+			lines:      []string{"c", "d", "e"},
+			pushed:     5,
+			wantLines:  []string{"c", "d", "e"},
+			wantReads:  []int{1, 2},
+			wantPushed: 5,
+		},
+		{
+			name:       "counter mismatch falls back to full rebuild",
+			prev:       scrollbackState([]string{"a", "b"}, 4),
+			lines:      []string{"x", "y"},
+			pushed:     1,
+			wantLines:  []string{"x", "y"},
+			wantReads:  []int{0, 1},
+			wantPushed: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emu := newCaptureSnapshotFakeEmulator(tt.lines, tt.pushed)
+			snap, state := capturePaneRenderSnapshot(emu, tt.prev)
+
+			if got := paneRenderSnapshotLines(snap.scrollback); !equalStrings(got, tt.wantLines) {
+				t.Fatalf("snapshot scrollback = %#v, want %#v", got, tt.wantLines)
+			}
+			if got := paneRenderSnapshotLines(state.scrollback); !equalStrings(got, tt.wantLines) {
+				t.Fatalf("state scrollback = %#v, want %#v", got, tt.wantLines)
+			}
+			if !equalInts(emu.lineReads, tt.wantReads) {
+				t.Fatalf("ScrollbackLineText reads = %#v, want %#v", emu.lineReads, tt.wantReads)
+			}
+			if state.scrollbackLen != len(tt.wantLines) {
+				t.Fatalf("state scrollbackLen = %d, want %d", state.scrollbackLen, len(tt.wantLines))
+			}
+			if state.scrollbackPushed != tt.wantPushed {
+				t.Fatalf("state scrollbackPushed = %d, want %d", state.scrollbackPushed, tt.wantPushed)
+			}
+			if tt.wantReuse && !sameScrollbackBacking(snap.scrollback, tt.prev.scrollback) {
+				t.Fatal("snapshot did not reuse previous scrollback backing array")
+			}
+		})
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
 	t.Parallel()
