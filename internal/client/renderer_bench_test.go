@@ -298,12 +298,11 @@ func BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB(b *testing.B) {
 	b.SetBytes(payloadSize)
 	b.ReportAllocs()
 	b.ResetTimer()
-	var state paneScrollbackSnapshotState
 	for b.Loop() {
 		if _, err := emu.Write(payload); err != nil {
 			b.Fatalf("write payload: %v", err)
 		}
-		_, state = capturePaneRenderSnapshot(emu, state)
+		_, _ = capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
 	}
 }
 
