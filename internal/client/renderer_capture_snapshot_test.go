@@ -99,7 +99,15 @@ func paneBufferLines(lines []string) []paneBufferLine {
 }
 
 func sameScrollbackBacking(a, b []paneBufferLine) bool {
-	return len(a) > 0 && len(b) > 0 && &a[0] == &b[0]
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	for i := range b {
+		if &a[0] == &b[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {

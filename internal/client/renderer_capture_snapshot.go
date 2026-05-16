@@ -27,13 +27,50 @@ type paneRenderSnapshot struct {
 	hasCursorBlock   bool
 }
 
-func capturePaneRenderSnapshot(emu mux.TerminalEmulator) paneRenderSnapshot {
+type paneScrollbackSnapshotState struct {
+	scrollbackLen    int
+	scrollbackPushed uint64
+	scrollback       []paneBufferLine
+}
+
+func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState) (paneRenderSnapshot, paneScrollbackSnapshotState) {
 	width, height := emu.Size()
 	cursorCol, cursorRow := emu.CursorPosition()
-	scrollback := make([]paneBufferLine, emu.ScrollbackLen())
-	for row := range scrollback {
-		scrollback[row] = paneBufferLine{
-			text: emu.ScrollbackLineText(row),
+	curScrollbackLen := emu.ScrollbackLen()
+	curScrollbackPushed := emu.ScrollbackPushed()
+
+	scrollback := prev.scrollback
+	rebuildScrollback := prev.scrollback == nil ||
+		len(prev.scrollback) != prev.scrollbackLen ||
+		curScrollbackPushed < prev.scrollbackPushed
+	if !rebuildScrollback {
+		appended64 := curScrollbackPushed - prev.scrollbackPushed
+		if appended64 > uint64(curScrollbackLen) {
+			rebuildScrollback = true
+		} else {
+			appended := int(appended64)
+			trimmed := prev.scrollbackLen + appended - curScrollbackLen
+			if trimmed < 0 || trimmed > len(prev.scrollback) {
+				rebuildScrollback = true
+			} else if appended == 0 && trimmed == 0 {
+				scrollback = prev.scrollback
+			} else {
+				scrollback = prev.scrollback[trimmed:]
+				start := curScrollbackLen - appended
+				for row := start; row < curScrollbackLen; row++ {
+					scrollback = append(scrollback, paneBufferLine{
+						text: emu.ScrollbackLineText(row),
+					})
+				}
+			}
+		}
+	}
+	if rebuildScrollback {
+		scrollback = make([]paneBufferLine, curScrollbackLen)
+		for row := range scrollback {
+			scrollback[row] = paneBufferLine{
+				text: emu.ScrollbackLineText(row),
+			}
 		}
 	}
 
@@ -64,7 +101,11 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator) paneRenderSnapshot {
 		snap.hasCursorBlock = true
 		snap.renderedNoCursor = emu.RenderWithoutCursorBlock()
 	}
-	return snap
+	return snap, paneScrollbackSnapshotState{
+		scrollbackLen:    curScrollbackLen,
+		scrollbackPushed: curScrollbackPushed,
+		scrollback:       scrollback,
+	}
 }
 
 func cloneTerminalState(state proto.TerminalState) proto.TerminalState {

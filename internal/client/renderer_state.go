@@ -145,6 +145,16 @@ func prunePaneRenderSnapshots(src map[uint32]paneRenderSnapshot, panes map[uint3
 	return dst
 }
 
+func prunePaneScrollbackSnapshotStates(src map[uint32]paneScrollbackSnapshotState, panes map[uint32]proto.PaneSnapshot) map[uint32]paneScrollbackSnapshotState {
+	dst := make(map[uint32]paneScrollbackSnapshotState, len(src))
+	for paneID, snap := range src {
+		if _, ok := panes[paneID]; ok {
+			dst[paneID] = snap
+		}
+	}
+	return dst
+}
+
 type rendererCommand struct {
 	run  func(*rendererActorState)
 	done chan struct{}
@@ -153,6 +163,7 @@ type rendererCommand struct {
 type rendererActorState struct {
 	snapshot          *rendererSnapshot
 	emulators         map[uint32]mux.TerminalEmulator
+	paneScrollbacks   map[uint32]paneScrollbackSnapshotState
 	pendingPaneOutput map[uint32]*paneOutputBuffer
 	compositor        *render.Compositor
 }
@@ -274,12 +285,16 @@ func (st *rendererActorState) warmVisiblePanes(snap *rendererSnapshot, emulators
 
 func (st *rendererActorState) refreshPaneCaptures(snap *rendererSnapshot, emulators map[uint32]mux.TerminalEmulator) {
 	captures := prunePaneRenderSnapshots(snap.paneCaptures, snap.paneInfo)
+	scrollbacks := prunePaneScrollbackSnapshotStates(st.paneScrollbacks, snap.paneInfo)
 	for paneID, emu := range emulators {
 		if _, ok := snap.paneInfo[paneID]; !ok || emu == nil {
 			continue
 		}
-		captures[paneID] = capturePaneRenderSnapshot(emu)
+		capture, state := capturePaneRenderSnapshot(emu, scrollbacks[paneID])
+		captures[paneID] = capture
+		scrollbacks[paneID] = state
 	}
+	st.paneScrollbacks = scrollbacks
 	snap.paneCaptures = captures
 }
 
@@ -290,7 +305,9 @@ func (r *Renderer) publishPaneCapture(st *rendererActorState, paneID uint32) {
 	}
 	next := *st.snapshot
 	next.paneCaptures = clonePaneRenderSnapshots(st.snapshot.paneCaptures)
-	next.paneCaptures[paneID] = capturePaneRenderSnapshot(emu)
+	capture, state := capturePaneRenderSnapshot(emu, st.paneScrollbacks[paneID])
+	next.paneCaptures[paneID] = capture
+	st.paneScrollbacks[paneID] = state
 	st.snapshot = &next
 	r.publishSnapshot(&next)
 }
@@ -317,6 +334,7 @@ func (r *Renderer) actorLoop(initial *rendererSnapshot, compositor *render.Compo
 	state := &rendererActorState{
 		snapshot:          initial,
 		emulators:         make(map[uint32]mux.TerminalEmulator),
+		paneScrollbacks:   make(map[uint32]paneScrollbackSnapshotState),
 		pendingPaneOutput: make(map[uint32]*paneOutputBuffer),
 		compositor:        compositor,
 	}
