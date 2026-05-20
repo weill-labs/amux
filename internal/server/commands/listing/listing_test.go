@@ -1,6 +1,7 @@
 package listing
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -86,7 +87,7 @@ func TestFormatPaneListPreservesPaneNameColumnWhenLeadPresent(t *testing.T) {
 	}
 }
 
-func TestFormatWindowNameAddsZoomMarker(t *testing.T) {
+func TestFormatWindowNameLeavesZoomMarkerOutOfName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -105,7 +106,7 @@ func TestFormatWindowNameAddsZoomMarker(t *testing.T) {
 			name:   "zoomed window",
 			window: "main",
 			zoomed: true,
-			want:   "mainZ",
+			want:   "main",
 		},
 	}
 
@@ -140,10 +141,120 @@ func TestFormatPaneListMarksZoomedWindow(t *testing.T) {
 		},
 	}, "", false)
 
-	if !strings.Contains(out, "mainZ") {
-		t.Fatalf("zoomed window should include Z marker:\n%s", out)
+	if strings.Contains(out, "mainZ") {
+		t.Fatalf("zoomed window name should not include Z marker:\n%s", out)
 	}
 	if strings.Contains(out, "logsZ") {
 		t.Fatalf("unzoomed window should not include Z marker:\n%s", out)
 	}
+	if !strings.Contains(out, "WINDOW") || !strings.Contains(out, "ZOOM") {
+		t.Fatalf("list should include separate WINDOW and ZOOM headers:\n%s", out)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("FormatPaneList() returned %d lines, want 3:\n%s", len(lines), out)
+	}
+	if got := fixedListColumn(t, lines[0], lines[1], "WINDOW", "ZOOM"); got != "main" {
+		t.Fatalf("zoomed row WINDOW column = %q, want main\n%s", got, out)
+	}
+	if got := fixedListColumn(t, lines[0], lines[1], "ZOOM", "TASK"); got != "Z" {
+		t.Fatalf("zoomed row ZOOM column = %q, want Z\n%s", got, out)
+	}
+	if got := fixedListColumn(t, lines[0], lines[2], "WINDOW", "ZOOM"); got != "logs" {
+		t.Fatalf("unzoomed row WINDOW column = %q, want logs\n%s", got, out)
+	}
+	if got := fixedListColumn(t, lines[0], lines[2], "ZOOM", "TASK"); got != "" {
+		t.Fatalf("unzoomed row ZOOM column = %q, want empty\n%s", got, out)
+	}
+}
+
+func TestListJSONIncludesCleanWindowAndZoomedFlag(t *testing.T) {
+	t.Parallel()
+
+	res := List(fakeListContext{entries: []PaneEntry{{
+		PaneID:       1,
+		Name:         "pane-1",
+		Host:         "local",
+		WindowName:   "main",
+		WindowZoomed: true,
+		Task:         "build",
+		Active:       true,
+	}}}, []string{"--json"})
+	if res.Err != nil {
+		t.Fatalf("List(--json) error = %v", res.Err)
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(res.Output), &rows); err != nil {
+		t.Fatalf("json.Unmarshal(List --json) = %v\n%s", err, res.Output)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("List --json returned %d rows, want 1\n%s", len(rows), res.Output)
+	}
+	if got := rows[0]["window"]; got != "main" {
+		t.Fatalf("json window = %#v, want main\n%s", got, res.Output)
+	}
+	if got := rows[0]["window_zoomed"]; got != true {
+		t.Fatalf("json window_zoomed = %#v, want true\n%s", got, res.Output)
+	}
+}
+
+func fixedListColumn(t *testing.T, header, row, column, nextColumn string) string {
+	t.Helper()
+
+	start := strings.Index(header, column)
+	if start < 0 {
+		t.Fatalf("header missing %q: %q", column, header)
+	}
+	end := len(row)
+	if nextColumn != "" {
+		next := strings.Index(header, nextColumn)
+		if next < 0 {
+			t.Fatalf("header missing next column %q: %q", nextColumn, header)
+		}
+		if next > start {
+			end = min(next, len(row))
+		}
+	}
+	if start >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(row[start:end])
+}
+
+type fakeListContext struct {
+	entries []PaneEntry
+}
+
+func (f fakeListContext) HomeDir() string {
+	return ""
+}
+
+func (f fakeListContext) BuildVersion() string {
+	return ""
+}
+
+func (f fakeListContext) QueryPaneList() ([]PaneEntry, error) {
+	return f.entries, nil
+}
+
+func (f fakeListContext) QuerySessionStatus() (SessionStatus, error) {
+	return SessionStatus{}, nil
+}
+
+func (f fakeListContext) QueryWindowList() ([]WindowEntry, error) {
+	return nil, nil
+}
+
+func (f fakeListContext) QueryClientList() ([]ClientEntry, error) {
+	return nil, nil
+}
+
+func (f fakeListContext) QueryConnectionLog() ([]ConnectionLogEntry, error) {
+	return nil, nil
+}
+
+func (f fakeListContext) QueryPaneLog() ([]PaneLogEntry, error) {
+	return nil, nil
 }
