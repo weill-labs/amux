@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage     = "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	captureUsage      = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
 	logUsage          = "usage: amux log <clients|panes>"
@@ -22,7 +22,7 @@ const (
 	disconnectUsage   = "usage: amux disconnect <host>"
 	focusUsage        = "usage: amux focus <pane>"
 	listClientsUsage  = "usage: amux list-clients"
-	listUsage         = "usage: amux list [--no-cwd]"
+	listUsage         = "usage: amux list [--no-cwd] [--json]"
 	listWindowsUsage  = "usage: amux list-windows"
 	reconnectUsage    = "usage: amux reconnect <host>"
 	reloadServerUsage = "usage: amux reload-server"
@@ -137,6 +137,17 @@ func MaybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage st
 	return false, 0
 }
 
+func MaybePrintSendKeysUsage(stdout, stderr io.Writer, args []string) (handled bool, exitCode int) {
+	if handled, exitCode := MaybePrintKeyCommandUsage(stdout, stderr, args, sendKeysUsage, 2); handled {
+		return handled, exitCode
+	}
+	if args[0] == "--window" && len(args) < 3 {
+		fmt.Fprintln(stderr, sendKeysUsage)
+		return true, 1
+	}
+	return false, 0
+}
+
 func PrintUsage() {
 	WriteUsage(os.Stdout)
 }
@@ -147,7 +158,7 @@ func WriteUsage(w io.Writer) {
 Usage:
   amux [-s session]                    Start or attach to amux session
   amux [-s session] new [name]         Start or attach to a named session
-  amux [-s session] list [--no-cwd]    List panes with metadata
+  amux [-s session] list [--no-cwd] [--json]    List panes with metadata
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] log clients        Show recent client attach/detach history
@@ -176,7 +187,7 @@ Usage:
   amux [-s session] capture --colors   Capture border color map
   amux [-s session] connect <host> [--session <name> | --session-per-client]
                                        Connect to a remote amux session and mirror its panes locally
-  amux [-s session] send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
+  amux [-s session] send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] mouse [--client <id>] [--timeout <duration>] ...
                                        Simulate mouse input through an attached client

@@ -22,7 +22,7 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
@@ -93,6 +93,24 @@ type inputCommandContext struct {
 	*CommandContext
 }
 
+type sendKeysTarget struct {
+	paneRef   string
+	windowRef string
+}
+
+func parseSendKeysTarget(args []string) (sendKeysTarget, []string, error) {
+	if len(args) == 0 {
+		return sendKeysTarget{}, nil, errors.New(sendKeysUsage)
+	}
+	if args[0] == "--window" {
+		if len(args) < 2 {
+			return sendKeysTarget{}, nil, errors.New(sendKeysUsage)
+		}
+		return sendKeysTarget{windowRef: args[1]}, args[2:], nil
+	}
+	return sendKeysTarget{paneRef: args[0]}, args[1:], nil
+}
+
 func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 	opts := typeKeysOptions{waitTimeout: defaultCommandUIWaitTimeout}
 	timeoutSet := false
@@ -141,10 +159,11 @@ func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 }
 
 func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (string, int, error) {
-	if len(args) < 2 {
-		return "", 0, errors.New(sendKeysUsage)
+	target, optionArgs, err := parseSendKeysTarget(args)
+	if err != nil {
+		return "", 0, err
 	}
-	opts, err := parseSendKeysArgs(args[1:])
+	opts, err := parseSendKeysArgs(optionArgs)
 	if err != nil {
 		return "", 0, err
 	}
@@ -156,14 +175,19 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 		return "", 0, err
 	}
 	applyFinalDelay(chunks, opts.delayFinal)
-	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, args[0])
+	var pane resolvedPaneRef
+	if target.windowRef != "" {
+		pane, err = ctx.Sess.queryActivePaneForWindow(target.windowRef)
+	} else {
+		pane, err = ctx.Sess.queryResolvedPaneForActor(actorPaneID, target.paneRef)
+	}
 	if err != nil {
 		return "", 0, err
 	}
 	disableAutomaticEnterPacingForIdlePane(chunks, pane.pane)
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
-		if err := waitForPaneReady(ctx.Sess, args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
+		if err := waitForPaneReady(ctx.Sess, pane.paneName, pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
 			return "", 0, err
 		}
 		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, nil); err != nil {
@@ -186,7 +210,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 }
 
 func cmdSendKeys(ctx *CommandContext) {
-	if len(ctx.Args) > 0 {
+	if len(ctx.Args) > 0 && ctx.Args[0] != "--window" {
 		ref, err := ctx.Sess.queryPaneRef(ctx.Args[0])
 		if err != nil {
 			ctx.replyErr(err.Error())

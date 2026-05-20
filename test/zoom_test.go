@@ -56,29 +56,50 @@ func TestZoomIndicatorAppearsInWindowListsAndClears(t *testing.T) {
 
 	h.splitH()
 
-	if out := h.runCmd("list"); strings.Contains(out, "window-1Z") {
-		t.Fatalf("unzoomed list should not include zoom marker:\n%s", out)
+	if out := h.runCmd("list"); listZoomColumnForPane(t, out, "pane-1") != "" || strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list should keep zoom column empty and window name clean:\n%s", out)
 	}
-	if out := h.runCmd("list-windows"); strings.Contains(out, "window-1Z") {
-		t.Fatalf("unzoomed list-windows should not include zoom marker:\n%s", out)
-	}
-
-	h.runCmd("zoom", "pane-1")
-
-	if out := h.runCmd("list"); !strings.Contains(out, "window-1Z") {
-		t.Fatalf("zoomed list should include zoom marker:\n%s", out)
-	}
-	if out := h.runCmd("list-windows"); !strings.Contains(out, "window-1Z") {
-		t.Fatalf("zoomed list-windows should include zoom marker:\n%s", out)
+	if out := h.runCmd("list-windows"); windowListZoomColumnForName(t, out, "window-1") != "" || strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list-windows should keep zoom column empty and window name clean:\n%s", out)
 	}
 
 	h.runCmd("zoom", "pane-1")
 
-	if out := h.runCmd("list"); strings.Contains(out, "window-1Z") {
-		t.Fatalf("unzoomed list should clear zoom marker:\n%s", out)
+	if out := h.runCmd("list"); listWindowColumnForPane(t, out, "pane-1") != "window-1" || listZoomColumnForPane(t, out, "pane-1") != "Z" || strings.Contains(out, "window-1Z") {
+		t.Fatalf("zoomed list should keep window name clean and show separate zoom marker:\n%s", out)
 	}
-	if out := h.runCmd("list-windows"); strings.Contains(out, "window-1Z") {
-		t.Fatalf("unzoomed list-windows should clear zoom marker:\n%s", out)
+	if out := h.runCmd("list-windows"); windowListZoomColumnForName(t, out, "window-1") != "Z" || strings.Contains(out, "window-1Z") {
+		t.Fatalf("zoomed list-windows should keep window name clean and show separate zoom marker:\n%s", out)
+	}
+
+	h.runCmd("zoom", "pane-1")
+
+	if out := h.runCmd("list"); listZoomColumnForPane(t, out, "pane-1") != "" || strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list should clear separate zoom marker:\n%s", out)
+	}
+	if out := h.runCmd("list-windows"); windowListZoomColumnForName(t, out, "window-1") != "" || strings.Contains(out, "window-1Z") {
+		t.Fatalf("unzoomed list-windows should clear separate zoom marker:\n%s", out)
+	}
+}
+
+func TestZoomedWindowNameFromListTargetsWindowCommands(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.runCmd("zoom", "pane-1")
+
+	listOut := h.runCmd("list")
+	windowName := listWindowColumnForPane(t, listOut, "pane-1")
+	if windowName != "window-1" {
+		t.Fatalf("WINDOW column = %q, want window-1\n%s", windowName, listOut)
+	}
+
+	if out := h.runCmd("spawn", "--window", windowName, "--name", "spawned-from-list"); strings.Contains(out, "not found") {
+		t.Fatalf("spawn --window with list window name failed:\n%s\nlist:\n%s", out, listOut)
+	}
+	if out := h.runCmd("send-keys", "--window", windowName, "echo", "Enter"); strings.Contains(out, "not found") || strings.Contains(out, "usage:") {
+		t.Fatalf("send-keys --window with list window name failed:\n%s\nlist:\n%s", out, listOut)
 	}
 }
 
@@ -112,6 +133,69 @@ func TestZoomedWindowJSONFields(t *testing.T) {
 
 	h.runCmd("zoom", "pane-1")
 	assertWindowZoomed("after unzoom", false)
+}
+
+func listWindowColumnForPane(t *testing.T, listOut, paneName string) string {
+	t.Helper()
+	return listColumnForPane(t, listOut, paneName, "WINDOW", "ZOOM")
+}
+
+func listZoomColumnForPane(t *testing.T, listOut, paneName string) string {
+	t.Helper()
+	return listColumnForPane(t, listOut, paneName, "ZOOM", "TASK")
+}
+
+func listColumnForPane(t *testing.T, listOut, paneName, column, nextColumn string) string {
+	t.Helper()
+
+	lines := strings.Split(strings.TrimSpace(listOut), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("list output missing rows:\n%s", listOut)
+	}
+	line := listLineForPane(listOut, paneName)
+	if line == "" {
+		t.Fatalf("list output missing pane %q:\n%s", paneName, listOut)
+	}
+	return fixedWidthColumn(t, lines[0], line, column, nextColumn)
+}
+
+func windowListZoomColumnForName(t *testing.T, listOut, windowName string) string {
+	t.Helper()
+
+	lines := strings.Split(strings.TrimSpace(listOut), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("list-windows output missing rows:\n%s", listOut)
+	}
+	for _, line := range lines[1:] {
+		if fixedWidthColumn(t, lines[0], line, "NAME", "ZOOM") == windowName {
+			return fixedWidthColumn(t, lines[0], line, "ZOOM", "PANES")
+		}
+	}
+	t.Fatalf("list-windows output missing window %q:\n%s", windowName, listOut)
+	return ""
+}
+
+func fixedWidthColumn(t *testing.T, header, row, column, nextColumn string) string {
+	t.Helper()
+
+	start := strings.Index(header, column)
+	if start < 0 {
+		t.Fatalf("header missing %q: %q", column, header)
+	}
+	end := len(row)
+	if nextColumn != "" {
+		next := strings.Index(header, nextColumn)
+		if next < 0 {
+			t.Fatalf("header missing next column %q: %q", nextColumn, header)
+		}
+		if next > start {
+			end = min(next, len(row))
+		}
+	}
+	if start >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(row[start:end])
 }
 
 func TestZoomSinglePaneFails(t *testing.T) {

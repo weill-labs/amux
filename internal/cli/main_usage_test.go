@@ -34,8 +34,23 @@ func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
+	if !strings.Contains(out, "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
 		t.Fatalf("usage output missing via/wait flags:\n%s", out)
+	}
+}
+
+func TestMainSendKeysWindowUsageRequiresKeys(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "send-keys", "--window", "main")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, sendKeysUsage) {
+		t.Fatalf("usage output = %q, want substring %q", out, sendKeysUsage)
+	}
+	if strings.Contains(out, "connecting to server") {
+		t.Fatalf("send-keys --window without keys should not dispatch to the server:\n%s", out)
 	}
 }
 
@@ -50,12 +65,12 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "send-keys long help",
 			args: []string{"send-keys", "pane-1", "--help"},
-			want: "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "send-keys short help",
 			args: []string{"send-keys", "pane-1", "-h"},
-			want: "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 	}
 
@@ -297,7 +312,7 @@ func TestMainSendKeysUsageIncludesViaFlags(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
+	if !strings.Contains(out, "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
 		t.Fatalf("send-keys usage output missing via flags:\n%s", out)
 	}
 }

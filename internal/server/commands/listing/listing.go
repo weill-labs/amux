@@ -1,6 +1,7 @@
 package listing
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -25,7 +26,8 @@ type Context interface {
 }
 
 type ListArgs struct {
-	ShowCwd bool
+	ShowCwd    bool
+	FormatJSON bool
 }
 
 func ParseListArgs(args []string) (ListArgs, error) {
@@ -34,8 +36,10 @@ func ParseListArgs(args []string) (ListArgs, error) {
 		switch arg {
 		case "--no-cwd":
 			parsed.ShowCwd = false
+		case "--json":
+			parsed.FormatJSON = true
 		default:
-			return ListArgs{}, fmt.Errorf("usage: list [--no-cwd]")
+			return ListArgs{}, fmt.Errorf("usage: list [--no-cwd] [--json]")
 		}
 	}
 	return parsed, nil
@@ -49,6 +53,13 @@ func List(ctx Context, args []string) commandpkg.Result {
 	entries, err := ctx.QueryPaneList()
 	if err != nil {
 		return commandpkg.Result{Err: err}
+	}
+	if parsed.FormatJSON {
+		output, err := FormatPaneListJSON(entries)
+		if err != nil {
+			return commandpkg.Result{Err: err}
+		}
+		return commandpkg.Result{Output: output}
 	}
 	return commandpkg.Result{
 		Output: FormatPaneList(entries, ctx.HomeDir(), parsed.ShowCwd),
@@ -80,14 +91,64 @@ func FormatPaneList(entries []PaneEntry, home string, showCwd bool) string {
 
 	var buf strings.Builder
 	if showCwd {
-		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "IDLE", "CWD", "WINDOW", "TASK", "META")
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-4s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "IDLE", "CWD", "WINDOW", "ZOOM", "TASK", "META")
 	} else {
-		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "IDLE", "WINDOW", "TASK", "META")
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-10s %-4s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "IDLE", "WINDOW", "ZOOM", "TASK", "META")
 	}
 	for _, entry := range entries {
 		fmt.Fprint(&buf, formatPaneListRow(entry, home, showCwd))
 	}
 	return buf.String()
+}
+
+type paneListJSONEntry struct {
+	PaneID        uint32               `json:"pane_id"`
+	Name          string               `json:"name"`
+	Host          string               `json:"host"`
+	Branch        string               `json:"branch"`
+	Idle          string               `json:"idle"`
+	Cwd           string               `json:"cwd"`
+	Window        string               `json:"window"`
+	WindowZoomed  bool                 `json:"window_zoomed"`
+	Task          string               `json:"task"`
+	Meta          string               `json:"meta"`
+	KV            map[string]string    `json:"kv,omitempty"`
+	TrackedPRs    []proto.TrackedPR    `json:"tracked_prs,omitempty"`
+	TrackedIssues []proto.TrackedIssue `json:"tracked_issues,omitempty"`
+	Active        bool                 `json:"active"`
+	Lead          bool                 `json:"lead"`
+}
+
+func FormatPaneListJSON(entries []PaneEntry) (string, error) {
+	rows := make([]paneListJSONEntry, 0, len(entries))
+	for _, entry := range entries {
+		idle := entry.Idle
+		if idle == "" {
+			idle = "--"
+		}
+		rows = append(rows, paneListJSONEntry{
+			PaneID:        entry.PaneID,
+			Name:          entry.Name,
+			Host:          entry.Host,
+			Branch:        FormatPaneListBranch(entry),
+			Idle:          idle,
+			Cwd:           entry.Cwd,
+			Window:        FormatWindowName(entry.WindowName, entry.WindowZoomed),
+			WindowZoomed:  entry.WindowZoomed,
+			Task:          entry.Task,
+			Meta:          formatPaneListMeta(entry),
+			KV:            entry.KV,
+			TrackedPRs:    entry.TrackedPRs,
+			TrackedIssues: entry.TrackedIssues,
+			Active:        entry.Active,
+			Lead:          entry.Lead,
+		})
+	}
+	data, err := json.MarshalIndent(rows, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
 }
 
 func FormatPaneListBranch(entry PaneEntry) string {
@@ -98,11 +159,15 @@ func FormatPaneListBranch(entry PaneEntry) string {
 	return branch
 }
 
-func FormatWindowName(name string, zoomed bool) string {
-	if zoomed {
-		return name + "Z"
-	}
+func FormatWindowName(name string, _ bool) string {
 	return name
+}
+
+func FormatWindowZoom(zoomed bool) string {
+	if zoomed {
+		return "Z"
+	}
+	return ""
 }
 
 func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
@@ -118,12 +183,13 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 		idle = "--"
 	}
 	windowName := FormatWindowName(entry.WindowName, entry.WindowZoomed)
+	windowZoom := FormatWindowZoom(entry.WindowZoomed)
 	if showCwd {
-		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n",
-			paneID, entry.Name, entry.Host, branch, idle, FormatListCwd(entry.Cwd, home, ListCwdWidth), windowName, entry.Task, meta)
+		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-4s %-12s %s\n",
+			paneID, entry.Name, entry.Host, branch, idle, FormatListCwd(entry.Cwd, home, ListCwdWidth), windowName, windowZoom, entry.Task, meta)
 	}
-	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n",
-		paneID, entry.Name, entry.Host, branch, idle, windowName, entry.Task, meta)
+	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-10s %-4s %-12s %s\n",
+		paneID, entry.Name, entry.Host, branch, idle, windowName, windowZoom, entry.Task, meta)
 }
 
 func formatPaneListMeta(entry PaneEntry) string {
@@ -290,14 +356,14 @@ type WindowEntry struct {
 
 func FormatWindowList(entries []WindowEntry) string {
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-6s %-20s %-8s\n", "WIN", "NAME", "PANES"))
+	output.WriteString(fmt.Sprintf("%-6s %-20s %-4s %-8s\n", "WIN", "NAME", "ZOOM", "PANES"))
 	for _, entry := range entries {
 		active := " "
 		if entry.Active {
 			active = "*"
 		}
-		output.WriteString(fmt.Sprintf("%-6s %-20s %-8d\n",
-			fmt.Sprintf("%s%d:", active, entry.Index), FormatWindowName(entry.Name, entry.Zoomed), entry.PaneCount))
+		output.WriteString(fmt.Sprintf("%-6s %-20s %-4s %-8d\n",
+			fmt.Sprintf("%s%d:", active, entry.Index), FormatWindowName(entry.Name, entry.Zoomed), FormatWindowZoom(entry.Zoomed), entry.PaneCount))
 	}
 	return output.String()
 }
