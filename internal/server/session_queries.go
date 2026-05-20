@@ -270,6 +270,25 @@ func (s *Session) queryResolvedPaneForActor(actorPaneID uint32, ref string) (res
 	})
 }
 
+func (s *Session) queryActivePaneForWindow(ref string) (resolvedPaneRef, error) {
+	return enqueueSessionQuery(s, func(s *Session) (resolvedPaneRef, error) {
+		w := s.resolveWindow(ref)
+		if w == nil {
+			return resolvedPaneRef{}, fmt.Errorf("window %q not found", ref)
+		}
+		if w.ActivePane == nil {
+			return resolvedPaneRef{}, fmt.Errorf("window %q has no active pane", ref)
+		}
+		return resolvedPaneRef{
+			pane:     w.ActivePane,
+			window:   w,
+			paneID:   w.ActivePane.ID,
+			paneName: w.ActivePane.Meta.Name,
+			windowID: w.ID,
+		}, nil
+	})
+}
+
 func (s *Session) queryKillTarget(actorPaneID uint32, ref string) (killTargetSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (killTargetSnapshot, error) {
 		var pane *mux.Pane

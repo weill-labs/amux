@@ -317,12 +317,12 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 
 | Command | Description |
 |---------|-------------|
-| `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
+| `amux list [--no-cwd] [--json]` | List panes with metadata (including cwd by default) |
 | `amux spawn [--auto] [--at <pane>] [--window <name\|id>] [--vertical\|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, column-fill auto spawn, or targeted split placement |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--via pty\|client] [--client <id>] [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux send-keys (<pane>\|--window <index\|name>) [--via pty\|client] [--client <id>] [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2> [--tree]` | Swap two panes, or their root-level groups with `--tree` |
 | `amux swap forward\|backward` | Swap active pane with neighbor |

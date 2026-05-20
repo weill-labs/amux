@@ -172,7 +172,7 @@ func TestCmdListRejectsUnknownArgs(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "list", "--bogus")
-	if res.cmdErr != "usage: list [--no-cwd]" {
+	if res.cmdErr != "usage: list [--no-cwd] [--json]" {
 		t.Fatalf("cmdErr = %q, want usage", res.cmdErr)
 	}
 }
