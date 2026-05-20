@@ -64,6 +64,10 @@ type TerminalEmulator interface {
 	// ScrollbackLen returns the number of lines in the scrollback buffer.
 	ScrollbackLen() int
 
+	// ScrollbackPushed returns the cumulative number of lines pushed into
+	// retained scrollback during this emulator's lifetime.
+	ScrollbackPushed() uint64
+
 	// ScrollbackLineText returns the plain text of scrollback line y (0=oldest).
 	ScrollbackLineText(y int) string
 
@@ -124,6 +128,7 @@ type vtEmulator struct {
 	cursorHidden      atomic.Bool
 	altScreen         atomic.Bool
 	mouseFlags        atomic.Uint32
+	scrollbackPushed  atomic.Uint64
 	scrollbackPushFn  func(count, width int)
 	scrollbackClearFn func()
 	scrollbackLimit   int
@@ -160,6 +165,9 @@ func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmu
 			v.setMouseMode(mode, false)
 		},
 		ScrollbackPush: func(count, width int) {
+			if count > 0 {
+				v.scrollbackPushed.Add(uint64(count))
+			}
 			if v.scrollbackPushFn != nil {
 				v.scrollbackPushFn(count, width)
 			}
@@ -310,6 +318,10 @@ func (v *vtEmulator) TerminalState() TerminalState {
 
 func (v *vtEmulator) ScrollbackLen() int {
 	return v.emu.ScrollbackLen()
+}
+
+func (v *vtEmulator) ScrollbackPushed() uint64 {
+	return v.scrollbackPushed.Load()
 }
 
 func (v *vtEmulator) ScrollbackLineText(y int) string {
