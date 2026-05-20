@@ -101,7 +101,7 @@ func FormatPaneList(entries []PaneEntry, home string, showCwd bool) string {
 	return buf.String()
 }
 
-type PaneListJSONEntry struct {
+type paneListJSONEntry struct {
 	PaneID        uint32               `json:"pane_id"`
 	Name          string               `json:"name"`
 	Host          string               `json:"host"`
@@ -120,13 +120,13 @@ type PaneListJSONEntry struct {
 }
 
 func FormatPaneListJSON(entries []PaneEntry) (string, error) {
-	rows := make([]PaneListJSONEntry, 0, len(entries))
+	rows := make([]paneListJSONEntry, 0, len(entries))
 	for _, entry := range entries {
 		idle := entry.Idle
 		if idle == "" {
 			idle = "--"
 		}
-		rows = append(rows, PaneListJSONEntry{
+		rows = append(rows, paneListJSONEntry{
 			PaneID:        entry.PaneID,
 			Name:          entry.Name,
 			Host:          entry.Host,
@@ -159,7 +159,7 @@ func FormatPaneListBranch(entry PaneEntry) string {
 	return branch
 }
 
-func FormatWindowName(name string, zoomed bool) string {
+func FormatWindowName(name string, _ bool) string {
 	return name
 }
 
