@@ -433,6 +433,27 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 	}
 }
 
+func TestMaybePrintSendKeysUsageRequiresWindowKeys(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	handled, exitCode := MaybePrintSendKeysUsage(&stdout, &stderr, []string{"--window", "main"})
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, want 1", exitCode)
+	}
+	if got := stdout.String(); got != "" {
+		t.Fatalf("stdout = %q, want empty", got)
+	}
+	if got := stderr.String(); got != sendKeysUsage+"\n" {
+		t.Fatalf("stderr = %q, want %q", got, sendKeysUsage+"\n")
+	}
+}
+
 func TestParseSwapArgs(t *testing.T) {
 	t.Parallel()
 
@@ -944,6 +965,12 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 		{
 			name:       "send-keys usage error stays in dispatch layer",
 			args:       []string{"send-keys", "pane-1"},
+			wantExit:   1,
+			wantStderr: sendKeysUsage + "\n",
+		},
+		{
+			name:       "send-keys window usage error stays in dispatch layer",
+			args:       []string{"send-keys", "--window", "main"},
 			wantExit:   1,
 			wantStderr: sendKeysUsage + "\n",
 		},

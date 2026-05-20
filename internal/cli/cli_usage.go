@@ -137,6 +137,17 @@ func MaybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage st
 	return false, 0
 }
 
+func MaybePrintSendKeysUsage(stdout, stderr io.Writer, args []string) (handled bool, exitCode int) {
+	if handled, exitCode := MaybePrintKeyCommandUsage(stdout, stderr, args, sendKeysUsage, 2); handled {
+		return handled, exitCode
+	}
+	if args[0] == "--window" && len(args) < 3 {
+		fmt.Fprintln(stderr, sendKeysUsage)
+		return true, 1
+	}
+	return false, 0
+}
+
 func PrintUsage() {
 	WriteUsage(os.Stdout)
 }

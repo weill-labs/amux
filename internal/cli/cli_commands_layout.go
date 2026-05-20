@@ -119,7 +119,7 @@ func layoutCLICommands() map[string]commandHandler {
 			return inv.runSessionCommand("kill", args)
 		},
 		"send-keys": func(inv invocation, args []string) int {
-			if handled, exitCode := MaybePrintKeyCommandUsage(inv.runtime.Stdout, inv.runtime.Stderr, args, sendKeysUsage, 2); handled {
+			if handled, exitCode := MaybePrintSendKeysUsage(inv.runtime.Stdout, inv.runtime.Stderr, args); handled {
 				return exitCode
 			}
 			return inv.runSessionCommand("send-keys", args)
