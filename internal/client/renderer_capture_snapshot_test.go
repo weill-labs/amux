@@ -404,6 +404,7 @@ func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
 		wantReadRows   []int
 		wantCellReads  []screenCellRead
 		wantReusedRows []int
+		wantChanged    bool
 	}{
 		{
 			name:           "no change reuses previous screen rows",
@@ -423,6 +424,7 @@ func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
 			wantReadRows:   []int{1},
 			wantCellReads:  screenCellReads([]int{1}, 4),
 			wantReusedRows: []int{0},
+			wantChanged:    true,
 		},
 		{
 			name:          "full change rebuilds all screen rows",
@@ -433,6 +435,7 @@ func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
 			height:        2,
 			wantReadRows:  []int{0, 1},
 			wantCellReads: screenCellReads([]int{0, 1}, 4),
+			wantChanged:   true,
 		},
 		{
 			name:          "shape mismatch falls back to full screen rebuild",
@@ -442,6 +445,7 @@ func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
 			height:        3,
 			wantReadRows:  []int{0, 1, 2},
 			wantCellReads: screenCellReads([]int{0, 1, 2}, 5),
+			wantChanged:   true,
 		},
 	}
 
@@ -462,10 +466,13 @@ func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
 			emu.changedRows = append([]int(nil), tt.changedRows...)
 			emu.screenReads = nil
 			emu.cellReads = nil
-			second, _, _ := capturePaneRenderSnapshot(emu, state)
+			second, _, changed := capturePaneRenderSnapshot(emu, state)
 
 			if got := paneRenderSnapshotLines(second.screen); !slices.Equal(got, tt.secondScreen) {
 				t.Fatalf("snapshot screen = %#v, want %#v", got, tt.secondScreen)
+			}
+			if changed != tt.wantChanged {
+				t.Fatalf("screenChanged = %v, want %v", changed, tt.wantChanged)
 			}
 			if !slices.Equal(emu.screenReads, tt.wantReadRows) {
 				t.Fatalf("ScreenLineText reads = %#v, want %#v", emu.screenReads, tt.wantReadRows)

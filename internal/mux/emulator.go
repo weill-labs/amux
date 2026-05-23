@@ -235,6 +235,12 @@ func (p *touchedScreenRowsProbe) SetCell(x, y int, c *uv.Cell) {
 	if row < 0 || row >= p.bounds.Dy() || row == p.lastRow {
 		return
 	}
+	for _, recorded := range p.rows {
+		if recorded == row {
+			p.lastRow = row
+			return
+		}
+	}
 	p.lastRow = row
 	p.rows = append(p.rows, row)
 }
