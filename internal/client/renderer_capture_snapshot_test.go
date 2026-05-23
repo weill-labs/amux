@@ -17,7 +17,9 @@ type captureSnapshotFakeEmulator struct {
 	scrollback    []string
 	screen        []string
 	pushed        uint64
+	screenChanged bool
 	lineReads     []int
+	renderCalls   int
 }
 
 func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnapshotFakeEmulator {
@@ -31,16 +33,20 @@ func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnaps
 }
 
 func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) { return len(data), nil }
-func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool       { return false }
-func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error)       { return 0, io.EOF }
-func (e *captureSnapshotFakeEmulator) Close() error                   { return nil }
-func (e *captureSnapshotFakeEmulator) Render() string                 { return strings.Join(e.screen, "\n") }
-func (e *captureSnapshotFakeEmulator) Resize(width, height int)       { e.width, e.height = width, height }
-func (e *captureSnapshotFakeEmulator) Size() (int, int)               { return e.width, e.height }
-func (e *captureSnapshotFakeEmulator) Reset()                         {}
-func (e *captureSnapshotFakeEmulator) CursorPosition() (int, int)     { return 0, 0 }
-func (e *captureSnapshotFakeEmulator) CursorPhantom() bool            { return false }
-func (e *captureSnapshotFakeEmulator) CursorHidden() bool             { return false }
+func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool {
+	changed := e.screenChanged
+	e.screenChanged = false
+	return changed
+}
+func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error)   { return 0, io.EOF }
+func (e *captureSnapshotFakeEmulator) Close() error               { return nil }
+func (e *captureSnapshotFakeEmulator) Render() string             { e.renderCalls++; return strings.Join(e.screen, "\n") }
+func (e *captureSnapshotFakeEmulator) Resize(width, height int)   { e.width, e.height = width, height }
+func (e *captureSnapshotFakeEmulator) Size() (int, int)           { return e.width, e.height }
+func (e *captureSnapshotFakeEmulator) Reset()                     {}
+func (e *captureSnapshotFakeEmulator) CursorPosition() (int, int) { return 0, 0 }
+func (e *captureSnapshotFakeEmulator) CursorPhantom() bool        { return false }
+func (e *captureSnapshotFakeEmulator) CursorHidden() bool         { return false }
 func (e *captureSnapshotFakeEmulator) TerminalState() mux.TerminalState {
 	return mux.TerminalState{}
 }
@@ -205,6 +211,33 @@ func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 				t.Fatal("snapshot did not reuse previous scrollback backing array")
 			}
 		})
+	}
+}
+
+func TestCapturePaneRenderSnapshotReusesRenderedANSIWhenScreenUnchanged(t *testing.T) {
+	t.Parallel()
+
+	emu := newCaptureSnapshotFakeEmulator(nil, 0)
+	emu.screen = []string{"cached", "screen"}
+	emu.screenChanged = true
+
+	first, state := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	if got, want := emu.renderCalls, 1; got != want {
+		t.Fatalf("initial Render calls = %d, want %d", got, want)
+	}
+
+	emu.renderCalls = 0
+	emu.screenChanged = false
+	second, _ := capturePaneRenderSnapshot(emu, state)
+
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("Render calls after unchanged screen = %d, want 0", got)
+	}
+	if second.rendered != first.rendered {
+		t.Fatalf("rendered ANSI changed after unchanged screen: got %q, want %q", second.rendered, first.rendered)
+	}
+	if second.renderedNoCursor != first.renderedNoCursor {
+		t.Fatalf("cursorless ANSI changed after unchanged screen: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
 	}
 }
 
