@@ -245,11 +245,10 @@ func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor 
 		info := paneOutputRenderInfo{
 			paneVisible: true,
 		}
-		info.screenChanged = emu.DrainScreenChanges()
 		if trackCursor {
 			info.cursorChanged = before != captureTerminalCursorState(emu)
 		}
-		r.publishPaneCapture(st, paneID)
+		info.screenChanged = r.publishPaneCapture(st, paneID)
 		return info
 	})
 }

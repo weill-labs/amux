@@ -315,7 +315,7 @@ func BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB(b *testing.B) {
 		if _, err := emu.Write(payload); err != nil {
 			b.Fatalf("write payload: %v", err)
 		}
-		_, _ = capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+		_, _, _ = capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
 	}
 }
 
@@ -332,7 +332,7 @@ func BenchmarkCapturePaneRenderSnapshotIncrementalScrollback(b *testing.B) {
 		b.Fatalf("preload scrollback: %v", err)
 	}
 
-	_, state := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	_, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
 	payload := []byte("incremental scrollback append\r\n")
 
 	b.SetBytes(int64(len(payload)))
@@ -342,7 +342,7 @@ func BenchmarkCapturePaneRenderSnapshotIncrementalScrollback(b *testing.B) {
 		if _, err := emu.Write(payload); err != nil {
 			b.Fatalf("write payload: %v", err)
 		}
-		_, state = capturePaneRenderSnapshot(emu, state)
+		_, state, _ = capturePaneRenderSnapshot(emu, state)
 	}
 }
 
@@ -365,12 +365,38 @@ func BenchmarkPublishPaneCaptureFullScrollback(b *testing.B) {
 	}
 
 	payload := []byte("renderer actor append\r\n")
-
 	b.SetBytes(int64(len(payload)))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		r.HandlePaneOutputInfo(paneID, payload, true)
+	}
+}
+
+func BenchmarkCapturePaneRenderSnapshotRender(b *testing.B) {
+	const (
+		width           = 80
+		height          = 24
+		scrollbackLines = mux.DefaultScrollbackLines
+	)
+
+	emu := mux.NewVTEmulatorWithScrollback(width, height, scrollbackLines)
+	defer emu.Close()
+	if _, err := emu.Write(benchScrollbackPayload(1, height)); err != nil {
+		b.Fatalf("preload screen: %v", err)
+	}
+
+	_, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	payload := []byte("\x1b[1;1H\x1b[1;2H")
+
+	b.SetBytes(int64(len(payload)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := emu.Write(payload); err != nil {
+			b.Fatalf("write payload: %v", err)
+		}
+		_, state, _ = capturePaneRenderSnapshot(emu, state)
 	}
 }
 

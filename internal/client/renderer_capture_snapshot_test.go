@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -13,11 +14,17 @@ import (
 )
 
 type captureSnapshotFakeEmulator struct {
-	width, height int
-	scrollback    []string
-	screen        []string
-	pushed        uint64
-	lineReads     []int
+	width, height       int
+	scrollback          []string
+	screen              []string
+	pushed              uint64
+	screenChanged       bool
+	lineReads           []int
+	renderCalls         int
+	renderNoCursorCalls int
+	hasCursorBlock      bool
+	cursorBlockCol      int
+	cursorBlockRow      int
 }
 
 func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnapshotFakeEmulator {
@@ -31,16 +38,27 @@ func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnaps
 }
 
 func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) { return len(data), nil }
-func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool       { return false }
-func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error)       { return 0, io.EOF }
-func (e *captureSnapshotFakeEmulator) Close() error                   { return nil }
-func (e *captureSnapshotFakeEmulator) Render() string                 { return strings.Join(e.screen, "\n") }
-func (e *captureSnapshotFakeEmulator) Resize(width, height int)       { e.width, e.height = width, height }
-func (e *captureSnapshotFakeEmulator) Size() (int, int)               { return e.width, e.height }
-func (e *captureSnapshotFakeEmulator) Reset()                         {}
-func (e *captureSnapshotFakeEmulator) CursorPosition() (int, int)     { return 0, 0 }
-func (e *captureSnapshotFakeEmulator) CursorPhantom() bool            { return false }
-func (e *captureSnapshotFakeEmulator) CursorHidden() bool             { return false }
+func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool {
+	changed := e.screenChanged
+	e.screenChanged = false
+	return changed
+}
+func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error) { return 0, io.EOF }
+func (e *captureSnapshotFakeEmulator) Close() error             { return nil }
+func (e *captureSnapshotFakeEmulator) Render() string {
+	e.renderCalls++
+	rendered := e.screenANSI()
+	if e.hasCursorBlock {
+		rendered = fmt.Sprintf("%s|cursor:%d,%d", rendered, e.cursorBlockCol, e.cursorBlockRow)
+	}
+	return rendered
+}
+func (e *captureSnapshotFakeEmulator) Resize(width, height int)   { e.width, e.height = width, height }
+func (e *captureSnapshotFakeEmulator) Size() (int, int)           { return e.width, e.height }
+func (e *captureSnapshotFakeEmulator) Reset()                     {}
+func (e *captureSnapshotFakeEmulator) CursorPosition() (int, int) { return 0, 0 }
+func (e *captureSnapshotFakeEmulator) CursorPhantom() bool        { return false }
+func (e *captureSnapshotFakeEmulator) CursorHidden() bool         { return false }
 func (e *captureSnapshotFakeEmulator) TerminalState() mux.TerminalState {
 	return mux.TerminalState{}
 }
@@ -59,11 +77,12 @@ func (e *captureSnapshotFakeEmulator) ScrollbackCellAt(int, int) (uv.Cell, bool)
 	return uv.Cell{}, false
 }
 func (e *captureSnapshotFakeEmulator) RenderWithoutCursorBlock() string {
-	return e.Render()
+	e.renderNoCursorCalls++
+	return fmt.Sprintf("%s|cursorless:%d,%d", e.screenANSI(), e.cursorBlockCol, e.cursorBlockRow)
 }
-func (e *captureSnapshotFakeEmulator) HasCursorBlock() bool { return false }
+func (e *captureSnapshotFakeEmulator) HasCursorBlock() bool { return e.hasCursorBlock }
 func (e *captureSnapshotFakeEmulator) CursorBlockPosition() (int, int, bool) {
-	return 0, 0, false
+	return e.cursorBlockCol, e.cursorBlockRow, e.hasCursorBlock
 }
 func (e *captureSnapshotFakeEmulator) ScreenLineText(y int) string {
 	if y < 0 || y >= len(e.screen) {
@@ -80,6 +99,10 @@ func (e *captureSnapshotFakeEmulator) MouseProtocol() mux.MouseProtocol {
 }
 func (e *captureSnapshotFakeEmulator) EncodeMouse(mouse.Event, int, int) []byte {
 	return nil
+}
+
+func (e *captureSnapshotFakeEmulator) screenANSI() string {
+	return strings.Join(e.screen, "\n")
 }
 
 func scrollbackState(lines []string, pushed uint64) paneScrollbackSnapshotState {
@@ -184,7 +207,7 @@ func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 			t.Parallel()
 
 			emu := newCaptureSnapshotFakeEmulator(tt.lines, tt.pushed)
-			snap, state := capturePaneRenderSnapshot(emu, tt.prev)
+			snap, state, _ := capturePaneRenderSnapshot(emu, tt.prev)
 
 			if got := paneRenderSnapshotLines(snap.scrollback); !equalStrings(got, tt.wantLines) {
 				t.Fatalf("snapshot scrollback = %#v, want %#v", got, tt.wantLines)
@@ -206,6 +229,106 @@ func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCapturePaneRenderSnapshotReusesRenderedANSIWhenScreenUnchanged(t *testing.T) {
+	t.Parallel()
+
+	emu := newCaptureSnapshotFakeEmulator(nil, 0)
+	emu.screen = []string{"cached", "screen"}
+	emu.screenChanged = true
+
+	first, state, screenChanged := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	if !screenChanged {
+		t.Fatal("initial capture should report drained screen changes")
+	}
+	if got, want := emu.renderCalls, 1; got != want {
+		t.Fatalf("initial Render calls = %d, want %d", got, want)
+	}
+
+	emu.renderCalls = 0
+	emu.screenChanged = false
+	second, _, screenChanged := capturePaneRenderSnapshot(emu, state)
+	if screenChanged {
+		t.Fatal("unchanged capture should not report screen changes")
+	}
+
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("Render calls after unchanged screen = %d, want 0", got)
+	}
+	if second.rendered != first.rendered {
+		t.Fatalf("rendered ANSI changed after unchanged screen: got %q, want %q", second.rendered, first.rendered)
+	}
+	if second.renderedNoCursor != first.renderedNoCursor {
+		t.Fatalf("cursorless ANSI changed after unchanged screen: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
+	}
+}
+
+func TestCapturePaneRenderSnapshotCachesCursorlessANSI(t *testing.T) {
+	t.Parallel()
+
+	emu := newCaptureSnapshotFakeEmulator(nil, 0)
+	emu.screen = []string{"cursor", "screen"}
+	emu.screenChanged = true
+	emu.hasCursorBlock = true
+	emu.cursorBlockCol = 1
+	emu.cursorBlockRow = 0
+
+	first, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	if !first.hasCursorBlock {
+		t.Fatal("snapshot should record cursor block metadata")
+	}
+	if first.cursorBlockCol != 1 || first.cursorBlockRow != 0 {
+		t.Fatalf("cursor block position = %d,%d, want 1,0", first.cursorBlockCol, first.cursorBlockRow)
+	}
+	if got, want := emu.renderCalls, 1; got != want {
+		t.Fatalf("initial Render calls = %d, want %d", got, want)
+	}
+	if got, want := emu.renderNoCursorCalls, 1; got != want {
+		t.Fatalf("initial RenderWithoutCursorBlock calls = %d, want %d", got, want)
+	}
+
+	emu.renderCalls = 0
+	emu.renderNoCursorCalls = 0
+	emu.screenChanged = false
+	second, state, _ := capturePaneRenderSnapshot(emu, state)
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("same cursor-block Render calls = %d, want 0", got)
+	}
+	if got := emu.renderNoCursorCalls; got != 0 {
+		t.Fatalf("same cursor-block RenderWithoutCursorBlock calls = %d, want 0", got)
+	}
+	if second.renderedNoCursor != first.renderedNoCursor {
+		t.Fatalf("cursorless ANSI was not reused: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
+	}
+
+	emu.cursorBlockCol = 2
+	third, _, _ := capturePaneRenderSnapshot(emu, state)
+	if got, want := emu.renderCalls, 1; got != want {
+		t.Fatalf("moved cursor-block Render calls = %d, want %d", got, want)
+	}
+	if got, want := emu.renderNoCursorCalls, 1; got != want {
+		t.Fatalf("moved cursor-block RenderWithoutCursorBlock calls = %d, want %d", got, want)
+	}
+	if third.rendered == second.rendered {
+		t.Fatalf("moved cursor block should refresh rendered ANSI, got %q", third.rendered)
+	}
+	if third.renderedNoCursor == second.renderedNoCursor {
+		t.Fatalf("moved cursor block should refresh cursorless ANSI, got %q", third.renderedNoCursor)
+	}
+}
+
+func TestPublishPaneCaptureMissingEmulatorReportsNoScreenChange(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(20, 4, 100)
+	t.Cleanup(r.Close)
+
+	r.withActor(func(st *rendererActorState) {
+		if got := r.publishPaneCapture(st, 42); got {
+			t.Fatal("missing emulator publish should not report screen changes")
+		}
+	})
 }
 
 func equalStrings(a, b []string) bool {
