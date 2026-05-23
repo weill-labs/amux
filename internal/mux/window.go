@@ -437,7 +437,7 @@ func (w *Window) ClosePane(paneID uint32) error {
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
 	if rebalanceRootAfterClose {
-		w.Root.distributeEqual()
+		w.Root.rebalanceChildren()
 	}
 
 	if len(w.anchoredLeadWidthColumns()) < prevAnchoredColumnCount &&

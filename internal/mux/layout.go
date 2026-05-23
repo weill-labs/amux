@@ -857,10 +857,14 @@ func (c *LayoutCell) FindBorderNear(x, y int) *BorderHit {
 	return nil
 }
 
-// distributeEqual sets all children to equal sizes along the split direction.
+// rebalanceChildren sets all children to equal sizes along the split direction.
 // The last child receives the remainder to account for integer rounding.
-func (c *LayoutCell) distributeEqual() {
+func (c *LayoutCell) rebalanceChildren() {
 	c.equalizeChildren()
+}
+
+func (c *LayoutCell) distributeEqual() {
+	c.rebalanceChildren()
 }
 
 // IndexInParent returns the index of this cell within its parent's Children
