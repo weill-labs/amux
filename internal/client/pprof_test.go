@@ -185,3 +185,54 @@ func TestPromoteFallbackPprofAliasRemovesDeadSockets(t *testing.T) {
 		t.Fatalf("alias should be removed when only stale candidates remain, stat err = %v", err)
 	}
 }
+
+func TestNewPprofEndpointPrunesDeadSiblingSocketsAndKeepsLiveOnes(t *testing.T) {
+	t.Parallel()
+
+	session := fmt.Sprintf("cpps-%d", time.Now().UnixNano())
+	aliasPath := PprofSocketPath(session)
+	_ = os.Remove(aliasPath)
+	t.Cleanup(func() { _ = os.Remove(aliasPath) })
+
+	live, err := newPprofEndpoint(session, 7777)
+	if err != nil {
+		t.Fatalf("newPprofEndpoint(live): %v", err)
+	}
+	defer live.close()
+
+	stalePath := PprofProcessSocketPath(session, 8888)
+	leaveStalePprofSocket(t, stalePath)
+
+	newest, err := newPprofEndpoint(session, 9999)
+	if err != nil {
+		t.Fatalf("newPprofEndpoint(newest): %v", err)
+	}
+	defer newest.close()
+
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale sibling socket should be pruned, stat err = %v", err)
+	}
+	if _, err := os.Stat(live.sockPath); err != nil {
+		t.Fatalf("live sibling socket should be preserved, stat err = %v", err)
+	}
+	if got, err := os.Readlink(aliasPath); err != nil {
+		t.Fatalf("Readlink(%q): %v", aliasPath, err)
+	} else if got != newest.sockPath {
+		t.Fatalf("alias target = %q, want newest socket %q", got, newest.sockPath)
+	}
+}
+
+func leaveStalePprofSocket(t *testing.T, sockPath string) {
+	t.Helper()
+
+	_ = os.Remove(sockPath)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sockPath, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix(%q): %v", sockPath, err)
+	}
+	ln.SetUnlinkOnClose(false)
+	if err := ln.Close(); err != nil {
+		t.Fatalf("Close(%q): %v", sockPath, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+}
