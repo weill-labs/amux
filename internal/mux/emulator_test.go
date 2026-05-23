@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -93,6 +94,23 @@ func TestVTEmulatorRespectsScrollbackLimitUnderFlood(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("scrollback[%d] = %q, want %q; full scrollback=%#v", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestVTEmulatorDrainScreenChangeRows(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(8, 3, DefaultScrollbackLines)
+	if got, want := emu.DrainScreenChangeRows(), []int{0, 1, 2}; !slices.Equal(got, want) {
+		t.Fatalf("initial DrainScreenChangeRows() = %v, want %v", got, want)
+	}
+
+	mustWrite(t, emu, []byte("\x1b[2;3HX"))
+	if got, want := emu.DrainScreenChangeRows(), []int{1}; !slices.Equal(got, want) {
+		t.Fatalf("DrainScreenChangeRows() after row update = %v, want %v", got, want)
+	}
+	if got := emu.DrainScreenChangeRows(); len(got) != 0 {
+		t.Fatalf("DrainScreenChangeRows() after drain = %v, want none", got)
 	}
 }
 

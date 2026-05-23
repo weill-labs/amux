@@ -26,6 +26,10 @@ type TerminalEmulator interface {
 	// drain and clears the emulator's internal touched state.
 	DrainScreenChanges() bool
 
+	// DrainScreenChangeRows returns changed screen rows since the last drain
+	// and clears the emulator's internal touched state.
+	DrainScreenChangeRows() []int
+
 	// Read returns terminal responses (DA queries, cursor reports, etc.).
 	// These must be drained and written back to the PTY so the shell
 	// receives the expected replies. Go's io.Pipe is unbuffered — if
@@ -186,45 +190,56 @@ func (v *vtEmulator) Write(data []byte) (int, error) {
 }
 
 func (v *vtEmulator) DrainScreenChanges() bool {
+	return len(v.DrainScreenChangeRows()) != 0
+}
+
+func (v *vtEmulator) DrainScreenChangeRows() []int {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
-		return false
+		return nil
 	}
-	probe := touchedScreenProbe{
-		bounds: uv.Rect(0, 0, w, h),
+	probe := touchedScreenRowsProbe{
+		bounds:  uv.Rect(0, 0, w, h),
+		lastRow: -1,
 	}
 	v.emu.Draw(&probe, probe.bounds)
-	return probe.changed
+	return probe.rows
 }
 
 func (v *vtEmulator) Read(p []byte) (int, error) {
 	return v.emu.Read(p)
 }
 
-type touchedScreenProbe struct {
+type touchedScreenRowsProbe struct {
 	bounds  uv.Rectangle
-	changed bool
+	lastRow int
+	rows    []int
 }
 
-func (p *touchedScreenProbe) Bounds() uv.Rectangle {
+func (p *touchedScreenRowsProbe) Bounds() uv.Rectangle {
 	return p.bounds
 }
 
-func (p *touchedScreenProbe) CellAt(x, y int) *uv.Cell {
+func (p *touchedScreenRowsProbe) CellAt(x, y int) *uv.Cell {
 	if x < p.bounds.Min.X || x >= p.bounds.Max.X || y < p.bounds.Min.Y || y >= p.bounds.Max.Y {
 		return nil
 	}
 	return &uv.EmptyCell
 }
 
-func (p *touchedScreenProbe) SetCell(x, y int, c *uv.Cell) {
+func (p *touchedScreenRowsProbe) SetCell(x, y int, c *uv.Cell) {
 	if x < p.bounds.Min.X || x >= p.bounds.Max.X || y < p.bounds.Min.Y || y >= p.bounds.Max.Y {
 		return
 	}
-	p.changed = true
+	row := y - p.bounds.Min.Y
+	if row < 0 || row >= p.bounds.Dy() || row == p.lastRow {
+		return
+	}
+	p.lastRow = row
+	p.rows = append(p.rows, row)
 }
 
-func (p *touchedScreenProbe) WidthMethod() uv.WidthMethod {
+func (p *touchedScreenRowsProbe) WidthMethod() uv.WidthMethod {
 	return ansi.GraphemeWidth
 }
 

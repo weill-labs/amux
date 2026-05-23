@@ -31,6 +31,9 @@ type paneScrollbackSnapshotState struct {
 	scrollbackLen    int
 	scrollbackPushed uint64
 	scrollback       []paneBufferLine
+	screenWidth      int
+	screenHeight     int
+	screen           []paneBufferLine
 	renderWidth      int
 	renderHeight     int
 	rendered         string
@@ -44,16 +47,8 @@ type paneScrollbackSnapshotState struct {
 func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState) (paneRenderSnapshot, paneScrollbackSnapshotState, bool) {
 	width, height := emu.Size()
 	cursorCol, cursorRow := emu.CursorPosition()
-	screenChanged := emu.DrainScreenChanges()
 	scrollbackState := captureScrollbackSnapshot(emu, prev)
-
-	screen := make([]paneBufferLine, height)
-	for row := 0; row < height; row++ {
-		screen[row] = paneBufferLine{
-			text:  emu.ScreenLineText(row),
-			cells: captureScreenCells(emu, row, width),
-		}
-	}
+	screenState, screenChanged := captureScreenSnapshot(emu, prev, width, height)
 
 	cursorBlockCol, cursorBlockRow, hasCursorBlock := emu.CursorBlockPosition()
 	rendered, renderedNoCursor := captureRenderedSnapshot(emu, prev, width, height, screenChanged, cursorBlockCol, cursorBlockRow, hasCursorBlock)
@@ -67,22 +62,23 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnap
 		rendered:         rendered,
 		renderedNoCursor: renderedNoCursor,
 		scrollback:       scrollbackState.scrollback,
-		screen:           screen,
+		screen:           screenState.screen,
 	}
 	if hasCursorBlock {
 		snap.cursorBlockCol = cursorBlockCol
 		snap.cursorBlockRow = cursorBlockRow
 		snap.hasCursorBlock = true
 	}
-	scrollbackState.renderWidth = width
-	scrollbackState.renderHeight = height
-	scrollbackState.rendered = rendered
-	scrollbackState.renderedNoCursor = renderedNoCursor
-	scrollbackState.renderedValid = true
-	scrollbackState.cursorBlockCol = cursorBlockCol
-	scrollbackState.cursorBlockRow = cursorBlockRow
-	scrollbackState.hasCursorBlock = hasCursorBlock
-	return snap, scrollbackState, screenChanged
+	state := mergePaneSnapshotState(scrollbackState, screenState)
+	state.renderWidth = width
+	state.renderHeight = height
+	state.rendered = rendered
+	state.renderedNoCursor = renderedNoCursor
+	state.renderedValid = true
+	state.cursorBlockCol = cursorBlockCol
+	state.cursorBlockRow = cursorBlockRow
+	state.hasCursorBlock = hasCursorBlock
+	return snap, state, screenChanged
 }
 
 func captureRenderedSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState, width, height int, screenChanged bool, cursorBlockCol, cursorBlockRow int, hasCursorBlock bool) (rendered, renderedNoCursor string) {
@@ -162,6 +158,64 @@ func rebuildScrollbackSnapshot(emu mux.TerminalEmulator, scrollbackLen int) []pa
 		}
 	}
 	return scrollback
+}
+
+func captureScreenSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState, width, height int) (paneScrollbackSnapshotState, bool) {
+	changedRows := emu.DrainScreenChangeRows()
+	screen, ok := extendScreenSnapshot(emu, prev, width, height, changedRows)
+	screenChanged := len(changedRows) != 0 || !ok
+	if !ok {
+		screen = rebuildScreenSnapshot(emu, width, height)
+	}
+	return paneScrollbackSnapshotState{
+		screenWidth:  width,
+		screenHeight: height,
+		screen:       screen,
+	}, screenChanged
+}
+
+func extendScreenSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState, width, height int, changedRows []int) ([]paneBufferLine, bool) {
+	if prev.screen == nil || prev.screenWidth != width || prev.screenHeight != height || len(prev.screen) != height {
+		return nil, false
+	}
+	if len(changedRows) == 0 {
+		return prev.screen, true
+	}
+
+	screen := append([]paneBufferLine(nil), prev.screen...)
+	for _, row := range changedRows {
+		if row < 0 || row >= height {
+			return nil, false
+		}
+		screen[row] = captureScreenLine(emu, row, width)
+	}
+	return screen, true
+}
+
+func rebuildScreenSnapshot(emu mux.TerminalEmulator, width, height int) []paneBufferLine {
+	screen := make([]paneBufferLine, height)
+	for row := range screen {
+		screen[row] = captureScreenLine(emu, row, width)
+	}
+	return screen
+}
+
+func captureScreenLine(emu mux.TerminalEmulator, row, width int) paneBufferLine {
+	return paneBufferLine{
+		text:  emu.ScreenLineText(row),
+		cells: captureScreenCells(emu, row, width),
+	}
+}
+
+func mergePaneSnapshotState(scrollbackState, screenState paneScrollbackSnapshotState) paneScrollbackSnapshotState {
+	return paneScrollbackSnapshotState{
+		scrollbackLen:    scrollbackState.scrollbackLen,
+		scrollbackPushed: scrollbackState.scrollbackPushed,
+		scrollback:       scrollbackState.scrollback,
+		screenWidth:      screenState.screenWidth,
+		screenHeight:     screenState.screenHeight,
+		screen:           screenState.screen,
+	}
 }
 
 func cloneTerminalState(state proto.TerminalState) proto.TerminalState {

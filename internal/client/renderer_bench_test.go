@@ -406,45 +406,52 @@ func BenchmarkCapturePaneRenderSnapshotScreenCells(b *testing.B) {
 		height = 48
 	)
 
-	payload := []byte("\x1b[Hscreen cell update")
-
 	b.Run("full", func(b *testing.B) {
-		emu := mux.NewVTEmulatorWithScrollback(width, height, mux.DefaultScrollbackLines)
-		defer emu.Close()
-		if _, err := emu.Write(benchScrollbackPayload(1, height)); err != nil {
-			b.Fatalf("preload screen: %v", err)
-		}
-
-		b.SetBytes(int64(len(payload)))
+		emu := benchScreenCaptureEmulator(width, height)
+		changedRows := benchScreenRows(height)
+		b.SetBytes(int64(width * height))
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
-			if _, err := emu.Write(payload); err != nil {
-				b.Fatalf("write payload: %v", err)
-			}
+			emu.changedRows = changedRows
 			_, _, _ = capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
 		}
 	})
 
 	b.Run("incremental", func(b *testing.B) {
-		emu := mux.NewVTEmulatorWithScrollback(width, height, mux.DefaultScrollbackLines)
-		defer emu.Close()
-		if _, err := emu.Write(benchScrollbackPayload(1, height)); err != nil {
-			b.Fatalf("preload screen: %v", err)
-		}
-
+		emu := benchScreenCaptureEmulator(width, height)
+		emu.changedRows = benchScreenRows(height)
 		_, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+		changedRow := []int{height / 2}
 
-		b.SetBytes(int64(len(payload)))
+		b.SetBytes(int64(width * height))
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
-			if _, err := emu.Write(payload); err != nil {
-				b.Fatalf("write payload: %v", err)
-			}
+			emu.screen[height/2] = "updated row"
+			emu.changedRows = changedRow
 			_, state, _ = capturePaneRenderSnapshot(emu, state)
 		}
 	})
+}
+
+func benchScreenCaptureEmulator(width, height int) *captureSnapshotFakeEmulator {
+	emu := newCaptureSnapshotFakeEmulator(nil, 0)
+	emu.width = width
+	emu.height = height
+	emu.screen = make([]string, height)
+	for row := range emu.screen {
+		emu.screen[row] = fmt.Sprintf("screen row %03d", row)
+	}
+	return emu
+}
+
+func benchScreenRows(height int) []int {
+	rows := make([]int, height)
+	for row := range rows {
+		rows[row] = row
+	}
+	return rows
 }
 
 func BenchmarkCaptureJSON(b *testing.B) {
