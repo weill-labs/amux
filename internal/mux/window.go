@@ -403,6 +403,7 @@ func (w *Window) ClosePane(paneID uint32) error {
 	}
 	prevAnchoredColumnCount := len(w.anchoredLeadWidthColumns())
 	prevAnchoredEqual := prevAnchoredColumnCount > 0 && !w.anchoredLeadColumnsWidthChanged()
+	rebalanceRootAfterClose := w.shouldRebalanceRootAfterClose(cell)
 
 	// Count leaves to prevent closing the last pane
 	count := 0
@@ -435,6 +436,9 @@ func (w *Window) ClosePane(paneID uint32) error {
 
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
+	if rebalanceRootAfterClose {
+		w.Root.distributeEqual()
+	}
 
 	if len(w.anchoredLeadWidthColumns()) < prevAnchoredColumnCount &&
 		w.shouldEqualizeAnchoredLeadAfterClose(prevAnchoredEqual) {
@@ -463,6 +467,13 @@ func (w *Window) ClosePane(paneID uint32) error {
 	w.resizePTYs()
 
 	return nil
+}
+
+func (w *Window) shouldRebalanceRootAfterClose(cell *LayoutCell) bool {
+	if w.Root == nil || cell == nil || cell.Parent != w.Root || w.Root.IsLeaf() {
+		return false
+	}
+	return len(w.Root.Children) > 2
 }
 
 // PaneCount returns the number of panes in the window's layout tree.
