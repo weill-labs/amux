@@ -25,8 +25,8 @@ const (
 )
 
 const (
-	powerlineRightSeparator = "\ue0b0" // Nerd Font Powerline right-pointing solid separator.
-	powerlineLeftSeparator  = "\ue0b2" // Nerd Font Powerline left-pointing solid separator.
+	powerlineRightSeparator = "\ue0b4" // Nerd Font Powerline right rounded separator.
+	powerlineLeftSeparator  = "\ue0b6" // Nerd Font Powerline left rounded separator.
 )
 
 // PowerlineSeparators returns the glyphs used by the Powerline status style.
