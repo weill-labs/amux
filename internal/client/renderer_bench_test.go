@@ -119,6 +119,19 @@ func benchScrollbackPayload(paneID uint32, lines int) []byte {
 	return []byte(b.String())
 }
 
+func benchWideScrollbackPayload(paneID uint32, width, lines int) []byte {
+	var b strings.Builder
+	lineWidth := max(1, width-1)
+	for line := 0; line < lines; line++ {
+		prefix := fmt.Sprintf("pane-%d scrollback row %04d ", paneID, line)
+		if len(prefix) > lineWidth {
+			prefix = prefix[:lineWidth]
+		}
+		fmt.Fprintf(&b, "\x1b[3%dm%s%s\x1b[0m\r\n", (int(paneID)+line)%8, prefix, strings.Repeat("x", lineWidth-len(prefix)))
+	}
+	return []byte(b.String())
+}
+
 func benchStyledHistory(paneID uint32, lines int) []proto.StyledLine {
 	history := make([]proto.StyledLine, lines)
 	for line := 0; line < lines; line++ {
@@ -330,6 +343,34 @@ func BenchmarkCapturePaneRenderSnapshotIncrementalScrollback(b *testing.B) {
 			b.Fatalf("write payload: %v", err)
 		}
 		_, state = capturePaneRenderSnapshot(emu, state)
+	}
+}
+
+func BenchmarkPublishPaneCaptureFullScrollback(b *testing.B) {
+	const (
+		width           = 200
+		layoutHeight    = 25
+		scrollbackLines = mux.DefaultScrollbackLines
+		paneID          = 1
+	)
+
+	r := NewWithScrollback(width, layoutHeight+1, scrollbackLines)
+	defer r.Close()
+	r.HandleLayout(benchLayoutSnapshot(1, width, layoutHeight))
+
+	paneContentHeight := mux.PaneContentHeight(layoutHeight)
+	r.HandlePaneOutputInfo(paneID, benchWideScrollbackPayload(paneID, width, scrollbackLines+paneContentHeight), true)
+	if got := len(r.snapshot().paneCaptures[paneID].scrollback); got != scrollbackLines {
+		b.Fatalf("preloaded scrollback lines = %d, want %d", got, scrollbackLines)
+	}
+
+	payload := []byte("renderer actor append\r\n")
+
+	b.SetBytes(int64(len(payload)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		r.HandlePaneOutputInfo(paneID, payload, true)
 	}
 }
 

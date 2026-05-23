@@ -1,0 +1,73 @@
+name: Renderer Benchmark Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "internal/client/renderer*.go"
+      - "internal/mux/emulator.go"
+      - ".github/workflows/renderer-benchmark.yml"
+      - "scripts/check-benchmark-regression.py"
+
+permissions:
+  contents: read
+
+env:
+  BENCHMARK_NAME: BenchmarkPublishPaneCaptureFullScrollback
+  REGRESSION_THRESHOLD: "1.25"
+
+jobs:
+  renderer-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR
+        uses: actions/checkout@v6.0.2
+        with:
+          path: head
+
+      - name: Check out main baseline
+        uses: actions/checkout@v6.0.2
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: "1.25"
+          cache-dependency-path: head/go.sum
+
+      - name: Backfill new benchmark on baseline checkout
+        run: |
+          if ! grep -q "$BENCHMARK_NAME" base/internal/client/renderer_bench_test.go; then
+            cp head/internal/client/renderer_bench_test.go base/internal/client/renderer_bench_test.go
+          fi
+
+      - name: Run main baseline benchmark
+        working-directory: base
+        run: |
+          go test ./internal/client -run '^$' -bench "^${BENCHMARK_NAME}$" -benchmem -count=10 -timeout 120s \
+            | tee ../bench-base.txt
+
+      - name: Run PR benchmark
+        working-directory: head
+        run: |
+          go test ./internal/client -run '^$' -bench "^${BENCHMARK_NAME}$" -benchmem -count=10 -timeout 120s \
+            | tee ../bench-head.txt
+
+      - name: Compare against main baseline
+        working-directory: head
+        run: |
+          set -o pipefail
+          python3 scripts/check-benchmark-regression.py \
+            --baseline ../bench-base.txt \
+            --candidate ../bench-head.txt \
+            --benchmark "$BENCHMARK_NAME" \
+            --threshold "$REGRESSION_THRESHOLD" \
+            | tee ../renderer-benchmark-summary.md
+
+      - name: Write benchmark summary
+        if: always()
+        run: |
+          if [[ -f renderer-benchmark-summary.md ]]; then
+            cat renderer-benchmark-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
