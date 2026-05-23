@@ -669,6 +669,104 @@ func TestClosePaneRedistributesNestedSubtreeSizes(t *testing.T) {
 	}
 }
 
+func TestClosePaneRebalancesRootColumnsAfterColumnCollapse(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical pane-2: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical pane-3: %v", err)
+	}
+	if !w.ResizePane(p1.ID, "right", 20) {
+		t.Fatal("resize pane-1 right should make root columns uneven")
+	}
+	assertRootChildAxisSizes(t, w.Root, SplitVertical, []int{59, 19, 40})
+
+	if err := w.ClosePane(p2.ID); err != nil {
+		t.Fatalf("close pane-2: %v", err)
+	}
+
+	assertRootChildAxisSizes(t, w.Root, SplitVertical, []int{59, 60})
+}
+
+func TestClosePaneWithinColumnDoesNotRebalanceRootColumns(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical pane-2: %v", err)
+	}
+	if !w.ResizePane(p1.ID, "right", 10) {
+		t.Fatal("resize pane-1 right should make root columns uneven")
+	}
+
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split pane-2 horizontal: %v", err)
+	}
+	assertRootChildAxisSizes(t, w.Root, SplitVertical, []int{50, 29})
+
+	if err := w.ClosePane(p3.ID); err != nil {
+		t.Fatalf("close pane-3: %v", err)
+	}
+
+	assertRootChildAxisSizes(t, w.Root, SplitVertical, []int{50, 29})
+}
+
+func TestClosePaneRebalancesRootRowsAfterRowCollapse(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 30)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split root horizontal pane-2: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.SplitRoot(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split root horizontal pane-3: %v", err)
+	}
+	if !w.ResizePane(p1.ID, "down", 5) {
+		t.Fatal("resize pane-1 down should make root rows uneven")
+	}
+	assertRootChildAxisSizes(t, w.Root, SplitHorizontal, []int{14, 4, 10})
+
+	if err := w.ClosePane(p2.ID); err != nil {
+		t.Fatalf("close pane-2: %v", err)
+	}
+
+	assertRootChildAxisSizes(t, w.Root, SplitHorizontal, []int{14, 15})
+}
+
+func assertRootChildAxisSizes(t *testing.T, root *LayoutCell, axis SplitDir, want []int) {
+	t.Helper()
+	if root == nil {
+		t.Fatal("root is nil")
+	}
+	if root.IsLeaf() {
+		t.Fatalf("root is leaf, want %d children", len(want))
+	}
+	if len(root.Children) != len(want) {
+		t.Fatalf("root child count = %d, want %d", len(root.Children), len(want))
+	}
+
+	for i, child := range root.Children {
+		if got := child.axisSize(axis); got != want[i] {
+			t.Fatalf("root child %d size = %d, want %d", i, got, want[i])
+		}
+	}
+}
+
 func TestResizePanePreservesAdjacencyForFullWidthBottomPane(t *testing.T) {
 	t.Parallel()
 

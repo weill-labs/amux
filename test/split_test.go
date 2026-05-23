@@ -815,6 +815,11 @@ func (h *mutationGoldenHarness) splitRootV() {
 	h.mustPane(h.window.SplitRoot(mux.SplitVertical, h.newPane()))
 }
 
+func (h *mutationGoldenHarness) splitRootH() {
+	h.t.Helper()
+	h.mustPane(h.window.SplitRoot(mux.SplitHorizontal, h.newPane()))
+}
+
 func (h *mutationGoldenHarness) focus(id uint32) {
 	h.t.Helper()
 	pane, err := h.window.ResolvePane(fmt.Sprintf("%d", id))
@@ -979,6 +984,18 @@ func TestGoldenCloseTriggersSingleChildCollapse(t *testing.T) {
 	h.closePane(2)
 	h.focus(1)
 	h.assertGolden("close_triggers_single_child_collapse")
+}
+
+func TestGoldenCloseRootColumnRebalance(t *testing.T) {
+	t.Parallel()
+	h := newMutationGoldenHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	h.resizePane(1, "right", 20)
+	h.closePane(2)
+	h.focus(1)
+	h.assertGolden("close_root_column_rebalance")
 }
 
 func TestGoldenSwapForwardBackward(t *testing.T) {
