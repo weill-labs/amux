@@ -138,13 +138,7 @@ func TestDebugClientCommandsUseInteractiveClientPprofEndpoint(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
-	configPath := filepath.Join(h.home, ".config", "amux", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(configPath), err)
-	}
-	if err := os.WriteFile(configPath, []byte("[debug]\npprof = true\n"), 0644); err != nil {
-		t.Fatalf("WriteFile(%q): %v", configPath, err)
-	}
+	writeDebugPprofConfig(t, h)
 
 	pty := newPTYClientHarness(t, h)
 	if _, err := os.Lstat(client.PprofSocketPath(h.session)); err != nil {
@@ -177,6 +171,90 @@ func TestDebugClientCommandsUseInteractiveClientPprofEndpoint(t *testing.T) {
 	if !pty.waitExited(5 * time.Second) {
 		t.Fatal("interactive client did not exit after detach")
 	}
+}
+
+func TestDebugClientProfileUsesNewestClientAndPrunesStaleSocket(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	writeDebugPprofConfig(t, h)
+
+	stalePath := client.PprofProcessSocketPath(h.session, 999999)
+	leaveStaleUnixSocket(t, stalePath)
+
+	aliasPath := client.PprofSocketPath(h.session)
+	_ = os.Remove(aliasPath)
+	if err := os.Symlink(stalePath, aliasPath); err != nil {
+		t.Fatalf("Symlink(%q, %q): %v", stalePath, aliasPath, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(aliasPath) })
+
+	ptyA := newPTYClientHarness(t, h)
+	ptyB := newPTYClientHarness(t, h)
+	clientASocket := client.PprofProcessSocketPath(h.session, ptyA.cmd.Process.Pid)
+	clientBSocket := client.PprofProcessSocketPath(h.session, ptyB.cmd.Process.Pid)
+
+	ptyA.detach()
+	if !ptyA.waitExited(5 * time.Second) {
+		t.Fatal("first interactive client did not exit after detach")
+	}
+	if _, err := os.Stat(clientASocket); !os.IsNotExist(err) {
+		t.Fatalf("first client socket should be removed after detach, stat err = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	profileCmd := h.commandWithContext(ctx, "debug", "client-profile", "--duration", "1s")
+	profileOut, err := profileCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("debug client-profile: %v\n%s", err, profileOut)
+	}
+	if len(profileOut) < 2 || profileOut[0] != 0x1f || profileOut[1] != 0x8b {
+		t.Fatalf("client profile output should start with gzip magic, got % x", profileOut[:min(8, len(profileOut))])
+	}
+	if got, err := os.Readlink(aliasPath); err != nil {
+		t.Fatalf("Readlink(%q): %v", aliasPath, err)
+	} else if got != clientBSocket {
+		t.Fatalf("client pprof alias = %q, want newest client socket %q", got, clientBSocket)
+	}
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale client socket should be pruned on client startup, stat err = %v", err)
+	}
+
+	ptyB.detach()
+	if !ptyB.waitExited(5 * time.Second) {
+		t.Fatal("second interactive client did not exit after detach")
+	}
+}
+
+func writeDebugPprofConfig(t *testing.T, h *ServerHarness) {
+	t.Helper()
+
+	configPath := filepath.Join(h.home, ".config", "amux", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(configPath), err)
+	}
+	if err := os.WriteFile(configPath, []byte("[debug]\npprof = true\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q): %v", configPath, err)
+	}
+}
+
+func leaveStaleUnixSocket(t *testing.T, sockPath string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0700); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(sockPath), err)
+	}
+	_ = os.Remove(sockPath)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sockPath, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix(%q): %v", sockPath, err)
+	}
+	ln.SetUnlinkOnClose(false)
+	if err := ln.Close(); err != nil {
+		t.Fatalf("Close(%q): %v", sockPath, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
 }
 
 func min(a, b int) int {
