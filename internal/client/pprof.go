@@ -74,6 +74,7 @@ func newPprofEndpoint(session string, pid int) (*pprofEndpoint, error) {
 		}
 		_ = os.Remove(sockPath)
 	}
+	pruneDeadClientPprofSockets(session, sockPath)
 
 	listener, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -121,6 +122,24 @@ func publishPprofAlias(aliasPath, sockPath string) error {
 		return err
 	}
 	return nil
+}
+
+func pruneDeadClientPprofSockets(session, skipPath string) {
+	matches, err := filepath.Glob(clientPprofSocketGlob(session))
+	if err != nil {
+		return
+	}
+	for _, path := range matches {
+		if path == skipPath {
+			continue
+		}
+		conn, err := dialutil.DialUnixStaleProbe(path)
+		if err != nil {
+			_ = os.Remove(path)
+			continue
+		}
+		conn.Close()
+	}
 }
 
 func aliasPointsToSocket(aliasPath, sockPath string) bool {
