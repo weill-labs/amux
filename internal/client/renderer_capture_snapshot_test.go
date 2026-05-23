@@ -38,9 +38,12 @@ func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool {
 	e.screenChanged = false
 	return changed
 }
-func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error)   { return 0, io.EOF }
-func (e *captureSnapshotFakeEmulator) Close() error               { return nil }
-func (e *captureSnapshotFakeEmulator) Render() string             { e.renderCalls++; return strings.Join(e.screen, "\n") }
+func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error) { return 0, io.EOF }
+func (e *captureSnapshotFakeEmulator) Close() error             { return nil }
+func (e *captureSnapshotFakeEmulator) Render() string {
+	e.renderCalls++
+	return strings.Join(e.screen, "\n")
+}
 func (e *captureSnapshotFakeEmulator) Resize(width, height int)   { e.width, e.height = width, height }
 func (e *captureSnapshotFakeEmulator) Size() (int, int)           { return e.width, e.height }
 func (e *captureSnapshotFakeEmulator) Reset()                     {}

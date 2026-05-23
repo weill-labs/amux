@@ -298,10 +298,10 @@ func (st *rendererActorState) refreshPaneCaptures(snap *rendererSnapshot, emulat
 	snap.paneCaptures = captures
 }
 
-func (r *Renderer) publishPaneCapture(st *rendererActorState, paneID uint32) {
+func (r *Renderer) publishPaneCapture(st *rendererActorState, paneID uint32) bool {
 	emu := st.emulators[paneID]
 	if emu == nil {
-		return
+		return false
 	}
 	next := *st.snapshot
 	next.paneCaptures = clonePaneRenderSnapshots(st.snapshot.paneCaptures)
@@ -310,6 +310,7 @@ func (r *Renderer) publishPaneCapture(st *rendererActorState, paneID uint32) {
 	st.paneScrollbacks[paneID] = state
 	st.snapshot = &next
 	r.publishSnapshot(&next)
+	return state.screenChanged
 }
 
 func (r *Renderer) loadSnapshot() *rendererSnapshot {

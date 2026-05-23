@@ -31,11 +31,21 @@ type paneScrollbackSnapshotState struct {
 	scrollbackLen    int
 	scrollbackPushed uint64
 	scrollback       []paneBufferLine
+	renderWidth      int
+	renderHeight     int
+	rendered         string
+	renderedNoCursor string
+	renderedValid    bool
+	cursorBlockCol   int
+	cursorBlockRow   int
+	hasCursorBlock   bool
+	screenChanged    bool
 }
 
 func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState) (paneRenderSnapshot, paneScrollbackSnapshotState) {
 	width, height := emu.Size()
 	cursorCol, cursorRow := emu.CursorPosition()
+	screenChanged := emu.DrainScreenChanges()
 	scrollbackState := captureScrollbackSnapshot(emu, prev)
 
 	screen := make([]paneBufferLine, height)
@@ -46,7 +56,8 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnap
 		}
 	}
 
-	rendered := emu.Render()
+	cursorBlockCol, cursorBlockRow, hasCursorBlock := emu.CursorBlockPosition()
+	rendered, renderedNoCursor := captureRenderedSnapshot(emu, prev, width, height, screenChanged, cursorBlockCol, cursorBlockRow, hasCursorBlock)
 	snap := paneRenderSnapshot{
 		width:            width,
 		height:           height,
@@ -55,17 +66,54 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnap
 		cursorHidden:     emu.CursorHidden(),
 		terminal:         cloneTerminalState(emu.TerminalState()),
 		rendered:         rendered,
-		renderedNoCursor: rendered,
+		renderedNoCursor: renderedNoCursor,
 		scrollback:       scrollbackState.scrollback,
 		screen:           screen,
 	}
-	if col, row, ok := emu.CursorBlockPosition(); ok {
-		snap.cursorBlockCol = col
-		snap.cursorBlockRow = row
+	if hasCursorBlock {
+		snap.cursorBlockCol = cursorBlockCol
+		snap.cursorBlockRow = cursorBlockRow
 		snap.hasCursorBlock = true
-		snap.renderedNoCursor = emu.RenderWithoutCursorBlock()
 	}
+	scrollbackState.renderWidth = width
+	scrollbackState.renderHeight = height
+	scrollbackState.rendered = rendered
+	scrollbackState.renderedNoCursor = renderedNoCursor
+	scrollbackState.renderedValid = true
+	scrollbackState.cursorBlockCol = cursorBlockCol
+	scrollbackState.cursorBlockRow = cursorBlockRow
+	scrollbackState.hasCursorBlock = hasCursorBlock
+	scrollbackState.screenChanged = screenChanged
 	return snap, scrollbackState
+}
+
+func captureRenderedSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState, width, height int, screenChanged bool, cursorBlockCol, cursorBlockRow int, hasCursorBlock bool) (rendered, renderedNoCursor string) {
+	renderCacheValid := prev.renderedValid && prev.renderWidth == width && prev.renderHeight == height
+	if !renderCacheValid || screenChanged {
+		rendered = emu.Render()
+		renderedNoCursor = rendered
+		if hasCursorBlock {
+			renderedNoCursor = renderWithoutCursorBlockSnapshot(emu)
+		}
+		return rendered, renderedNoCursor
+	}
+
+	rendered = prev.rendered
+	if !hasCursorBlock {
+		return rendered, rendered
+	}
+	if prev.hasCursorBlock && prev.cursorBlockCol == cursorBlockCol && prev.cursorBlockRow == cursorBlockRow {
+		return rendered, prev.renderedNoCursor
+	}
+	return rendered, renderWithoutCursorBlockSnapshot(emu)
+}
+
+func renderWithoutCursorBlockSnapshot(emu mux.TerminalEmulator) string {
+	rendered := emu.RenderWithoutCursorBlock()
+	// RenderWithoutCursorBlock temporarily edits emulator cells. Clear that
+	// internal touched state so the next snapshot only sees real PTY changes.
+	emu.DrainScreenChanges()
+	return rendered
 }
 
 func captureScrollbackSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState) paneScrollbackSnapshotState {
