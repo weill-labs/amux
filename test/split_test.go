@@ -815,11 +815,6 @@ func (h *mutationGoldenHarness) splitRootV() {
 	h.mustPane(h.window.SplitRoot(mux.SplitVertical, h.newPane()))
 }
 
-func (h *mutationGoldenHarness) splitRootH() {
-	h.t.Helper()
-	h.mustPane(h.window.SplitRoot(mux.SplitHorizontal, h.newPane()))
-}
-
 func (h *mutationGoldenHarness) focus(id uint32) {
 	h.t.Helper()
 	pane, err := h.window.ResolvePane(fmt.Sprintf("%d", id))
