@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -13,13 +14,17 @@ import (
 )
 
 type captureSnapshotFakeEmulator struct {
-	width, height int
-	scrollback    []string
-	screen        []string
-	pushed        uint64
-	screenChanged bool
-	lineReads     []int
-	renderCalls   int
+	width, height       int
+	scrollback          []string
+	screen              []string
+	pushed              uint64
+	screenChanged       bool
+	lineReads           []int
+	renderCalls         int
+	renderNoCursorCalls int
+	hasCursorBlock      bool
+	cursorBlockCol      int
+	cursorBlockRow      int
 }
 
 func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnapshotFakeEmulator {
@@ -68,11 +73,12 @@ func (e *captureSnapshotFakeEmulator) ScrollbackCellAt(int, int) (uv.Cell, bool)
 	return uv.Cell{}, false
 }
 func (e *captureSnapshotFakeEmulator) RenderWithoutCursorBlock() string {
-	return e.Render()
+	e.renderNoCursorCalls++
+	return fmt.Sprintf("%s|cursorless:%d,%d", strings.Join(e.screen, "\n"), e.cursorBlockCol, e.cursorBlockRow)
 }
-func (e *captureSnapshotFakeEmulator) HasCursorBlock() bool { return false }
+func (e *captureSnapshotFakeEmulator) HasCursorBlock() bool { return e.hasCursorBlock }
 func (e *captureSnapshotFakeEmulator) CursorBlockPosition() (int, int, bool) {
-	return 0, 0, false
+	return e.cursorBlockCol, e.cursorBlockRow, e.hasCursorBlock
 }
 func (e *captureSnapshotFakeEmulator) ScreenLineText(y int) string {
 	if y < 0 || y >= len(e.screen) {
@@ -242,6 +248,70 @@ func TestCapturePaneRenderSnapshotReusesRenderedANSIWhenScreenUnchanged(t *testi
 	if second.renderedNoCursor != first.renderedNoCursor {
 		t.Fatalf("cursorless ANSI changed after unchanged screen: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
 	}
+}
+
+func TestCapturePaneRenderSnapshotCachesCursorlessANSI(t *testing.T) {
+	t.Parallel()
+
+	emu := newCaptureSnapshotFakeEmulator(nil, 0)
+	emu.screen = []string{"cursor", "screen"}
+	emu.screenChanged = true
+	emu.hasCursorBlock = true
+	emu.cursorBlockCol = 1
+	emu.cursorBlockRow = 0
+
+	first, state := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	if !first.hasCursorBlock {
+		t.Fatal("snapshot should record cursor block metadata")
+	}
+	if first.cursorBlockCol != 1 || first.cursorBlockRow != 0 {
+		t.Fatalf("cursor block position = %d,%d, want 1,0", first.cursorBlockCol, first.cursorBlockRow)
+	}
+	if got, want := emu.renderCalls, 1; got != want {
+		t.Fatalf("initial Render calls = %d, want %d", got, want)
+	}
+	if got, want := emu.renderNoCursorCalls, 1; got != want {
+		t.Fatalf("initial RenderWithoutCursorBlock calls = %d, want %d", got, want)
+	}
+
+	emu.renderCalls = 0
+	emu.renderNoCursorCalls = 0
+	emu.screenChanged = false
+	second, state := capturePaneRenderSnapshot(emu, state)
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("same cursor-block Render calls = %d, want 0", got)
+	}
+	if got := emu.renderNoCursorCalls; got != 0 {
+		t.Fatalf("same cursor-block RenderWithoutCursorBlock calls = %d, want 0", got)
+	}
+	if second.renderedNoCursor != first.renderedNoCursor {
+		t.Fatalf("cursorless ANSI was not reused: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
+	}
+
+	emu.cursorBlockCol = 2
+	third, _ := capturePaneRenderSnapshot(emu, state)
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("moved cursor-block Render calls = %d, want 0", got)
+	}
+	if got, want := emu.renderNoCursorCalls, 1; got != want {
+		t.Fatalf("moved cursor-block RenderWithoutCursorBlock calls = %d, want %d", got, want)
+	}
+	if third.renderedNoCursor == second.renderedNoCursor {
+		t.Fatalf("moved cursor block should refresh cursorless ANSI, got %q", third.renderedNoCursor)
+	}
+}
+
+func TestPublishPaneCaptureMissingEmulatorReportsNoScreenChange(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(20, 4, 100)
+	t.Cleanup(r.Close)
+
+	r.withActor(func(st *rendererActorState) {
+		if got := r.publishPaneCapture(st, 42); got {
+			t.Fatal("missing emulator publish should not report screen changes")
+		}
+	})
 }
 
 func equalStrings(a, b []string) bool {

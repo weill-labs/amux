@@ -176,7 +176,7 @@ func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
 			if emu := st.emulators[paneID]; emu != nil {
 				st.warmPaneOutput(paneID, st.emulators)
 				_, _ = emu.Write(data)
-				_ = r.publishPaneCapture(st, paneID)
+				r.publishPaneCapture(st, paneID)
 				return false
 			}
 			st.bufferPaneOutput(paneID, data)
@@ -188,7 +188,7 @@ func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
 		}
 		st.warmPaneOutput(paneID, st.emulators)
 		_, _ = emu.Write(data)
-		_ = r.publishPaneCapture(st, paneID)
+		r.publishPaneCapture(st, paneID)
 		return true
 	})
 }
@@ -223,7 +223,7 @@ func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor 
 			if emu := st.emulators[paneID]; emu != nil {
 				st.warmPaneOutput(paneID, st.emulators)
 				_, _ = emu.Write(data)
-				_ = r.publishPaneCapture(st, paneID)
+				r.publishPaneCapture(st, paneID)
 				return paneOutputRenderInfo{}
 			}
 			st.bufferPaneOutput(paneID, data)
@@ -536,7 +536,7 @@ func (r *Renderer) capturePaneTextFromActor(paneID uint32, includeANSI bool) str
 			return ""
 		}
 		st.warmPaneOutput(paneID, st.emulators)
-		_ = r.publishPaneCapture(st, paneID)
+		r.publishPaneCapture(st, paneID)
 		if includeANSI {
 			return filterRenderedANSI(emu.Render(), st.snapshot.capabilities)
 		}
@@ -561,7 +561,7 @@ func (r *Renderer) capturePaneValueFromActor(paneID uint32, agentStatus map[uint
 	r.withActor(func(st *rendererActorState) {
 		pane, ok = r.buildCapturePane(st, st.snapshot, paneID, agentStatus, false, nil)
 		if ok {
-			_ = r.publishPaneCapture(st, paneID)
+			r.publishPaneCapture(st, paneID)
 		}
 	})
 	return pane, ok
