@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/mouse"
 )
@@ -93,6 +95,39 @@ func TestVTEmulatorRespectsScrollbackLimitUnderFlood(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("scrollback[%d] = %q, want %q; full scrollback=%#v", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestVTEmulatorDrainScreenChangeRows(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(8, 3, DefaultScrollbackLines)
+	if got, want := emu.DrainScreenChangeRows(), []int{0, 1, 2}; !slices.Equal(got, want) {
+		t.Fatalf("initial DrainScreenChangeRows() = %v, want %v", got, want)
+	}
+
+	mustWrite(t, emu, []byte("\x1b[2;3HX"))
+	if got, want := emu.DrainScreenChangeRows(), []int{1}; !slices.Equal(got, want) {
+		t.Fatalf("DrainScreenChangeRows() after row update = %v, want %v", got, want)
+	}
+	if got := emu.DrainScreenChangeRows(); len(got) != 0 {
+		t.Fatalf("DrainScreenChangeRows() after drain = %v, want none", got)
+	}
+}
+
+func TestTouchedScreenRowsProbeDeduplicatesNonconsecutiveRows(t *testing.T) {
+	t.Parallel()
+
+	probe := touchedScreenRowsProbe{
+		bounds:  uv.Rect(0, 0, 8, 3),
+		lastRow: -1,
+	}
+	probe.SetCell(0, 1, &uv.EmptyCell)
+	probe.SetCell(0, 2, &uv.EmptyCell)
+	probe.SetCell(1, 1, &uv.EmptyCell)
+
+	if got, want := probe.rows, []int{1, 2}; !slices.Equal(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
 	}
 }
 

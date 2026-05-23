@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,11 +21,20 @@ type captureSnapshotFakeEmulator struct {
 	pushed              uint64
 	screenChanged       bool
 	lineReads           []int
+	screenReads         []int
+	cellReads           []screenCellRead
+	changedRows         []int
 	renderCalls         int
 	renderNoCursorCalls int
 	hasCursorBlock      bool
 	cursorBlockCol      int
 	cursorBlockRow      int
+	cell                uv.Cell
+}
+
+type screenCellRead struct {
+	row int
+	col int
 }
 
 func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnapshotFakeEmulator {
@@ -34,14 +44,30 @@ func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnaps
 		scrollback: append([]string(nil), lines...),
 		screen:     []string{"screen-0", "screen-1"},
 		pushed:     pushed,
+		cell:       uv.Cell{Content: "x", Width: 1},
 	}
 }
 
 func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) { return len(data), nil }
-func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool {
-	changed := e.screenChanged
+func (e *captureSnapshotFakeEmulator) DrainScreenChangeRows() []int {
+	if e.changedRows != nil {
+		rows := e.changedRows
+		e.changedRows = nil
+		e.screenChanged = false
+		return rows
+	}
+	if !e.screenChanged {
+		return nil
+	}
 	e.screenChanged = false
-	return changed
+	rows := make([]int, e.height)
+	for row := range rows {
+		rows[row] = row
+	}
+	return rows
+}
+func (e *captureSnapshotFakeEmulator) DrainScreenChanges() bool {
+	return len(e.DrainScreenChangeRows()) != 0
 }
 func (e *captureSnapshotFakeEmulator) Read([]byte) (int, error) { return 0, io.EOF }
 func (e *captureSnapshotFakeEmulator) Close() error             { return nil }
@@ -85,6 +111,7 @@ func (e *captureSnapshotFakeEmulator) CursorBlockPosition() (int, int, bool) {
 	return e.cursorBlockCol, e.cursorBlockRow, e.hasCursorBlock
 }
 func (e *captureSnapshotFakeEmulator) ScreenLineText(y int) string {
+	e.screenReads = append(e.screenReads, y)
 	if y < 0 || y >= len(e.screen) {
 		return ""
 	}
@@ -92,8 +119,11 @@ func (e *captureSnapshotFakeEmulator) ScreenLineText(y int) string {
 }
 func (e *captureSnapshotFakeEmulator) LineWrapped(int) bool       { return false }
 func (e *captureSnapshotFakeEmulator) ScreenContains(string) bool { return false }
-func (e *captureSnapshotFakeEmulator) CellAt(int, int) *uv.Cell   { return nil }
-func (e *captureSnapshotFakeEmulator) IsAltScreen() bool          { return false }
+func (e *captureSnapshotFakeEmulator) CellAt(col, row int) *uv.Cell {
+	e.cellReads = append(e.cellReads, screenCellRead{row: row, col: col})
+	return &e.cell
+}
+func (e *captureSnapshotFakeEmulator) IsAltScreen() bool { return false }
 func (e *captureSnapshotFakeEmulator) MouseProtocol() mux.MouseProtocol {
 	return mux.MouseProtocol{}
 }
@@ -105,8 +135,8 @@ func (e *captureSnapshotFakeEmulator) screenANSI() string {
 	return strings.Join(e.screen, "\n")
 }
 
-func scrollbackState(lines []string, pushed uint64) paneScrollbackSnapshotState {
-	return paneScrollbackSnapshotState{
+func scrollbackState(lines []string, pushed uint64) paneRenderSnapshotState {
+	return paneRenderSnapshotState{
 		scrollbackLen:    len(lines),
 		scrollbackPushed: pushed,
 		scrollback:       paneBufferLines(lines),
@@ -138,7 +168,7 @@ func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		prev       paneScrollbackSnapshotState
+		prev       paneRenderSnapshotState
 		lines      []string
 		pushed     uint64
 		wantLines  []string
@@ -238,7 +268,7 @@ func TestCapturePaneRenderSnapshotReusesRenderedANSIWhenScreenUnchanged(t *testi
 	emu.screen = []string{"cached", "screen"}
 	emu.screenChanged = true
 
-	first, state, screenChanged := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	first, state, screenChanged := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	if !screenChanged {
 		t.Fatal("initial capture should report drained screen changes")
 	}
@@ -274,7 +304,7 @@ func TestCapturePaneRenderSnapshotCachesCursorlessANSI(t *testing.T) {
 	emu.cursorBlockCol = 1
 	emu.cursorBlockRow = 0
 
-	first, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	first, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	if !first.hasCursorBlock {
 		t.Fatal("snapshot should record cursor block metadata")
 	}
@@ -344,15 +374,119 @@ func equalStrings(a, b []string) bool {
 }
 
 func equalInts(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	return slices.Equal(a, b)
+}
+
+func sameScreenCellsBacking(a, b paneBufferLine) bool {
+	return len(a.cells) > 0 && len(b.cells) > 0 && &a.cells[0] == &b.cells[0]
+}
+
+func screenCellReads(rows []int, width int) []screenCellRead {
+	reads := make([]screenCellRead, 0, len(rows)*width)
+	for _, row := range rows {
+		for col := 0; col < width; col++ {
+			reads = append(reads, screenCellRead{row: row, col: col})
 		}
 	}
-	return true
+	return reads
+}
+
+func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		firstScreen    []string
+		secondScreen   []string
+		changedRows    []int
+		width          int
+		height         int
+		wantReadRows   []int
+		wantCellReads  []screenCellRead
+		wantReusedRows []int
+		wantChanged    bool
+	}{
+		{
+			name:           "no change reuses previous screen rows",
+			firstScreen:    []string{"top", "bottom"},
+			secondScreen:   []string{"top", "bottom"},
+			width:          4,
+			height:         2,
+			wantReusedRows: []int{0, 1},
+		},
+		{
+			name:           "partial change rebuilds only touched rows",
+			firstScreen:    []string{"top", "bottom"},
+			secondScreen:   []string{"top", "changed"},
+			changedRows:    []int{1},
+			width:          4,
+			height:         2,
+			wantReadRows:   []int{1},
+			wantCellReads:  screenCellReads([]int{1}, 4),
+			wantReusedRows: []int{0},
+			wantChanged:    true,
+		},
+		{
+			name:          "full change rebuilds all screen rows",
+			firstScreen:   []string{"top", "bottom"},
+			secondScreen:  []string{"changed-top", "changed-bottom"},
+			changedRows:   []int{0, 1},
+			width:         4,
+			height:        2,
+			wantReadRows:  []int{0, 1},
+			wantCellReads: screenCellReads([]int{0, 1}, 4),
+			wantChanged:   true,
+		},
+		{
+			name:          "shape mismatch falls back to full screen rebuild",
+			firstScreen:   []string{"top", "bottom"},
+			secondScreen:  []string{"new-top", "new-bottom", "new-tail"},
+			width:         5,
+			height:        3,
+			wantReadRows:  []int{0, 1, 2},
+			wantCellReads: screenCellReads([]int{0, 1, 2}, 5),
+			wantChanged:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emu := newCaptureSnapshotFakeEmulator(nil, 0)
+			emu.width = 4
+			emu.height = 2
+			emu.screen = append([]string(nil), tt.firstScreen...)
+			emu.changedRows = []int{0, 1}
+			first, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
+
+			emu.width = tt.width
+			emu.height = tt.height
+			emu.screen = append([]string(nil), tt.secondScreen...)
+			emu.changedRows = append([]int(nil), tt.changedRows...)
+			emu.screenReads = nil
+			emu.cellReads = nil
+			second, _, changed := capturePaneRenderSnapshot(emu, state)
+
+			if got := paneRenderSnapshotLines(second.screen); !slices.Equal(got, tt.secondScreen) {
+				t.Fatalf("snapshot screen = %#v, want %#v", got, tt.secondScreen)
+			}
+			if changed != tt.wantChanged {
+				t.Fatalf("screenChanged = %v, want %v", changed, tt.wantChanged)
+			}
+			if !slices.Equal(emu.screenReads, tt.wantReadRows) {
+				t.Fatalf("ScreenLineText reads = %#v, want %#v", emu.screenReads, tt.wantReadRows)
+			}
+			if !slices.Equal(emu.cellReads, tt.wantCellReads) {
+				t.Fatalf("CellAt reads = %#v, want %#v", emu.cellReads, tt.wantCellReads)
+			}
+			for _, row := range tt.wantReusedRows {
+				if !sameScreenCellsBacking(second.screen[row], first.screen[row]) {
+					t.Fatalf("screen row %d did not reuse previous cells backing array", row)
+				}
+			}
+		})
+	}
 }
 
 func TestHandleCaptureRequestDoesNotWaitForRendererActor(t *testing.T) {
