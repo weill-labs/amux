@@ -180,7 +180,7 @@ func (c *LayoutCell) Close() *LayoutCell {
 
 	// Redistribute space equally among remaining siblings
 	if len(parent.Children) > 0 {
-		parent.distributeEqual()
+		parent.rebalanceChildren()
 	}
 
 	// Collapse single-child parent
@@ -863,6 +863,7 @@ func (c *LayoutCell) rebalanceChildren() {
 	c.equalizeChildren()
 }
 
+// distributeEqual is a legacy alias for call sites that predate rebalanceChildren.
 func (c *LayoutCell) distributeEqual() {
 	c.rebalanceChildren()
 }
