@@ -203,6 +203,12 @@ func TestNewPprofEndpointPrunesDeadSiblingSocketsAndKeepsLiveOnes(t *testing.T) 
 	stalePath := PprofProcessSocketPath(session, 8888)
 	leaveStalePprofSocket(t, stalePath)
 
+	pruneDeadClientPprofSockets("[", "")
+	pruneDeadClientPprofSockets(session, stalePath)
+	if _, err := os.Stat(stalePath); err != nil {
+		t.Fatalf("skip path should be preserved before startup pruning, stat err = %v", err)
+	}
+
 	newest, err := newPprofEndpoint(session, 9999)
 	if err != nil {
 		t.Fatalf("newPprofEndpoint(newest): %v", err)
