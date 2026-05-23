@@ -31,8 +31,8 @@ func TestMainDoctorFontsPrintsIconDiagnostic(t *testing.T) {
 		`icons = "nerd"`,
 		`status_style = "powerline"`,
 		"powerline:",
-		"right=\ue0b0",
-		"left=\ue0b2",
+		"right=\ue0b4",
+		"left=\ue0b6",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor fonts output missing %q:\n%s", want, output)
