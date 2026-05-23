@@ -135,8 +135,8 @@ func (e *captureSnapshotFakeEmulator) screenANSI() string {
 	return strings.Join(e.screen, "\n")
 }
 
-func scrollbackState(lines []string, pushed uint64) paneScrollbackSnapshotState {
-	return paneScrollbackSnapshotState{
+func scrollbackState(lines []string, pushed uint64) paneRenderSnapshotState {
+	return paneRenderSnapshotState{
 		scrollbackLen:    len(lines),
 		scrollbackPushed: pushed,
 		scrollback:       paneBufferLines(lines),
@@ -168,7 +168,7 @@ func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		prev       paneScrollbackSnapshotState
+		prev       paneRenderSnapshotState
 		lines      []string
 		pushed     uint64
 		wantLines  []string
@@ -268,7 +268,7 @@ func TestCapturePaneRenderSnapshotReusesRenderedANSIWhenScreenUnchanged(t *testi
 	emu.screen = []string{"cached", "screen"}
 	emu.screenChanged = true
 
-	first, state, screenChanged := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	first, state, screenChanged := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	if !screenChanged {
 		t.Fatal("initial capture should report drained screen changes")
 	}
@@ -304,7 +304,7 @@ func TestCapturePaneRenderSnapshotCachesCursorlessANSI(t *testing.T) {
 	emu.cursorBlockCol = 1
 	emu.cursorBlockRow = 0
 
-	first, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	first, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	if !first.hasCursorBlock {
 		t.Fatal("snapshot should record cursor block metadata")
 	}
@@ -454,7 +454,7 @@ func TestCapturePaneRenderSnapshotIncrementalScreenCells(t *testing.T) {
 			emu.height = 2
 			emu.screen = append([]string(nil), tt.firstScreen...)
 			emu.changedRows = []int{0, 1}
-			first, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+			first, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 
 			emu.width = tt.width
 			emu.height = tt.height

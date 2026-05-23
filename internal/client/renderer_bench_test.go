@@ -315,7 +315,7 @@ func BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB(b *testing.B) {
 		if _, err := emu.Write(payload); err != nil {
 			b.Fatalf("write payload: %v", err)
 		}
-		_, _, _ = capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+		_, _, _ = capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	}
 }
 
@@ -332,7 +332,7 @@ func BenchmarkCapturePaneRenderSnapshotIncrementalScrollback(b *testing.B) {
 		b.Fatalf("preload scrollback: %v", err)
 	}
 
-	_, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	_, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	payload := []byte("incremental scrollback append\r\n")
 
 	b.SetBytes(int64(len(payload)))
@@ -386,7 +386,7 @@ func BenchmarkCapturePaneRenderSnapshotRender(b *testing.B) {
 		b.Fatalf("preload screen: %v", err)
 	}
 
-	_, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+	_, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 	payload := []byte("\x1b[1;1H\x1b[1;2H")
 
 	b.SetBytes(int64(len(payload)))
@@ -414,14 +414,14 @@ func BenchmarkCapturePaneRenderSnapshotScreenCells(b *testing.B) {
 		b.ResetTimer()
 		for b.Loop() {
 			emu.changedRows = changedRows
-			_, _, _ = capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+			_, _, _ = capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 		}
 	})
 
 	b.Run("incremental", func(b *testing.B) {
 		emu := benchScreenCaptureEmulator(width, height)
 		emu.changedRows = benchScreenRows(height)
-		_, state, _ := capturePaneRenderSnapshot(emu, paneScrollbackSnapshotState{})
+		_, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
 		changedRow := []int{height / 2}
 
 		b.SetBytes(int64(width * height))
