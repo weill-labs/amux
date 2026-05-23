@@ -11,7 +11,7 @@ const (
 	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	captureUsage      = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
 	logUsage          = "usage: amux log <clients|panes>"
-	debugUsage        = "usage: amux debug <goroutines|profile|heap|socket|frames|client-goroutines|client-profile|client-heap> [--duration <duration>]"
+	debugUsage        = "usage: amux debug <goroutines|profile|heap|socket|frames|client-goroutines|client-profile|client-heap> [--duration <duration-or-seconds>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"

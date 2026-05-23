@@ -169,7 +169,13 @@ func parseDebugProfileDuration(args []string) (time.Duration, error) {
 		if args[0] != "--duration" {
 			return 0, errors.New(debugUsage)
 		}
-		parsed, err := time.ParseDuration(args[1])
+		seconds, err := strconv.Atoi(args[1])
+		var parsed time.Duration
+		if err == nil {
+			parsed = time.Duration(seconds) * time.Second
+		} else {
+			parsed, err = time.ParseDuration(args[1])
+		}
 		if err != nil || parsed <= 0 {
 			return 0, fmt.Errorf("invalid profile duration %q", args[1])
 		}
