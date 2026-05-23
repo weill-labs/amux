@@ -39,10 +39,9 @@ type paneScrollbackSnapshotState struct {
 	cursorBlockCol   int
 	cursorBlockRow   int
 	hasCursorBlock   bool
-	screenChanged    bool
 }
 
-func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState) (paneRenderSnapshot, paneScrollbackSnapshotState) {
+func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState) (paneRenderSnapshot, paneScrollbackSnapshotState, bool) {
 	width, height := emu.Size()
 	cursorCol, cursorRow := emu.CursorPosition()
 	screenChanged := emu.DrainScreenChanges()
@@ -83,13 +82,14 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnap
 	scrollbackState.cursorBlockCol = cursorBlockCol
 	scrollbackState.cursorBlockRow = cursorBlockRow
 	scrollbackState.hasCursorBlock = hasCursorBlock
-	scrollbackState.screenChanged = screenChanged
-	return snap, scrollbackState
+	return snap, scrollbackState, screenChanged
 }
 
 func captureRenderedSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapshotState, width, height int, screenChanged bool, cursorBlockCol, cursorBlockRow int, hasCursorBlock bool) (rendered, renderedNoCursor string) {
 	renderCacheValid := prev.renderedValid && prev.renderWidth == width && prev.renderHeight == height
-	if !renderCacheValid || screenChanged {
+	cursorBlockChanged := prev.hasCursorBlock != hasCursorBlock ||
+		(hasCursorBlock && (prev.cursorBlockCol != cursorBlockCol || prev.cursorBlockRow != cursorBlockRow))
+	if !renderCacheValid || screenChanged || cursorBlockChanged {
 		rendered = emu.Render()
 		renderedNoCursor = rendered
 		if hasCursorBlock {
@@ -102,10 +102,7 @@ func captureRenderedSnapshot(emu mux.TerminalEmulator, prev paneScrollbackSnapsh
 	if !hasCursorBlock {
 		return rendered, rendered
 	}
-	if prev.hasCursorBlock && prev.cursorBlockCol == cursorBlockCol && prev.cursorBlockRow == cursorBlockRow {
-		return rendered, prev.renderedNoCursor
-	}
-	return rendered, renderWithoutCursorBlockSnapshot(emu)
+	return rendered, prev.renderedNoCursor
 }
 
 func renderWithoutCursorBlockSnapshot(emu mux.TerminalEmulator) string {
