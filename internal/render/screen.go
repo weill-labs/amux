@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -427,9 +428,38 @@ func (c *Compositor) buildGridWithOverlayDirty(
 // rendered row collapses them into a single grapheme cluster. Re-pack the row
 // before diffing so RenderDiff matches the RenderFull path.
 func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) {
-	rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
-	for col, sc := range rowCells {
-		g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
+	y := cell.Y + mux.StatusLineRows + row
+	for col := 0; col < cell.W; col++ {
+		g.Set(cell.X+col, y, ScreenCell{Char: " ", Width: 1})
+	}
+
+	dstCol := 0
+	for srcCol := 0; srcCol < cell.W && dstCol < cell.W; {
+		sc := paneContentCellAt(row, srcCol, active, pd, copyOverlay)
+		if sc.Width == 0 && sc.Char == " " {
+			srcCol++
+			continue
+		}
+
+		rendered, renderedWidth, nextSrc := compactRowCell(cell.W, row, active, pd, copyOverlay, srcCol, sc)
+		if renderedWidth <= 0 {
+			renderedWidth = 1
+		}
+		if renderedWidth > cell.W-dstCol {
+			break
+		}
+
+		g.Set(cell.X+dstCol, y, rendered)
+		for i := 1; i < renderedWidth && dstCol+i < cell.W; i++ {
+			g.Set(cell.X+dstCol+i, y, ScreenCell{
+				Link:  rendered.Link,
+				Style: rendered.Style,
+				Width: 0,
+			})
+		}
+
+		dstCol += renderedWidth
+		srcCol = nextSrc
 	}
 }
 
@@ -512,6 +542,9 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 		if next.Char == " " || !merged.Style.Equal(&next.Style) || !merged.Link.Equal(&next.Link) {
 			break
 		}
+		if asciiCellsCannotMerge(candidate, next.Char) {
+			break
+		}
 
 		concat := candidate + next.Char
 		cluster, clusterWidth := ansi.FirstGraphemeCluster(concat, ansi.GraphemeWidth)
@@ -540,6 +573,11 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 	}
 
 	return merged, mergedWidth, nextSrc
+}
+
+func asciiCellsCannotMerge(candidate, next string) bool {
+	return len(candidate) == 1 && candidate[0] < utf8.RuneSelf &&
+		len(next) == 1 && next[0] < utf8.RuneSelf
 }
 
 type emittedCellState struct {
