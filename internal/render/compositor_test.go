@@ -876,6 +876,33 @@ func TestRenderDiffWithOverlayDirtySkipsCleanPaneCellReads(t *testing.T) {
 	}
 }
 
+func TestBuildPaneContentCellsDoesNotAllocateRowBuffer(t *testing.T) {
+	const (
+		width  = 80
+		height = 3
+	)
+	rows := make([][]ScreenCell, height)
+	for row := range rows {
+		rows[row] = make([]ScreenCell, width)
+		for col := range rows[row] {
+			rows[row][col] = ScreenCell{Char: " ", Width: 1}
+		}
+	}
+	pane := &styledPaneData{
+		fakePaneData: fakePaneData{id: 1, name: "pane-1"},
+		cells:        rows,
+	}
+	cell := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height+mux.StatusLineRows)
+	grid := NewScreenGrid(width, height+mux.StatusLineRows)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		buildPaneContentCells(grid, cell, 0, true, pane, nil)
+	})
+	if allocs > 0 {
+		t.Fatalf("buildPaneContentCells allocated %.2f times per row; want no per-row buffer allocation", allocs)
+	}
+}
+
 func TestRenderDiffWithOverlayDirtySuppressesStableEmptyFrame(t *testing.T) {
 	t.Parallel()
 

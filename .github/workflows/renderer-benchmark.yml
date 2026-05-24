@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "internal/client/renderer*.go"
+      - "internal/render/**"
       - "internal/mux/emulator.go"
       - ".github/workflows/renderer-benchmark.yml"
       - "scripts/check-benchmark-regression.py"
@@ -13,12 +14,21 @@ permissions:
   contents: read
 
 env:
-  BENCHMARK_NAME: BenchmarkPublishPaneCaptureFullScrollback
   REGRESSION_THRESHOLD: "1.25"
 
 jobs:
   renderer-benchmark:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: ./internal/client
+            benchmark: BenchmarkPublishPaneCaptureFullScrollback
+            file: internal/client/renderer_bench_test.go
+          - package: ./internal/render
+            benchmark: BenchmarkCompositorDirtyPaneRepresentative
+            file: internal/render/compositor_bench_test.go
     steps:
       - name: Check out PR
         uses: actions/checkout@v6.0.2
@@ -37,25 +47,36 @@ jobs:
           cache-dependency-path: head/go.sum
 
       - name: Backfill new benchmark on baseline checkout
+        env:
+          BENCHMARK_NAME: ${{ matrix.benchmark }}
+          BENCHMARK_FILE: ${{ matrix.file }}
         run: |
-          if ! grep -q "$BENCHMARK_NAME" base/internal/client/renderer_bench_test.go; then
-            cp head/internal/client/renderer_bench_test.go base/internal/client/renderer_bench_test.go
+          if ! grep -q "$BENCHMARK_NAME" "base/$BENCHMARK_FILE"; then
+            cp "head/$BENCHMARK_FILE" "base/$BENCHMARK_FILE"
           fi
 
       - name: Run main baseline benchmark
         working-directory: base
+        env:
+          BENCHMARK_NAME: ${{ matrix.benchmark }}
+          BENCHMARK_PACKAGE: ${{ matrix.package }}
         run: |
-          go test ./internal/client -run '^$' -bench "^${BENCHMARK_NAME}$" -benchmem -count=10 -timeout 120s \
+          go test "$BENCHMARK_PACKAGE" -run '^$' -bench "^${BENCHMARK_NAME}$" -benchmem -count=10 -timeout 120s \
             | tee ../bench-base.txt
 
       - name: Run PR benchmark
         working-directory: head
+        env:
+          BENCHMARK_NAME: ${{ matrix.benchmark }}
+          BENCHMARK_PACKAGE: ${{ matrix.package }}
         run: |
-          go test ./internal/client -run '^$' -bench "^${BENCHMARK_NAME}$" -benchmem -count=10 -timeout 120s \
+          go test "$BENCHMARK_PACKAGE" -run '^$' -bench "^${BENCHMARK_NAME}$" -benchmem -count=10 -timeout 120s \
             | tee ../bench-head.txt
 
       - name: Compare against main baseline
         working-directory: head
+        env:
+          BENCHMARK_NAME: ${{ matrix.benchmark }}
         run: |
           set -o pipefail
           python3 scripts/check-benchmark-regression.py \
