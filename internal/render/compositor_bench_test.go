@@ -201,9 +201,10 @@ func BenchmarkCompositorDirtyPaneRepresentative(b *testing.B) {
 	lookup := func(id uint32) PaneData { return paneDataMap[id] }
 
 	dirtyPaneID := paneIDs[0]
+	dirtyCell := root.FindByPaneID(dirtyPaneID)
 	dirtyPanes := map[uint32]struct{}{dirtyPaneID: {}}
 	dirtyCellsA := paneDataMap[dirtyPaneID].cells
-	dirtyCellsB := benchScreenCellGrid(root.FindByPaneID(dirtyPaneID).W, mux.PaneContentHeight(root.FindByPaneID(dirtyPaneID).H), "y")
+	dirtyCellsB := benchScreenCellGrid(dirtyCell.W, mux.PaneContentHeight(dirtyCell.H), "y")
 
 	comp := NewCompositor(width, layoutH+GlobalBarHeight, "bench")
 	comp.RenderDiffWithOverlayDirty(root, paneIDs[0], lookup, OverlayState{}, dirtyPanes, true)
