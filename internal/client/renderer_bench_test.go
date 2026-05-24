@@ -132,6 +132,33 @@ func benchWideScrollbackPayload(paneID uint32, width, lines int) []byte {
 	return []byte(b.String())
 }
 
+func benchRenderSnapshotScreen(width, height int) []byte {
+	var b strings.Builder
+	lineWidth := max(1, width-1)
+	for row := 0; row < height; row++ {
+		prefix := fmt.Sprintf("render snapshot row %03d ", row)
+		if len(prefix) > lineWidth {
+			prefix = prefix[:lineWidth]
+		}
+		fmt.Fprintf(&b, "\x1b[%d;1H\x1b[3%dm%s%s\x1b[0m", row+1, row%8, prefix, strings.Repeat("x", lineWidth-len(prefix)))
+	}
+	return []byte(b.String())
+}
+
+func benchRenderSnapshotScreenChanges(width, height, count int) [][]byte {
+	payloads := make([][]byte, count)
+	row := height / 2
+	lineWidth := max(1, width-1)
+	for i := range payloads {
+		prefix := fmt.Sprintf("busy output tick %04d ", i)
+		if len(prefix) > lineWidth {
+			prefix = prefix[:lineWidth]
+		}
+		payloads[i] = []byte(fmt.Sprintf("\x1b[%d;1H\x1b[3%dm%s%s\x1b[0m", row+1, i%8, prefix, strings.Repeat("y", lineWidth-len(prefix))))
+	}
+	return payloads
+}
+
 func benchStyledHistory(paneID uint32, lines int) []proto.StyledLine {
 	history := make([]proto.StyledLine, lines)
 	for line := 0; line < lines; line++ {
@@ -394,6 +421,33 @@ func BenchmarkCapturePaneRenderSnapshotRender(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		if _, err := emu.Write(payload); err != nil {
+			b.Fatalf("write payload: %v", err)
+		}
+		_, state, _ = capturePaneRenderSnapshot(emu, state)
+	}
+}
+
+func BenchmarkCapturePaneRenderSnapshotRenderChangedScreen(b *testing.B) {
+	const (
+		width           = 160
+		height          = 48
+		scrollbackLines = mux.DefaultScrollbackLines
+	)
+
+	emu := mux.NewVTEmulatorWithScrollback(width, height, scrollbackLines)
+	defer emu.Close()
+	if _, err := emu.Write(benchRenderSnapshotScreen(width, height)); err != nil {
+		b.Fatalf("preload screen: %v", err)
+	}
+
+	_, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
+	payloads := benchRenderSnapshotScreenChanges(width, height, 256)
+
+	b.SetBytes(int64(len(payloads[0])))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		if _, err := emu.Write(payloads[i%len(payloads)]); err != nil {
 			b.Fatalf("write payload: %v", err)
 		}
 		_, state, _ = capturePaneRenderSnapshot(emu, state)
