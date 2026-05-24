@@ -46,6 +46,6 @@ require (
 	golang.org/x/text v0.35.0 // indirect
 )
 
-replace github.com/charmbracelet/ultraviolet => github.com/weill-labs/ultraviolet v0.0.0-20260404003102-9344cbfc286f
+replace github.com/charmbracelet/ultraviolet => github.com/weill-labs/ultraviolet v0.0.0-20260524224635-226eb7d80580
 
 replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260514062200-6ca40b8a9268
