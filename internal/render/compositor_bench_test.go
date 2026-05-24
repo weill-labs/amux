@@ -179,6 +179,66 @@ func BenchmarkRenderDiffDirtyPanes(b *testing.B) {
 	}
 }
 
+func BenchmarkCompositorDirtyPaneRepresentative(b *testing.B) {
+	const (
+		width   = 240
+		layoutH = 80
+		panes   = 20
+	)
+
+	root, paneIDs := benchLayoutTree(panes, width, layoutH)
+	paneDataMap := make(map[uint32]*styledPaneData, panes)
+	root.Walk(func(c *mux.LayoutCell) {
+		pid := c.CellPaneID()
+		paneDataMap[pid] = &styledPaneData{
+			fakePaneData: fakePaneData{
+				id:   pid,
+				name: fmt.Sprintf("pane-%d", pid),
+			},
+			cells: benchScreenCellGrid(c.W, mux.PaneContentHeight(c.H), "x"),
+		}
+	})
+	lookup := func(id uint32) PaneData { return paneDataMap[id] }
+
+	dirtyPaneID := paneIDs[0]
+	dirtyCell := root.FindByPaneID(dirtyPaneID)
+	dirtyPanes := map[uint32]struct{}{dirtyPaneID: {}}
+	dirtyCellsA := paneDataMap[dirtyPaneID].cells
+	dirtyCellsB := benchScreenCellGrid(dirtyCell.W, mux.PaneContentHeight(dirtyCell.H), "y")
+
+	comp := NewCompositor(width, layoutH+GlobalBarHeight, "bench")
+	comp.RenderDiffWithOverlayDirty(root, paneIDs[0], lookup, OverlayState{}, dirtyPanes, true)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i%2 == 0 {
+			paneDataMap[dirtyPaneID].cells = dirtyCellsB
+		} else {
+			paneDataMap[dirtyPaneID].cells = dirtyCellsA
+		}
+		comp.RenderDiffWithOverlayDirty(root, paneIDs[0], lookup, OverlayState{}, dirtyPanes, false)
+	}
+}
+
+func benchScreenCellGrid(w, h int, fill string) [][]ScreenCell {
+	rows := make([][]ScreenCell, h)
+	for row := range rows {
+		rows[row] = make([]ScreenCell, w)
+		for col := range rows[row] {
+			ch := fill
+			if col%17 == 0 {
+				ch = "$"
+			}
+			if col%23 == 0 {
+				ch = " "
+			}
+			rows[row][col] = ScreenCell{Char: ch, Width: 1}
+		}
+	}
+	return rows
+}
+
 func BenchmarkClipLine(b *testing.B) {
 	for _, width := range []int{40, 80, 200} {
 		b.Run(fmt.Sprintf("width_%d", width), func(b *testing.B) {
