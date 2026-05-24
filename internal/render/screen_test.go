@@ -892,7 +892,7 @@ func TestCompactRowCell_DoesNotMergeUnrelatedCells(t *testing.T) {
 	pd := &emuPaneData{emu: paneEmu, cursorHidden: true}
 
 	base := pd.CellAt(0, 0, true)
-	got, gotWidth, nextSrc := compactRowCell(4, 0, true, pd, nil, 0, base)
+	got, gotWidth, nextSrc := compactRowCell(4, 0, true, pd, nil, 0, base, nil)
 
 	if got.Char != "A" || got.Width != 1 {
 		t.Fatalf("compactRowCell() = %+v, want single-cell A", got)

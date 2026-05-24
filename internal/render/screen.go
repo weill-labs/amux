@@ -434,14 +434,15 @@ func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active 
 	}
 
 	dstCol := 0
+	var lookahead paneContentLookahead
 	for srcCol := 0; srcCol < cell.W && dstCol < cell.W; {
-		sc := paneContentCellAt(row, srcCol, active, pd, copyOverlay)
+		sc := paneContentCellAtWithLookahead(row, srcCol, active, pd, copyOverlay, &lookahead)
 		if sc.Width == 0 && sc.Char == " " {
 			srcCol++
 			continue
 		}
 
-		rendered, renderedWidth, nextSrc := compactRowCell(cell.W, row, active, pd, copyOverlay, srcCol, sc)
+		rendered, renderedWidth, nextSrc := compactRowCell(cell.W, row, active, pd, copyOverlay, srcCol, sc, &lookahead)
 		if renderedWidth <= 0 {
 			renderedWidth = 1
 		}
@@ -488,14 +489,15 @@ func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *
 	}
 
 	dstCol := 0
+	var lookahead paneContentLookahead
 	for srcCol := 0; srcCol < width && dstCol < width; {
-		sc := paneContentCellAt(row, srcCol, active, pd, copyOverlay)
+		sc := paneContentCellAtWithLookahead(row, srcCol, active, pd, copyOverlay, &lookahead)
 		if sc.Width == 0 && sc.Char == " " {
 			srcCol++
 			continue
 		}
 
-		rendered, renderedWidth, nextSrc := compactRowCell(width, row, active, pd, copyOverlay, srcCol, sc)
+		rendered, renderedWidth, nextSrc := compactRowCell(width, row, active, pd, copyOverlay, srcCol, sc, &lookahead)
 		if renderedWidth <= 0 {
 			renderedWidth = 1
 		}
@@ -522,7 +524,21 @@ func paneContentCellAt(row, col int, active bool, pd PaneData, copyOverlay *prot
 	return applyCopyModeOverlay(pd.CellAt(col, row, active), copyOverlay, col, row)
 }
 
-func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay, srcCol int, base ScreenCell) (ScreenCell, int, int) {
+type paneContentLookahead struct {
+	col  int
+	cell ScreenCell
+	ok   bool
+}
+
+func paneContentCellAtWithLookahead(row, col int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay, lookahead *paneContentLookahead) ScreenCell {
+	if lookahead != nil && lookahead.ok && lookahead.col == col {
+		lookahead.ok = false
+		return lookahead.cell
+	}
+	return paneContentCellAt(row, col, active, pd, copyOverlay)
+}
+
+func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay, srcCol int, base ScreenCell, lookahead *paneContentLookahead) (ScreenCell, int, int) {
 	baseWidth := base.Width
 	if baseWidth <= 0 {
 		baseWidth = 1
@@ -540,9 +556,11 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 			continue
 		}
 		if next.Char == " " || !merged.Style.Equal(&next.Style) || !merged.Link.Equal(&next.Link) {
+			storePaneContentLookahead(lookahead, nextSrc, next)
 			break
 		}
 		if asciiCellsCannotMerge(candidate, next.Char) {
+			storePaneContentLookahead(lookahead, nextSrc, next)
 			break
 		}
 
@@ -555,6 +573,7 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 			zwjConcat := candidate + "\u200d" + next.Char
 			cluster, clusterWidth = ansi.FirstGraphemeCluster(zwjConcat, ansi.GraphemeWidth)
 			if cluster != zwjConcat {
+				storePaneContentLookahead(lookahead, nextSrc, next)
 				break
 			}
 			concat = zwjConcat
@@ -573,6 +592,15 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 	}
 
 	return merged, mergedWidth, nextSrc
+}
+
+func storePaneContentLookahead(lookahead *paneContentLookahead, col int, cell ScreenCell) {
+	if lookahead == nil {
+		return
+	}
+	lookahead.col = col
+	lookahead.cell = cell
+	lookahead.ok = true
 }
 
 func asciiCellsCannotMerge(candidate, next string) bool {
