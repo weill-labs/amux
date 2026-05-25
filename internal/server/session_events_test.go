@@ -334,6 +334,72 @@ func TestEnqueueLiveInputPaneResolvesFreshSessionPane(t *testing.T) {
 	}
 }
 
+func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-live-input-queue-full")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+	})
+
+	pane := mustSetupSinglePaneSession(t, sess, func(data []byte) (int, error) {
+		if string(data) == "blocked" {
+			started <- struct{}{}
+			<-release
+		}
+		return len(data), nil
+	})
+
+	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		return struct{}{}, sess.enqueueLivePaneInput(pane, []byte("blocked"))
+	})
+	if err != nil {
+		t.Fatalf("enqueueLivePaneInput(blocked) = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("blocked pane write did not start")
+	}
+
+	queue := mustSessionQuery(t, sess, func(sess *Session) *pacedInputQueue {
+		return sess.ensureInputRouter().paneQueues[pane.ID].queue
+	})
+	for i := 0; i < pacedInputRequestBufferSize; i++ {
+		if err := queue.enqueueAsync([]encodedKeyChunk{{data: []byte("queued")}}); err != nil {
+			t.Fatalf("enqueueAsync(fill %d) = %v", i, err)
+		}
+	}
+
+	if !sess.enqueueEvent(liveInputEvent{data: []byte("overflow")}) {
+		t.Fatal("enqueueEvent(liveInputEvent) = false, want true")
+	}
+
+	actorReady := make(chan error, 1)
+	go func() {
+		_, err := enqueueSessionQuery(sess, func(*Session) (struct{}, error) {
+			return struct{}{}, nil
+		})
+		actorReady <- err
+	}()
+
+	select {
+	case err := <-actorReady:
+		if err != nil {
+			t.Fatalf("session actor returned error after live input: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("liveInputEvent blocked the session actor on a full paced input queue")
+	}
+}
+
 func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
 	t.Parallel()
 

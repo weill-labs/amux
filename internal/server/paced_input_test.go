@@ -163,6 +163,54 @@ func TestPacedInputQueueAsyncReturnsBeforeBlockedWriteCompletes(t *testing.T) {
 	}
 }
 
+func TestPacedInputQueueAsyncReturnsErrorWhenBufferFull(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+
+	q := newPacedInputQueue("test", nil, func(_ uint32, data []byte) error {
+		if string(data) == "blocked" {
+			started <- struct{}{}
+			<-release
+		}
+		return nil
+	})
+	t.Cleanup(func() {
+		close(release)
+		q.close()
+	})
+
+	if err := q.enqueueAsync([]encodedKeyChunk{{data: []byte("blocked")}}); err != nil {
+		t.Fatalf("enqueueAsync(blocked) = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("blocked write did not start")
+	}
+
+	for i := 0; i < pacedInputRequestBufferSize; i++ {
+		if err := q.enqueueAsync([]encodedKeyChunk{{data: []byte("queued")}}); err != nil {
+			t.Fatalf("enqueueAsync(fill %d) = %v", i, err)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- q.enqueueAsync([]encodedKeyChunk{{data: []byte("overflow")}})
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("enqueueAsync(overflow) error = nil, want backpressure error")
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("enqueueAsync(overflow) blocked when the queue buffer was full")
+	}
+}
+
 func TestEnqueuePacedPaneInputRetriesShortWrites(t *testing.T) {
 	t.Parallel()
 
