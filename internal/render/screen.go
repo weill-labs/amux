@@ -370,6 +370,8 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		return c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
 	}
 
+	// prevGrid may be published concurrently for display capture. Clone before
+	// applying dirty-pane updates so previously published frames stay immutable.
 	g := c.prevGrid.Clone()
 	g.Debug = c.debug
 
