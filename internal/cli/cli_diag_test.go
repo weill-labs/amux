@@ -301,8 +301,12 @@ func TestDiscoverDiagPprofSocketUsesLivePIDFromSS(t *testing.T) {
 	session := "diag-session"
 	mainSocket := "/tmp/amux-1000/diag-session"
 	pprofSocket := "/tmp/amux-1000/diag-session.pprof"
+	prefixSocket := "/tmp/amux-1000/diag-session-2"
+	prefixPprofSocket := "/tmp/amux-1000/diag-session-2.pprof"
 	staleSocket := "/tmp/amux-1000/stale.pprof"
 	ssOutput := strings.Join([]string{
+		`u_str LISTEN 0 4096 ` + prefixSocket + ` 123 * 0 users:(("amux",pid=3131,fd=7))`,
+		`u_str LISTEN 0 4096 ` + prefixPprofSocket + ` 123 * 0 users:(("amux",pid=3131,fd=8))`,
 		`u_str LISTEN 0 4096 ` + mainSocket + ` 123 * 0 users:(("amux",pid=4242,fd=7))`,
 		`u_str LISTEN 0 4096 ` + staleSocket + ` 123 * 0 users:(("amux",pid=9999,fd=7))`,
 		`u_str LISTEN 0 4096 ` + pprofSocket + ` 123 * 0 users:(("amux",pid=4242,fd=8))`,

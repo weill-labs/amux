@@ -445,7 +445,7 @@ func pprofSocketFromSS(output []byte, mainSocket string) string {
 	pid := ""
 	for _, lineBytes := range lines {
 		line := string(lineBytes)
-		if !strings.Contains(line, mainSocket) {
+		if ssLineSocketPath(line) != mainSocket {
 			continue
 		}
 		pid = ssLinePID(line)
@@ -461,7 +461,7 @@ func pprofSocketFromSS(output []byte, mainSocket string) string {
 		if !strings.Contains(line, ".pprof") || !strings.Contains(line, "pid="+pid) {
 			continue
 		}
-		if path := ssLineSocketPath(line); path != "" {
+		if path := ssLineSocketPath(line); strings.HasSuffix(path, ".pprof") {
 			return path
 		}
 	}
@@ -483,7 +483,7 @@ func ssLinePID(line string) string {
 
 func ssLineSocketPath(line string) string {
 	for _, field := range strings.Fields(line) {
-		if strings.HasPrefix(field, "/") && strings.Contains(field, ".pprof") {
+		if strings.HasPrefix(field, "/") {
 			return field
 		}
 	}
