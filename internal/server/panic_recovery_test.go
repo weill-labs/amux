@@ -74,7 +74,7 @@ func TestSessionQueryPanicReturnsError(t *testing.T) {
 	defer stopSessionBackgroundLoops(t, sess)
 
 	// A panicking query closure should return an error.
-	_, err := enqueueSessionQuery(sess, func(sess *Session) (int, error) {
+	_, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (int, error) {
 		panic("query boom")
 	})
 	if err == nil {
@@ -85,7 +85,7 @@ func TestSessionQueryPanicReturnsError(t *testing.T) {
 	}
 
 	// Event loop should still be alive.
-	val, err := enqueueSessionQuery(sess, func(sess *Session) (string, error) {
+	val, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (string, error) {
 		return "alive", nil
 	})
 	if err != nil {

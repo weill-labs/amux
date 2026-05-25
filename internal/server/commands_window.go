@@ -24,7 +24,7 @@ func cmdPrevWindow(ctx *CommandContext) {
 }
 
 func cmdLastWindow(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(ctx *MutationContext) commandMutationResult {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(ctx *MutationContext) commandMutationResult {
 		if !ctx.lastWindow() {
 			return commandMutationResult{bell: true}
 		}
@@ -49,7 +49,7 @@ func cmdMovePaneToWindow(ctx *CommandContext) {
 		ctx.applyCommandResult(commandpkg.Result{Err: fmt.Errorf("usage: move-pane-to-window <pane> <window>")})
 		return
 	}
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		if err := movePaneToWindow(mctx, ctx.ActorPaneID, ctx.Args[0], ctx.Args[1]); err != nil {
 			return commandMutationResult{err: err}
 		}

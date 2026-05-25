@@ -173,7 +173,7 @@ func (s *Session) startPendingLocalPaneBuild(srv *Server, placeholder *mux.Pane,
 	go func() {
 		defer s.localPaneBuilds.Done()
 		pane, err := s.buildConfiguredLocalPane(srv, req)
-		if s.enqueueEvent(localPaneBuildResultEvent{
+		if s.enqueueEvent(s.context(), localPaneBuildResultEvent{
 			placeholder: placeholder,
 			pane:        pane,
 			err:         err,

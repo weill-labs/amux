@@ -36,7 +36,7 @@ func (s *Server) Reload(execPath string) error {
 		"exec_path", execPath,
 	)
 
-	clients, err := enqueueSessionQuery(sess, func(sess *Session) ([]*clientConn, error) {
+	clients, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) ([]*clientConn, error) {
 		return sess.ensureClientManager().snapshotClients(), nil
 	})
 	if err != nil {
@@ -46,7 +46,7 @@ func (s *Server) Reload(execPath string) error {
 	sess.shutdown.Store(true)
 
 	// Build checkpoint
-	cp, err := enqueueSessionQuery(sess, func(sess *Session) (*checkpoint.ServerCheckpoint, error) {
+	cp, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (*checkpoint.ServerCheckpoint, error) {
 		if len(sess.Windows) == 0 {
 			return nil, fmt.Errorf("no window to checkpoint")
 		}
@@ -152,7 +152,7 @@ func (s *Server) Reload(execPath string) error {
 	for _, c := range clients {
 		c.sendBroadcastSync(&Message{Type: MsgTypeServerReload, Text: BuildVersion})
 	}
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.disconnectClientsForReload(clients)
 		return struct{}{}, nil
 	}); err != nil {
@@ -331,7 +331,7 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 		}
 
 		resizeVisible := func(heightAdj int) bool {
-			targets, err := enqueueSessionQuery(sess, func(sess *Session) ([]resizeTarget, error) {
+			targets, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) ([]resizeTarget, error) {
 				var targets []resizeTarget
 				for _, w := range sess.Windows {
 					for _, p := range sess.Panes {

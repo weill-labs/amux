@@ -43,7 +43,7 @@ type idleWaitState struct {
 }
 
 func (s *Session) queryIdleWaitState(paneID uint32) (idleWaitState, error) {
-	return enqueueSessionQuery(s, func(sess *Session) (idleWaitState, error) {
+	return enqueueSessionQueryLegacy(s.context(), s, func(sess *Session) (idleWaitState, error) {
 		pane := sess.findPaneByID(paneID)
 		if pane == nil {
 			return idleWaitState{}, nil
@@ -118,7 +118,7 @@ func stopTimer(timer Timer) {
 }
 
 func waitForPaneIdle(sess *Session, paneRef string, paneID uint32, opts waitIdleOptions) error {
-	outputCh := sess.enqueuePaneOutputSubscribe(paneID)
+	outputCh := sess.enqueuePaneOutputSubscribe(sess.context(), paneID)
 	if outputCh == nil {
 		return fmt.Errorf("session shutting down")
 	}

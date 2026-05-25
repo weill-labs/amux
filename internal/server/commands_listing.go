@@ -129,7 +129,7 @@ func (ctx listingCommandContext) BuildVersion() string {
 }
 
 func (ctx listingCommandContext) QueryPaneList() ([]listingcmd.PaneEntry, error) {
-	entries, err := ctx.Sess.queryPaneList()
+	entries, err := ctx.Sess.queryPaneListContext(ctx.context())
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (ctx listingCommandContext) QueryPaneList() ([]listingcmd.PaneEntry, error)
 }
 
 func (ctx listingCommandContext) QuerySessionStatus() (listingcmd.SessionStatus, error) {
-	snap, err := ctx.Sess.querySessionStatus()
+	snap, err := ctx.Sess.querySessionStatusContext(ctx.context())
 	if err != nil {
 		return listingcmd.SessionStatus{}, err
 	}
@@ -145,7 +145,7 @@ func (ctx listingCommandContext) QuerySessionStatus() (listingcmd.SessionStatus,
 }
 
 func (ctx listingCommandContext) QueryWindowList() ([]listingcmd.WindowEntry, error) {
-	entries, err := ctx.Sess.queryWindowList()
+	entries, err := ctx.Sess.queryWindowListContext(ctx.context())
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (ctx listingCommandContext) QueryWindowList() ([]listingcmd.WindowEntry, er
 }
 
 func (ctx listingCommandContext) QueryClientList() ([]listingcmd.ClientEntry, error) {
-	clients, err := ctx.Sess.queryClientList()
+	clients, err := ctx.Sess.queryClientListContext(ctx.context())
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (ctx listingCommandContext) QueryClientList() ([]listingcmd.ClientEntry, er
 }
 
 func (ctx listingCommandContext) QueryConnectionLog() ([]listingcmd.ConnectionLogEntry, error) {
-	entries, err := ctx.Sess.queryConnectionLog()
+	entries, err := ctx.Sess.queryConnectionLogContext(ctx.context())
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (ctx listingCommandContext) QueryConnectionLog() ([]listingcmd.ConnectionLo
 }
 
 func (ctx listingCommandContext) QueryPaneLog() ([]listingcmd.PaneLogEntry, error) {
-	entries, err := ctx.Sess.queryPaneLog()
+	entries, err := ctx.Sess.queryPaneLogContext(ctx.context())
 	if err != nil {
 		return nil, err
 	}

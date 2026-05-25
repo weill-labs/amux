@@ -597,7 +597,7 @@ func TestQueuedCommandMoveUpDownErrorPaths(t *testing.T) {
 }
 
 func splitQueuedCommandTestWindow(sess *Session, activePane, newPane *mux.Pane) error {
-	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	_, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		w := sess.activeWindow()
 		w.FocusPane(activePane)
 		if _, err := w.Split(mux.SplitHorizontal, newPane); err != nil {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 
 	"github.com/weill-labs/amux/internal/eventloop"
@@ -31,7 +32,7 @@ type attachClientEvent struct {
 	reply chan attachResult
 }
 
-func (e attachClientEvent) handle(s *Session) {
+func (e attachClientEvent) handle(_ context.Context, s *Session) {
 	e.reply <- s.handleAttachEvent(e.srv, e.cc, e.cols, e.rows)
 }
 
@@ -40,7 +41,7 @@ type detachClientEvent struct {
 	reason string
 }
 
-func (e detachClientEvent) handle(s *Session) {
+func (e detachClientEvent) handle(_ context.Context, s *Session) {
 	if !s.hasClient(e.cc) {
 		return
 	}
@@ -56,7 +57,7 @@ type resizeClientEvent struct {
 	rows int
 }
 
-func (e resizeClientEvent) handle(s *Session) {
+func (e resizeClientEvent) handle(_ context.Context, s *Session) {
 	e.cc.cols = e.cols
 	e.cc.rows = e.rows
 	s.noteClientActivity(e.cc)
@@ -70,7 +71,7 @@ type liveInputEvent struct {
 	epoch uint32
 }
 
-func (e liveInputEvent) handle(s *Session) {
+func (e liveInputEvent) handle(_ context.Context, s *Session) {
 	pane := s.ensureInputRouter().activeInputPaneForWriteOnActor(s, e.cc)
 	if pane == nil {
 		return
@@ -88,7 +89,7 @@ type liveInputPaneEvent struct {
 	epoch  uint32
 }
 
-func (e liveInputPaneEvent) handle(s *Session) {
+func (e liveInputPaneEvent) handle(_ context.Context, s *Session) {
 	pane := s.ensureInputRouter().paneByIDOnActor(s, e.paneID)
 	if pane == nil {
 		return
@@ -117,37 +118,54 @@ func (s *Session) logLiveInputError(paneID uint32, paneName string, err error) {
 }
 
 func (s *Session) enqueueAttachClient(srv *Server, cc *clientConn, cols, rows int) attachResult {
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
 	reply := make(chan attachResult, 1)
-	if !s.enqueueEvent(attachClientEvent{
+	if !s.enqueueEvent(ctx, attachClientEvent{
 		srv:   srv,
 		cc:    cc,
 		cols:  cols,
 		rows:  rows,
 		reply: reply,
 	}) {
+		if err := ctx.Err(); err != nil {
+			return attachResult{err: err}
+		}
 		return attachResult{err: errSessionShuttingDown}
 	}
 	select {
 	case res := <-reply:
 		return res
+	case <-ctx.Done():
+		return attachResult{err: ctx.Err()}
 	case <-s.sessionEventDone:
 		return attachResult{err: errSessionShuttingDown}
 	}
 }
 
 func (s *Session) enqueueDetachClient(cc *clientConn, reason string) {
-	s.enqueueEvent(detachClientEvent{cc: cc, reason: reason})
+	s.enqueueEvent(s.context(), detachClientEvent{cc: cc, reason: reason})
 }
 
 func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
-	s.enqueueEvent(resizeClientEvent{cc: cc, cols: cols, rows: rows})
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
+	s.enqueueEvent(ctx, resizeClientEvent{cc: cc, cols: cols, rows: rows})
 }
 
 func (s *Session) enqueueLiveInputWithEpoch(cc *clientConn, data []byte, epoch uint32) bool {
 	if len(data) == 0 {
 		return true
 	}
-	return s.enqueueEvent(liveInputEvent{cc: cc, data: append([]byte(nil), data...), epoch: epoch})
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
+	return s.enqueueEvent(ctx, liveInputEvent{cc: cc, data: append([]byte(nil), data...), epoch: epoch})
 }
 
 func (s *Session) enqueueLiveInputPane(paneID uint32, data []byte) bool {
@@ -158,7 +176,11 @@ func (s *Session) enqueueLiveInputPaneFromClient(cc *clientConn, paneID uint32, 
 	if len(data) == 0 {
 		return true
 	}
-	return s.enqueueEvent(liveInputPaneEvent{cc: cc, paneID: paneID, data: append([]byte(nil), data...), epoch: epoch})
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
+	return s.enqueueEvent(ctx, liveInputPaneEvent{cc: cc, paneID: paneID, data: append([]byte(nil), data...), epoch: epoch})
 }
 
 // --- Event subscribe/unsubscribe through the event loop ---
@@ -187,7 +209,7 @@ type eventSubscribeCmd struct {
 	reply       chan eventSubscribeResult
 }
 
-func (e eventSubscribeCmd) handle(s *Session) {
+func (e eventSubscribeCmd) handle(_ context.Context, s *Session) {
 	sub := eventloop.Subscribe(&s.eventSubs, e.filter)
 
 	result := eventSubscribeResult{sub: sub}
@@ -203,7 +225,7 @@ type uiWaitSubscribeCmd struct {
 	reply             chan uiWaitSubscribeResult
 }
 
-func (e uiWaitSubscribeCmd) handle(s *Session) {
+func (e uiWaitSubscribeCmd) handle(_ context.Context, s *Session) {
 	client, err := s.resolveUIClientSnapshot(e.requestedClientID, e.eventName)
 	if err != nil {
 		e.reply <- uiWaitSubscribeResult{err: err}
@@ -227,7 +249,7 @@ type eventUnsubscribeCmd struct {
 	sub *eventSub
 }
 
-func (e eventUnsubscribeCmd) handle(s *Session) {
+func (e eventUnsubscribeCmd) handle(_ context.Context, s *Session) {
 	eventloop.Unsubscribe(&s.eventSubs, e.sub)
 }
 
@@ -238,7 +260,7 @@ type uiEventCmd struct {
 	uiEvent string
 }
 
-func (e uiEventCmd) handle(s *Session) {
+func (e uiEventCmd) handle(_ context.Context, s *Session) {
 	activityChanged := s.noteClientActivity(e.cc)
 	if e.uiEvent == proto.UIEventClientFocusGained {
 		if activityChanged {
@@ -269,14 +291,16 @@ func (e uiEventCmd) handle(s *Session) {
 
 // --- Enqueue helpers ---
 
-func (s *Session) enqueueEventSubscribe(f eventFilter, sendInitial bool) eventSubscribeResult {
+func (s *Session) enqueueEventSubscribe(ctx context.Context, f eventFilter, sendInitial bool) eventSubscribeResult {
 	reply := make(chan eventSubscribeResult, 1)
-	if !s.enqueueEvent(eventSubscribeCmd{filter: f, sendInitial: sendInitial, reply: reply}) {
+	if !s.enqueueEvent(ctx, eventSubscribeCmd{filter: f, sendInitial: sendInitial, reply: reply}) {
 		return eventSubscribeResult{}
 	}
 	select {
 	case res := <-reply:
 		return res
+	case <-ctx.Done():
+		return eventSubscribeResult{}
 	case <-s.sessionEventDone:
 		return eventSubscribeResult{}
 	}
@@ -286,15 +310,18 @@ func (s *Session) enqueueEventSubscribe(f eventFilter, sendInitial bool) eventSu
 // subscription, and snapshots whether the client already matches the requested
 // UI state in one event-loop turn. That closes the race where a UI transition
 // could land between a separate query and subscribe call.
-func (s *Session) enqueueUIWaitSubscribe(requestedClientID, eventName string) (uiWaitSubscription, error) {
+func (s *Session) enqueueUIWaitSubscribe(ctx context.Context, requestedClientID, eventName string) (uiWaitSubscription, error) {
 	var zero uiWaitSubscription
 
 	reply := make(chan uiWaitSubscribeResult, 1)
-	if !s.enqueueEvent(uiWaitSubscribeCmd{
+	if !s.enqueueEvent(ctx, uiWaitSubscribeCmd{
 		requestedClientID: requestedClientID,
 		eventName:         eventName,
 		reply:             reply,
 	}) {
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
 		return zero, errSessionShuttingDown
 	}
 
@@ -304,6 +331,8 @@ func (s *Session) enqueueUIWaitSubscribe(requestedClientID, eventName string) (u
 			return zero, res.err
 		}
 		return res.subscription, nil
+	case <-ctx.Done():
+		return zero, ctx.Err()
 	case <-s.sessionEventDone:
 		select {
 		case res := <-reply:
@@ -318,11 +347,15 @@ func (s *Session) enqueueUIWaitSubscribe(requestedClientID, eventName string) (u
 }
 
 func (s *Session) enqueueEventUnsubscribe(sub *eventSub) {
-	s.enqueueEvent(eventUnsubscribeCmd{sub: sub})
+	s.enqueueEvent(s.context(), eventUnsubscribeCmd{sub: sub})
 }
 
 func (s *Session) enqueueUIEvent(cc *clientConn, uiEvent string) {
-	s.enqueueEvent(uiEventCmd{cc: cc, uiEvent: uiEvent})
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
+	s.enqueueEvent(ctx, uiEventCmd{cc: cc, uiEvent: uiEvent})
 }
 
 func (s *Session) emitClientConnectEvent(cc *clientConn) {

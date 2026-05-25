@@ -64,7 +64,7 @@ func shouldCaptureLocally(req caputil.Request) bool {
 func cmdCapture(ctx *CommandContext) {
 	req := caputil.ParseArgs(ctx.Args)
 	if req.PaneRef != "" {
-		ref, err := ctx.Sess.queryPaneRef(req.PaneRef)
+		ref, err := ctx.Sess.queryPaneRefContext(ctx.context(), req.PaneRef)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return

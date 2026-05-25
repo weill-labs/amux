@@ -210,7 +210,7 @@ func runConnect(ctx *CommandContext) commandpkg.Result {
 		return commandpkg.Result{Err: err}
 	}
 
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		if err := mutationContextDo(mctx, func(sess *Session) error {
 			return sess.connectRemoteSession(hostName, layout, RemoteSessionConnect, 0, true)
 		}); err != nil {

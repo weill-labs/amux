@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -41,7 +42,7 @@ func waitRemoteForward(ctx *CommandContext, args []string) (commandpkg.Result, b
 		return commandpkg.Result{}, false
 	}
 
-	ref, err := ctx.Sess.queryPaneRef(args[paneArgIndex])
+	ref, err := ctx.Sess.queryPaneRefContext(ctx.context(), args[paneArgIndex])
 	if err != nil {
 		return commandpkg.Result{Err: err}, true
 	}
@@ -56,7 +57,7 @@ func (ctx waitCommandContext) Generation() uint64 {
 }
 
 func (ctx waitCommandContext) LayoutJSON() (string, error) {
-	snap, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
+	snap, err := enqueueSessionQueryLegacy(ctx.context(), ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
 		return sess.snapshotLayout(nil), nil
 	})
 	if err != nil {
@@ -104,7 +105,7 @@ func (ctx waitCommandContext) WaitCheckpoint(afterGen uint64, afterSet bool, tim
 }
 
 func (ctx waitCommandContext) UIGeneration(requestedClientID string) (uint64, error) {
-	client, err := ctx.Sess.queryUIClient(requestedClientID, "")
+	client, err := ctx.Sess.queryUIClientContext(ctx.context(), requestedClientID, "")
 	if err != nil {
 		return 0, err
 	}
@@ -112,7 +113,7 @@ func (ctx waitCommandContext) UIGeneration(requestedClientID string) (uint64, er
 }
 
 func (ctx waitCommandContext) WaitContent(actorPaneID uint32, paneRef, substr string, timeout time.Duration) error {
-	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, paneRef)
 	if err != nil {
 		return err
 	}
@@ -140,19 +141,21 @@ func (ctx waitCommandContext) WaitContent(actorPaneID uint32, paneRef, substr st
 			}
 		case <-timer.C:
 			return fmt.Errorf("timeout waiting for %q in %s", substr, paneRef)
+		case <-ctx.context().Done():
+			return ctx.context().Err()
 		}
 	}
 }
 
 func (ctx waitCommandContext) WaitExited(actorPaneID uint32, paneRef string, timeout time.Duration) error {
-	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, paneRef)
 	if err != nil {
 		return err
 	}
 	paneID := pane.paneID
 
 	checkIdle := func() (bool, error) {
-		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQueryLegacy(ctx.context(), ctx.Sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -167,7 +170,7 @@ func (ctx waitCommandContext) WaitExited(actorPaneID uint32, paneRef string, tim
 		return true, nil
 	}
 
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}, PaneID: paneID}, true)
+	res := ctx.Sess.enqueueEventSubscribe(ctx.context(), eventFilter{Types: []string{EventExited}, PaneID: paneID}, true)
 	if res.sub == nil {
 		return fmt.Errorf("session shutting down")
 	}
@@ -198,20 +201,22 @@ func (ctx waitCommandContext) WaitExited(actorPaneID uint32, paneRef string, tim
 			}
 		case <-timer.C:
 			return fmt.Errorf("timeout waiting for %s to become exited", paneRef)
+		case <-ctx.context().Done():
+			return ctx.context().Err()
 		}
 	}
 }
 
 func (ctx waitCommandContext) WaitBusy(actorPaneID uint32, paneRef string, timeout time.Duration) error {
-	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, paneRef)
 	if err != nil {
 		return err
 	}
-	return waitForPaneBusy(ctx.Sess, pane.paneID, paneRef, timeout)
+	return waitForPaneBusy(ctx.context(), ctx.Sess, pane.paneID, paneRef, timeout)
 }
 
 func (ctx waitCommandContext) WaitUI(eventName, requestedClientID string, afterGen uint64, afterSet bool, timeout time.Duration) error {
-	_, err := waitForUIEvent(ctx.Sess, requestedClientID, eventName, afterGen, afterSet, timeout)
+	_, err := waitForUIEvent(ctx.context(), ctx.Sess, requestedClientID, eventName, afterGen, afterSet, timeout)
 	return err
 }
 
@@ -221,7 +226,7 @@ func (ctx waitCommandContext) WaitReady(actorPaneID uint32, args []string) error
 		return err
 	}
 
-	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, paneRef)
 	if err != nil {
 		return err
 	}
@@ -235,7 +240,7 @@ func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error 
 		return err
 	}
 
-	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, paneRef)
 	if err != nil {
 		return err
 	}
@@ -278,9 +283,9 @@ func cmdWaitBusy(ctx *CommandContext) {
 	ctx.applyCommandResult(waitcmd.WaitBusy(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
-func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.Duration) error {
+func waitForPaneBusy(ctx context.Context, sess *Session, paneID uint32, paneRef string, timeout time.Duration) error {
 	checkBusy := func() (bool, error) {
-		pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQueryLegacy(ctx, sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -292,7 +297,7 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		return !pane.ForegroundJobState().Idle, nil
 	}
 	checkBusyStatus := func() (mux.ForegroundJobState, error) {
-		pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQueryLegacy(ctx, sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -304,7 +309,7 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		return pane.ForegroundJobState(), nil
 	}
 
-	outputCh := sess.enqueuePaneOutputSubscribe(paneID)
+	outputCh := sess.enqueuePaneOutputSubscribe(ctx, paneID)
 	if outputCh == nil {
 		return fmt.Errorf("session shutting down")
 	}
@@ -344,6 +349,8 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		case <-ticker.C:
 		case <-timeoutTimer.C:
 			return fmt.Errorf("timeout waiting for %s to become busy", paneRef)
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 
 		st, err := checkBusyStatus()
@@ -358,12 +365,12 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 	}
 }
 
-func waitForUIEvent(sess *Session, requestedClientID, eventName string, afterGen uint64, afterSet bool, timeout time.Duration) (string, error) {
+func waitForUIEvent(ctx context.Context, sess *Session, requestedClientID, eventName string, afterGen uint64, afterSet bool, timeout time.Duration) (string, error) {
 	if !proto.IsKnownUIEvent(eventName) {
 		return "", errUnknownUIEvent(eventName)
 	}
 
-	subscription, err := sess.enqueueUIWaitSubscribe(requestedClientID, eventName)
+	subscription, err := sess.enqueueUIWaitSubscribe(ctx, requestedClientID, eventName)
 	if err != nil {
 		return "", err
 	}
@@ -380,11 +387,17 @@ func waitForUIEvent(sess *Session, requestedClientID, eventName string, afterGen
 		return subscription.clientID, nil
 	case <-timer.C:
 		return "", fmt.Errorf("timeout waiting for %s on %s", eventName, subscription.clientID)
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 
 func waitForNextUIEvent(sess *Session, client uiClientSnapshot, eventName string, timeout time.Duration) error {
-	_, err := waitForUIEvent(sess, client.clientID, eventName, client.currentGen, true, timeout)
+	return waitForNextUIEventContext(sess.context(), sess, client, eventName, timeout)
+}
+
+func waitForNextUIEventContext(ctx context.Context, sess *Session, client uiClientSnapshot, eventName string, timeout time.Duration) error {
+	_, err := waitForUIEvent(ctx, sess, client.clientID, eventName, client.currentGen, true, timeout)
 	return err
 }
 

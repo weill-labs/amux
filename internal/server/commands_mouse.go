@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -193,8 +194,8 @@ func buildMouseVisibleLayout(w *mux.Window, cols, rows int) (*mux.LayoutCell, er
 	return layout, nil
 }
 
-func queryMouseClientTarget(sess *Session, actorPaneID uint32, requestedClientID string, paneRef, targetPaneRef string) (mouseClientTarget, error) {
-	return enqueueSessionQuery(sess, func(sess *Session) (mouseClientTarget, error) {
+func queryMouseClientTarget(ctx context.Context, sess *Session, actorPaneID uint32, requestedClientID string, paneRef, targetPaneRef string) (mouseClientTarget, error) {
+	return enqueueSessionQueryLegacy(ctx, sess, func(sess *Session) (mouseClientTarget, error) {
 		uiWait, err := sess.resolveUIClientSnapshot(requestedClientID, "")
 		if err != nil {
 			return mouseClientTarget{}, err
@@ -357,11 +358,11 @@ func mouseChunksForAction(layout *mux.LayoutCell, opts mouseCommandOptions, pane
 	}
 }
 
-func enqueueClientTypeKeys(sess *Session, uiWait uiClientSnapshot, chunks []encodedKeyChunk, waitTimeout time.Duration) error {
+func enqueueClientTypeKeys(ctx context.Context, sess *Session, uiWait uiClientSnapshot, chunks []encodedKeyChunk, waitTimeout time.Duration) error {
 	if err := uiWait.client.enqueueTypeKeys(chunks); err != nil {
 		return err
 	}
-	return waitForNextUIEvent(sess, uiWait, "input-idle", waitTimeout)
+	return waitForNextUIEventContext(ctx, sess, uiWait, "input-idle", waitTimeout)
 }
 
 func (ctx inputCommandContext) Mouse(actorPaneID uint32, args []string) (string, int, error) {
@@ -379,7 +380,7 @@ func (ctx inputCommandContext) Mouse(actorPaneID uint32, args []string) (string,
 		targetRef = opts.targetPaneRef
 	}
 
-	target, err := queryMouseClientTarget(ctx.Sess, actorPaneID, opts.requestedClientID, paneRef, targetRef)
+	target, err := queryMouseClientTarget(ctx.context(), ctx.Sess, actorPaneID, opts.requestedClientID, paneRef, targetRef)
 	if err != nil {
 		return "", 0, err
 	}
@@ -388,7 +389,7 @@ func (ctx inputCommandContext) Mouse(actorPaneID uint32, args []string) (string,
 	if err != nil {
 		return "", 0, err
 	}
-	if err := enqueueClientTypeKeys(ctx.Sess, target.uiWait, chunks, opts.waitTimeout); err != nil {
+	if err := enqueueClientTypeKeys(ctx.context(), ctx.Sess, target.uiWait, chunks, opts.waitTimeout); err != nil {
 		return "", 0, err
 	}
 

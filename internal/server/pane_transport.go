@@ -35,7 +35,7 @@ type PaneTakeoverFactory func(PaneTransportHooks) PaneTakeoverTransport
 func (s *Session) paneTransportHooks() PaneTransportHooks {
 	return PaneTransportHooks{
 		OnPaneOutput: func(localPaneID uint32, data []byte) {
-			pane, err := enqueueSessionQuery(s, func(s *Session) (*mux.Pane, error) {
+			pane, err := enqueueSessionQueryLegacy(s.context(), s, func(s *Session) (*mux.Pane, error) {
 				return s.findPaneByID(localPaneID), nil
 			})
 			if err != nil || pane == nil {

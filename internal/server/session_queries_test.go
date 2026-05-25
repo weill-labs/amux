@@ -150,7 +150,7 @@ func TestResolvePaneAcrossWindowsForActorPrefersActorWindowForDuplicateNames(t *
 		return struct{}{}
 	})
 
-	resolved, err := enqueueSessionQuery(sess, func(sess *Session) (resolvedPaneRef, error) {
+	resolved, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (resolvedPaneRef, error) {
 		pane, window, err := sess.resolvePaneAcrossWindowsForActor(p3.ID, "shared")
 		if err != nil {
 			return resolvedPaneRef{}, err
@@ -217,7 +217,7 @@ func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		_, err := sess.enqueueUIWaitSubscribe("", proto.UIEventCopyModeHidden)
+		_, err := sess.enqueueUIWaitSubscribe(sess.context(), "", proto.UIEventCopyModeHidden)
 		if err == nil || err.Error() != "no client attached" {
 			t.Fatalf("enqueueUIWaitSubscribe error = %v, want no client attached", err)
 		}
@@ -235,7 +235,7 @@ func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 			return struct{}{}
 		})
 
-		_, err := sess.enqueueUIWaitSubscribe("missing", proto.UIEventCopyModeHidden)
+		_, err := sess.enqueueUIWaitSubscribe(sess.context(), "missing", proto.UIEventCopyModeHidden)
 		if err == nil || err.Error() != "unknown client: missing" {
 			t.Fatalf("enqueueUIWaitSubscribe unknown error = %v", err)
 		}
@@ -252,7 +252,7 @@ func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 
 		errCh := make(chan error, 1)
 		go func() {
-			_, err := sess.enqueueUIWaitSubscribe("", proto.UIEventCopyModeHidden)
+			_, err := sess.enqueueUIWaitSubscribe(sess.context(), "", proto.UIEventCopyModeHidden)
 			errCh <- err
 		}()
 

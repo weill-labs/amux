@@ -247,7 +247,7 @@ func TestPaneOutputCallbackEmitsIdleEventAfterQuiescence(t *testing.T) {
 	})
 	sess.Panes = []*mux.Pane{pane}
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventIdle}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	pane.FeedOutput([]byte("hello"))

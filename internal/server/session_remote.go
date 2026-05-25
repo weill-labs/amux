@@ -31,7 +31,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		cellH int
 	}
 
-	start, err := enqueueSessionQuery(s, func(s *Session) (takeoverStart, error) {
+	start, err := enqueueSessionQueryLegacy(s.context(), s, func(s *Session) (takeoverStart, error) {
 		if s.takenOverPanes[sshPaneID] {
 			return takeoverStart{}, nil
 		}
@@ -75,7 +75,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		return
 	}
 
-	layout, err := enqueueSessionQuery(s, func(s *Session) (takeoverLayout, error) {
+	layout, err := enqueueSessionQueryLegacy(s.context(), s, func(s *Session) (takeoverLayout, error) {
 		w := s.findWindowByPaneID(sshPaneID)
 		if w == nil {
 			return takeoverLayout{}, fmt.Errorf("pane %d not in any window", sshPaneID)

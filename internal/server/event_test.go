@@ -184,7 +184,7 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 			"\x1b[?1049h",
 	))
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventTerminal}}, true)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventTerminal}}, true)
 	if res.sub == nil {
 		t.Fatal("terminal subscribe returned nil subscription")
 	}
@@ -272,7 +272,7 @@ func TestPaneOutputWithoutTerminalSubscribersSkipsTerminalSnapshotting(t *testin
 		sess.Panes = []*mux.Pane{pane}
 	})
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventOutput}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventOutput}}, false)
 	if res.sub == nil {
 		t.Fatal("output subscribe returned nil subscription")
 	}
@@ -396,7 +396,7 @@ func TestEmitEventDelivery(t *testing.T) {
 	sess := newSession("test-emit")
 	stopCrashCheckpointLoop(t, sess)
 
-	res := sess.enqueueEventSubscribe(eventFilter{}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	// Emit from within the event loop (emitEvent is event-loop-only).
@@ -427,7 +427,7 @@ func TestEmitEventFiltered(t *testing.T) {
 	sess := newSession("test-filter")
 	stopCrashCheckpointLoop(t, sess)
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventIdle}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
@@ -461,7 +461,7 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 	sess := newSession("test-drop")
 	stopCrashCheckpointLoop(t, sess)
 
-	res := sess.enqueueEventSubscribe(eventFilter{}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{}, false)
 
 	// Fill the channel from within the event loop.
 	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
@@ -496,7 +496,7 @@ func TestEmitEventAfterRemove(t *testing.T) {
 	sess := newSession("test-remove-race")
 	stopCrashCheckpointLoop(t, sess)
 
-	res := sess.enqueueEventSubscribe(eventFilter{}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{}, false)
 	sess.enqueueEventUnsubscribe(res.sub)
 
 	// Emit after unsubscribe: the event loop processes both sequentially,

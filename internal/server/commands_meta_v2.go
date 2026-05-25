@@ -18,7 +18,7 @@ func (ctx metaCommandContext) ResolvePaneForMutation(paneRef string) (*mux.Pane,
 }
 
 func (ctx metaCommandContext) QueryPaneKV(paneRef string, requested []string) (string, error) {
-	return enqueueSessionQuery(ctx.Sess, func(sess *Session) (string, error) {
+	return enqueueSessionQueryLegacy(ctx.context(), ctx.Sess, func(sess *Session) (string, error) {
 		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
 		if err != nil {
 			return "", err

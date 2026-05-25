@@ -214,7 +214,7 @@ func TestQueryMouseClientTargetErrors(t *testing.T) {
 		_, sess, cleanup := newCommandTestSession(t)
 		defer cleanup()
 
-		if _, err := queryMouseClientTarget(sess, 0, "", "", ""); err == nil || err.Error() != "no client attached" {
+		if _, err := queryMouseClientTarget(sess.context(), sess, 0, "", "", ""); err == nil || err.Error() != "no client attached" {
 			t.Fatalf("queryMouseClientTarget no client error = %v", err)
 		}
 	})
@@ -239,7 +239,7 @@ func TestQueryMouseClientTargetErrors(t *testing.T) {
 			sess.ensureClientManager().setClientsForTest(client)
 		})
 
-		if _, err := queryMouseClientTarget(sess, 0, client.ID, "", ""); err == nil || err.Error() != "no window" {
+		if _, err := queryMouseClientTarget(sess.context(), sess, 0, client.ID, "", ""); err == nil || err.Error() != "no window" {
 			t.Fatalf("queryMouseClientTarget no window error = %v", err)
 		}
 	})
@@ -279,10 +279,10 @@ func TestQueryMouseClientTargetErrors(t *testing.T) {
 			sess.ensureClientManager().setClientsForTest(client)
 		})
 
-		if _, err := queryMouseClientTarget(sess, 0, client.ID, "pane-2", ""); err == nil || err.Error() != `pane "pane-2" is not in the active window` {
+		if _, err := queryMouseClientTarget(sess.context(), sess, 0, client.ID, "pane-2", ""); err == nil || err.Error() != `pane "pane-2" is not in the active window` {
 			t.Fatalf("queryMouseClientTarget pane error = %v", err)
 		}
-		if _, err := queryMouseClientTarget(sess, 0, client.ID, "pane-1", "pane-2"); err == nil || err.Error() != `pane "pane-2" is not in the active window` {
+		if _, err := queryMouseClientTarget(sess.context(), sess, 0, client.ID, "pane-1", "pane-2"); err == nil || err.Error() != `pane "pane-2" is not in the active window` {
 			t.Fatalf("queryMouseClientTarget target pane error = %v", err)
 		}
 	})

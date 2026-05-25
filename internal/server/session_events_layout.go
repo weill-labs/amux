@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -15,18 +16,18 @@ import (
 
 var errSessionShuttingDown = errors.New("session shutting down")
 
-type sessionEvent = eventloop.Command[Session]
+type sessionEvent = eventloop.QueuedCommand[Session]
 
 type sessionAction interface {
-	handle(*Session)
+	handle(context.Context, *Session)
 }
 
 type sessionEventCommand struct {
 	sessionAction
 }
 
-func (c sessionEventCommand) Handle(s *Session) {
-	c.sessionAction.handle(s)
+func (c sessionEventCommand) Handle(ctx context.Context, s *Session) {
+	c.sessionAction.handle(ctx, s)
 }
 
 func (c sessionEventCommand) EventLoopCommandType() string {
@@ -469,7 +470,7 @@ type commandMutationEvent struct {
 	reply chan commandMutationResult
 }
 
-func (e commandMutationEvent) handle(s *Session) {
+func (e commandMutationEvent) handle(eventCtx context.Context, s *Session) {
 	beforeActiveWindowID := s.ActiveWindowID
 	ctx := newMutationContext(s)
 	res := recoverCommandMutation(e.fn, ctx)
@@ -501,7 +502,10 @@ func (e commandMutationEvent) handle(s *Session) {
 		}
 		res.paneRenders = nil
 	}
-	e.reply <- res
+	select {
+	case e.reply <- res:
+	case <-eventCtx.Done():
+	}
 }
 
 func (s *Session) drainScheduledMutationPanes(ctx *MutationContext) {
@@ -525,10 +529,12 @@ func recoverCommandMutation(fn func(*MutationContext) commandMutationResult, ctx
 }
 
 func (s *Session) startEventLoop() {
+	s.sessionCtx, s.cancelSessionCtx = context.WithCancel(serverInternalContext())
 	s.sessionEvents = make(chan sessionEvent, 128)
 	s.sessionEventStop = make(chan struct{})
 	s.sessionEventDone = make(chan struct{})
 	go func() {
+		defer s.cancelSessionCtx()
 		eventloop.Run(s, s.sessionEvents, s.sessionEventStop, s.sessionEventDone, func(s *Session) bool {
 			// With the watchdog enabled, Command.Handle runs on eventloop's
 			// handler goroutine while this hook runs on the Run goroutine after
@@ -573,7 +579,7 @@ func (s *Session) HandleEventLoopWatchdogTimeout(info eventloop.WatchdogTimeoutI
 			"goroutine_id", info.GoroutineID,
 		)
 	}
-	closeStopSignal(s.sessionEventStop)
+	s.stopEventLoopSignal()
 	if s.exitServer != nil {
 		go s.exitServer.Shutdown()
 	}
@@ -588,8 +594,15 @@ func (s *Session) stopEventLoop() {
 		return
 	default:
 	}
-	closeStopSignal(s.sessionEventStop)
+	s.stopEventLoopSignal()
 	<-s.sessionEventDone
+}
+
+func (s *Session) stopEventLoopSignal() {
+	if s.cancelSessionCtx != nil {
+		s.cancelSessionCtx()
+	}
+	closeStopSignal(s.sessionEventStop)
 }
 
 func closeStopSignal(ch chan struct{}) {
@@ -601,21 +614,30 @@ func closeStopSignal(ch chan struct{}) {
 	close(ch)
 }
 
-func (s *Session) enqueueEvent(ev sessionAction) bool {
-	return eventloop.Enqueue(s.sessionEvents, s.sessionEventStop, sessionEventCommand{sessionAction: ev})
+func (s *Session) enqueueEvent(ctx context.Context, ev sessionAction) bool {
+	return eventloop.Enqueue(ctx, s.sessionEvents, s.sessionEventStop, sessionEventCommand{sessionAction: ev})
 }
 
 func (s *Session) enqueueCommandMutation(fn func(*MutationContext) commandMutationResult) commandMutationResult {
+	return s.enqueueCommandMutationContext(s.context(), fn)
+}
+
+func (s *Session) enqueueCommandMutationContext(ctx context.Context, fn func(*MutationContext) commandMutationResult) commandMutationResult {
 	reply := make(chan commandMutationResult, 1)
-	if !s.enqueueEvent(commandMutationEvent{
+	if !s.enqueueEvent(ctx, commandMutationEvent{
 		fn:    fn,
 		reply: reply,
 	}) {
+		if err := ctx.Err(); err != nil {
+			return commandMutationResult{err: err}
+		}
 		return commandMutationResult{err: errSessionShuttingDown}
 	}
 	select {
 	case res := <-reply:
 		return res
+	case <-ctx.Done():
+		return commandMutationResult{err: ctx.Err()}
 	case <-s.sessionEventDone:
 		// The event loop exited (e.g., wantShutdown after our handler).
 		// The reply may already be buffered — prefer it over the error.

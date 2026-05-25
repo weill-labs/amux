@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"time"
 )
@@ -16,7 +17,7 @@ type sessionNoticeSetCmd struct {
 	reply   chan sessionNoticeSetResult
 }
 
-func (e sessionNoticeSetCmd) handle(s *Session) {
+func (e sessionNoticeSetCmd) handle(_ context.Context, s *Session) {
 	s.notice = e.message
 	s.noticeToken++
 	token := s.noticeToken
@@ -28,7 +29,7 @@ type sessionNoticeClearCmd struct {
 	token uint64
 }
 
-func (e sessionNoticeClearCmd) handle(s *Session) {
+func (e sessionNoticeClearCmd) handle(_ context.Context, s *Session) {
 	if e.token != s.noticeToken || s.notice == "" {
 		return
 	}
@@ -59,7 +60,7 @@ func (s *Session) showSessionNotice(message string) {
 
 func (s *Session) enqueueSessionNoticeSet(message string) sessionNoticeSetResult {
 	reply := make(chan sessionNoticeSetResult, 1)
-	if !s.enqueueEvent(sessionNoticeSetCmd{message: message, reply: reply}) {
+	if !s.enqueueEvent(s.context(), sessionNoticeSetCmd{message: message, reply: reply}) {
 		return sessionNoticeSetResult{}
 	}
 
@@ -77,7 +78,7 @@ func (s *Session) enqueueSessionNoticeSet(message string) sessionNoticeSetResult
 }
 
 func (s *Session) enqueueSessionNoticeClear(token uint64) {
-	s.enqueueEvent(sessionNoticeClearCmd{token: token})
+	s.enqueueEvent(s.context(), sessionNoticeClearCmd{token: token})
 }
 
 func sessionNoticeDuration() time.Duration {

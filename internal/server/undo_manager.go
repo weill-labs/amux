@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"syscall"
 	"time"
@@ -160,7 +161,7 @@ type paneCleanupTimeoutEvent struct {
 	paneID uint32
 }
 
-func (e paneCleanupTimeoutEvent) handle(s *Session) {
+func (e paneCleanupTimeoutEvent) handle(_ context.Context, s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
@@ -178,7 +179,7 @@ type undoExpiryEvent struct {
 	paneID uint32
 }
 
-func (e undoExpiryEvent) handle(s *Session) {
+func (e undoExpiryEvent) handle(_ context.Context, s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
@@ -186,9 +187,9 @@ func (e undoExpiryEvent) handle(s *Session) {
 }
 
 func (s *Session) enqueueUndoExpiry(paneID uint32) {
-	s.enqueueEvent(undoExpiryEvent{paneID: paneID})
+	s.enqueueEvent(s.context(), undoExpiryEvent{paneID: paneID})
 }
 
 func (s *Session) enqueuePaneCleanupTimeout(paneID uint32) {
-	s.enqueueEvent(paneCleanupTimeoutEvent{paneID: paneID})
+	s.enqueueEvent(s.context(), paneCleanupTimeoutEvent{paneID: paneID})
 }

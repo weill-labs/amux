@@ -17,7 +17,7 @@ type addCommand struct {
 	delta int
 }
 
-func (c addCommand) Handle(s *counterState) {
+func (c addCommand) Handle(_ context.Context, s *counterState) {
 	s.value += c.delta
 }
 
@@ -72,7 +72,7 @@ type blockingWatchdogCommand struct {
 	rename  string
 }
 
-func (c blockingWatchdogCommand) Handle(s *watchdogTestState) {
+func (c blockingWatchdogCommand) Handle(_ context.Context, s *watchdogTestState) {
 	close(c.entered)
 	if c.rename != "" {
 		s.name = c.rename
@@ -211,20 +211,20 @@ func TestRunProcessesCommands(t *testing.T) {
 	t.Parallel()
 
 	state := &counterState{}
-	queue := make(chan Command[counterState], 2)
+	queue := make(chan QueuedCommand[counterState], 2)
 	stop := make(chan struct{})
 	done := make(chan struct{})
 
 	go Run(state, queue, stop, done, nil)
 
-	if !Enqueue(queue, stop, addCommand{delta: 2}) {
+	if !Enqueue(context.Background(), queue, stop, addCommand{delta: 2}) {
 		t.Fatal("Enqueue(first) = false, want true")
 	}
-	if !Enqueue(queue, stop, addCommand{delta: 3}) {
+	if !Enqueue(context.Background(), queue, stop, addCommand{delta: 3}) {
 		t.Fatal("Enqueue(second) = false, want true")
 	}
 
-	result, err := EnqueueQuery(queue, stop, done, func(s *counterState) (int, error) {
+	result, err := EnqueueQuery(context.Background(), queue, stop, done, func(_ context.Context, s *counterState) (int, error) {
 		return s.value, nil
 	}, nil, ErrStopped)
 	if err != nil {
@@ -246,7 +246,7 @@ func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
 		name:     "watchdog-state-before-handle",
 		timedOut: make(chan watchdogTimeoutCall, 1),
 	}
-	queue := make(chan Command[watchdogTestState], 1)
+	queue := make(chan QueuedCommand[watchdogTestState], 1)
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	release := make(chan struct{})
@@ -263,7 +263,7 @@ func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
 		release: release,
 		rename:  "watchdog-state-during-handle",
 	}
-	if !Enqueue(queue, stop, cmd) {
+	if !Enqueue(context.Background(), queue, stop, cmd) {
 		t.Fatal("Enqueue(blocking command) = false, want true")
 	}
 	select {
@@ -310,7 +310,7 @@ func TestRunWatchdogEntersHandlerBeforeFirstCommand(t *testing.T) {
 		timeout: 100 * time.Millisecond,
 		entered: make(chan struct{}, 1),
 	}
-	queue := make(chan Command[watchdogTestState], 1)
+	queue := make(chan QueuedCommand[watchdogTestState], 1)
 	stop := make(chan struct{})
 	done := make(chan struct{})
 
@@ -329,11 +329,11 @@ func TestRunWatchdogEntersHandlerBeforeFirstCommand(t *testing.T) {
 func TestEnqueueReturnsFalseAfterStop(t *testing.T) {
 	t.Parallel()
 
-	queue := make(chan Command[counterState], 1)
+	queue := make(chan QueuedCommand[counterState], 1)
 	stop := make(chan struct{})
 	close(stop)
 
-	if Enqueue(queue, stop, addCommand{delta: 1}) {
+	if Enqueue(context.Background(), queue, stop, addCommand{delta: 1}) {
 		t.Fatal("Enqueue() = true after stop, want false")
 	}
 }
@@ -411,13 +411,13 @@ func TestEnqueueQueryRecoversPanics(t *testing.T) {
 	t.Parallel()
 
 	state := &counterState{}
-	queue := make(chan Command[counterState], 1)
+	queue := make(chan QueuedCommand[counterState], 1)
 	stop := make(chan struct{})
 	done := make(chan struct{})
 
 	go Run(state, queue, stop, done, nil)
 
-	_, err := EnqueueQuery(queue, stop, done, func(*counterState) (int, error) {
+	_, err := EnqueueQuery(context.Background(), queue, stop, done, func(context.Context, *counterState) (int, error) {
 		panic("boom")
 	}, func(r any, _ []byte) error {
 		return errors.New("internal error: recovered boom")
@@ -433,12 +433,12 @@ func TestEnqueueQueryRecoversPanics(t *testing.T) {
 func TestEnqueueQueryReturnsShutdownErrorWhenLoopDone(t *testing.T) {
 	t.Parallel()
 
-	queue := make(chan Command[counterState], 1)
+	queue := make(chan QueuedCommand[counterState], 1)
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	close(done)
 
-	_, err := EnqueueQuery(queue, stop, done, func(*counterState) (int, error) {
+	_, err := EnqueueQuery(context.Background(), queue, stop, done, func(context.Context, *counterState) (int, error) {
 		return 0, nil
 	}, nil, ErrStopped)
 	if !errors.Is(err, ErrStopped) {

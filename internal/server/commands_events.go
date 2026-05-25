@@ -39,7 +39,7 @@ func (ctx eventsCommandContext) DefaultThrottle() time.Duration {
 }
 
 func (ctx eventsCommandContext) Subscribe(filter eventscmd.Filter) (eventscmd.Subscription, error) {
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{
+	res := ctx.Sess.enqueueEventSubscribe(ctx.context(), eventFilter{
 		Types:    append([]string(nil), filter.Types...),
 		PaneName: filter.PaneName,
 		Host:     filter.Host,

@@ -39,7 +39,7 @@ func TestRemoteStateChangeEventUpdatesRemoteSessionAndProxyPanes(t *testing.T) {
 			})
 
 			mustSessionMutation(t, sess, func(sess *Session) {
-				remoteStateChangeEvent{hostName: "gpu", state: state}.handle(sess)
+				remoteStateChangeEvent{hostName: "gpu", state: state}.handle(sess.context(), sess)
 			})
 
 			snap := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -271,7 +271,7 @@ func TestRemoteLayoutEventLogsApplyErrors(t *testing.T) {
 					}},
 				}},
 			},
-		}.handle(sess)
+		}.handle(sess.context(), sess)
 	})
 
 	logOutput := buf.String()

@@ -52,7 +52,7 @@ func TestForwardCaptureAgentStatusScope(t *testing.T) {
 			pane1 := newTestPane(sess, 1, "pane-1")
 			pane2 := newTestPane(sess, 2, "pane-2")
 			w := newTestWindowWithPanes(t, sess, 1, "window-1", pane1, pane2)
-			if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+			if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 				sess.Windows = []*mux.Window{w}
 				sess.ActiveWindowID = w.ID
 				sess.Panes = []*mux.Pane{pane1, pane2}
@@ -97,7 +97,7 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 	pane3 := newTestPane(sess, 3, "pane-3")
 	window1 := newTestWindowWithPanes(t, sess, 1, "window-1", pane1, pane2)
 	window2 := newTestWindowWithPanes(t, sess, 2, "window-2", pane3)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.Windows = []*mux.Window{window1, window2}
 		sess.ActiveWindowID = window1.ID
 		sess.Panes = []*mux.Pane{pane1, pane2, pane3}
@@ -200,7 +200,7 @@ func TestForwardCapturePaneFallsBackWithoutClient(t *testing.T) {
 	pane := newTestPane(sess, 1, "pane-1")
 	pane.FeedOutput([]byte("\x1b[31mHEADLESS-ANSI\x1b[m\r\nHEADLESS-PLAIN\r\n"))
 	window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.Windows = []*mux.Window{window}
 		sess.ActiveWindowID = window.ID
 		sess.Panes = []*mux.Pane{pane}
@@ -256,7 +256,7 @@ func TestForwardCapturePaneUsesResolvedNumericID(t *testing.T) {
 	pane := newTestPane(sess, 1, "pane-1")
 	pane.FeedOutput([]byte("FALLBACK-CLIENT-NOT-FOUND\r\n"))
 	window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.Windows = []*mux.Window{window}
 		sess.ActiveWindowID = window.ID
 		sess.Panes = []*mux.Pane{pane}
@@ -297,7 +297,7 @@ func TestForwardCaptureJSONWrapsBadClientResponses(t *testing.T) {
 
 			pane1 := newTestPane(sess, 1, "pane-1")
 			window := newTestWindowWithPanes(t, sess, 1, "window-1", pane1)
-			if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+			if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 				sess.Windows = []*mux.Window{window}
 				sess.ActiveWindowID = window.ID
 				sess.Panes = []*mux.Pane{pane1}
@@ -465,7 +465,7 @@ func assertSessionEventLoopResponsive(t *testing.T, sess *Session) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		_, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 			return struct{}{}, nil
 		})
 		done <- err
@@ -655,7 +655,7 @@ func TestCaptureClientSnapshotSkipsBootstrappingClientWithoutWriterRoundTrip(t *
 	ready := newClientConn(serverConn)
 	t.Cleanup(ready.Close)
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.ensureClientManager().setClientsForTest(blocked, ready)
 		return struct{}{}, nil
 	}); err != nil {
@@ -818,7 +818,7 @@ func TestForwardCaptureJSONReturnsSessionShuttingDownWhileWaiting(t *testing.T) 
 	defer cc.Close()
 	defer clientEnd.Close()
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}, nil
 	}); err != nil {
@@ -861,7 +861,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	pane3 := newTestPane(sess, 3, "pane-3")
 	pane4 := newTestPane(sess, 4, "pane-4")
 	window := newTestWindowWithPanes(t, sess, 1, "window-1", pane1, pane2, pane3, pane4)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.Windows = []*mux.Window{window}
 		sess.ActiveWindowID = window.ID
 		sess.Panes = []*mux.Pane{pane1, pane2, pane3, pane4}
@@ -949,7 +949,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 		}
 	}()
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}, nil
 	}); err != nil {
@@ -1076,7 +1076,7 @@ func startCaptureCallForTest(t *testing.T, sess *Session, call func() *Message) 
 		cc.Close()
 	})
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}, nil
 	}); err != nil {
