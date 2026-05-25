@@ -171,14 +171,22 @@ func (cr *ClientRenderer) HandlePaneOutputWithEpoch(paneID uint32, data []byte, 
 	return info.screenChanged || info.cursorChanged
 }
 
+func paneOutputCursorVisible(state *clientSnapshot, activePaneID, paneID uint32) bool {
+	return paneID != 0 &&
+		paneID == activePaneID &&
+		state.ui.copyModes[paneID] == nil &&
+		!paneDragHidesCursor(state, activePaneID, paneID)
+}
+
+func paneOutputNeedsRender(info paneOutputRenderInfo, copyModeVisible bool) bool {
+	return info.cursorChanged || (info.paneVisible && !copyModeVisible && info.screenChanged)
+}
+
 func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte, sourceEpoch uint32) paneOutputRenderInfo {
 	state := cr.loadState()
 	activePaneID := cr.renderer.ActivePaneID()
 	copyModeVisible := state.ui.copyModes[paneID] != nil
-	cursorVisible := paneID != 0 &&
-		paneID == activePaneID &&
-		!copyModeVisible &&
-		!paneDragHidesCursor(state, activePaneID, paneID)
+	cursorVisible := paneOutputCursorVisible(state, activePaneID, paneID)
 
 	var before panePredictionSnapshot
 	if sourceEpoch != 0 {
@@ -193,8 +201,7 @@ func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte,
 			}
 		}
 	}
-	needsRender := info.cursorChanged || (info.paneVisible && !copyModeVisible && info.screenChanged)
-	if !needsRender {
+	if !paneOutputNeedsRender(info, copyModeVisible) {
 		return info
 	}
 	result := cr.reduceUI(uiActionPaneOutput{paneID: paneID})
@@ -626,14 +633,10 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 			paneOrder = append(paneOrder, paneID)
 			copyModeVisible[paneID] = state.ui.copyModes[paneID] != nil
 		}
-		cursorVisible := paneID != 0 &&
-			paneID == activePaneID &&
-			!copyModeVisible[paneID] &&
-			!paneDragHidesCursor(state, activePaneID, paneID)
 		items = append(items, paneOutputBatchItem{
 			paneID:      paneID,
 			data:        msg.Data,
-			trackCursor: cursorVisible,
+			trackCursor: paneOutputCursorVisible(state, activePaneID, paneID),
 		})
 		if cr.shouldPrioritizePaneOutput(paneID) {
 			prioritize = true
@@ -644,8 +647,7 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 	dirtyPaneIDs := make([]uint32, 0, len(paneOrder))
 	for _, paneID := range paneOrder {
 		info := infos[paneID]
-		needsRender := info.cursorChanged || (info.paneVisible && !copyModeVisible[paneID] && info.screenChanged)
-		if needsRender {
+		if paneOutputNeedsRender(info, copyModeVisible[paneID]) {
 			dirtyPaneIDs = append(dirtyPaneIDs, paneID)
 		}
 	}
