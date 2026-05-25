@@ -9,7 +9,7 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/log v0.3.1
-	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
+	github.com/charmbracelet/ultraviolet v0.0.0-20260525074446-7bbeb326738b
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/vt v0.0.0-20260311145557-c83711a11ffa
 	github.com/creack/pty v1.1.24
@@ -46,6 +46,6 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 )
 
-replace github.com/charmbracelet/ultraviolet => github.com/weill-labs/ultraviolet v0.0.0-20260524224635-226eb7d80580
+replace github.com/charmbracelet/ultraviolet => github.com/weill-labs/ultraviolet v0.0.0-20260525074446-7bbeb326738b
 
 replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260514062200-6ca40b8a9268
