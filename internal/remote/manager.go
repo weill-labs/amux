@@ -428,6 +428,36 @@ func (m *Manager) RunHostCommand(hostName string, sessionName string, cmdName st
 	return hc.runCommand(cmdName, cmdArgs)
 }
 
+// RemoteHostNames returns configured and connected remote host names without
+// querying individual host actors for connection state.
+func (m *Manager) RemoteHostNames() []string {
+	names, err := enqueueManagerQuery(m, func(m *Manager) ([]string, error) {
+		seen := make(map[string]struct{})
+		names := make([]string, 0, len(m.cfg.Hosts)+len(m.hosts))
+		add := func(name string) {
+			if _, ok := seen[name]; ok {
+				return
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+		for name, host := range m.cfg.Hosts {
+			if host.Type == "local" {
+				continue
+			}
+			add(name)
+		}
+		for name := range m.hosts {
+			add(name)
+		}
+		return names, nil
+	})
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
 // AllHostStatus returns connection states for all configured remote hosts.
 func (m *Manager) AllHostStatus() map[string]ConnState {
 	hosts, err := enqueueManagerQuery(m, func(m *Manager) (map[string]*HostConn, error) {

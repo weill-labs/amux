@@ -6,6 +6,10 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+type remoteHostNamesProvider interface {
+	RemoteHostNames() []string
+}
+
 func (s *Session) queryPaneRef(ref string) (proto.PaneRef, error) {
 	return enqueueSessionQuery(s, func(s *Session) (proto.PaneRef, error) {
 		return s.parsePaneRef(ref)
@@ -32,6 +36,14 @@ func (s *Session) parsePaneRef(ref string) (proto.PaneRef, error) {
 
 func (s *Session) isKnownRemoteHost(hostName string) bool {
 	if s == nil || s.RemoteManager == nil || hostName == "" {
+		return false
+	}
+	if provider, ok := s.RemoteManager.(remoteHostNamesProvider); ok {
+		for _, name := range provider.RemoteHostNames() {
+			if name == hostName {
+				return true
+			}
+		}
 		return false
 	}
 	_, ok := s.RemoteManager.AllHostStatus()[hostName]
