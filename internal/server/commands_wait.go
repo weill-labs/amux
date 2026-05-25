@@ -57,7 +57,7 @@ func (ctx waitCommandContext) Generation() uint64 {
 }
 
 func (ctx waitCommandContext) LayoutJSON() (string, error) {
-	snap, err := enqueueSessionQueryLegacy(ctx.context(), ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
+	snap, err := enqueueSessionQueryOnState(ctx.context(), ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
 		return sess.snapshotLayout(nil), nil
 	})
 	if err != nil {
@@ -155,7 +155,7 @@ func (ctx waitCommandContext) WaitExited(actorPaneID uint32, paneRef string, tim
 	paneID := pane.paneID
 
 	checkIdle := func() (bool, error) {
-		pane, err := enqueueSessionQueryLegacy(ctx.context(), ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQueryOnState(ctx.context(), ctx.Sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -285,7 +285,7 @@ func cmdWaitBusy(ctx *CommandContext) {
 
 func waitForPaneBusy(ctx context.Context, sess *Session, paneID uint32, paneRef string, timeout time.Duration) error {
 	checkBusy := func() (bool, error) {
-		pane, err := enqueueSessionQueryLegacy(ctx, sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQueryOnState(ctx, sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -297,7 +297,7 @@ func waitForPaneBusy(ctx context.Context, sess *Session, paneID uint32, paneRef 
 		return !pane.ForegroundJobState().Idle, nil
 	}
 	checkBusyStatus := func() (mux.ForegroundJobState, error) {
-		pane, err := enqueueSessionQueryLegacy(ctx, sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQueryOnState(ctx, sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {

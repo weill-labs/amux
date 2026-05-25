@@ -19,7 +19,7 @@ type capturePaneTarget struct {
 }
 
 func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref string) (capturePaneTarget, error) {
-	return enqueueSessionQueryLegacy(s.context(), s, func(s *Session) (capturePaneTarget, error) {
+	return enqueueSessionQueryOnState(s.context(), s, func(s *Session) (capturePaneTarget, error) {
 		pane, w, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
 		if err != nil {
 			return capturePaneTarget{}, err

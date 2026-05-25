@@ -247,7 +247,7 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 }
 
 func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
-	state, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (paneReadyState, error) {
+	state, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (paneReadyState, error) {
 		pane := sess.findPaneByID(paneID)
 		if pane == nil {
 			return paneReadyState{}, nil

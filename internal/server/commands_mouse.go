@@ -195,7 +195,7 @@ func buildMouseVisibleLayout(w *mux.Window, cols, rows int) (*mux.LayoutCell, er
 }
 
 func queryMouseClientTarget(ctx context.Context, sess *Session, actorPaneID uint32, requestedClientID string, paneRef, targetPaneRef string) (mouseClientTarget, error) {
-	return enqueueSessionQueryLegacy(ctx, sess, func(sess *Session) (mouseClientTarget, error) {
+	return enqueueSessionQueryOnState(ctx, sess, func(sess *Session) (mouseClientTarget, error) {
 		uiWait, err := sess.resolveUIClientSnapshot(requestedClientID, "")
 		if err != nil {
 			return mouseClientTarget{}, err

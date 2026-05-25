@@ -423,7 +423,7 @@ func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
 		return len(data), nil
 	})
 
-	_, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
+	_, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		return struct{}{}, sess.enqueueLivePaneInput(pane, []byte("blocked"))
 	})
 	if err != nil {
@@ -450,7 +450,7 @@ func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
 
 	actorReady := make(chan error, 1)
 	go func() {
-		_, err := enqueueSessionQueryLegacy(sess.context(), sess, func(*Session) (struct{}, error) {
+		_, err := enqueueSessionQueryOnState(sess.context(), sess, func(*Session) (struct{}, error) {
 			return struct{}{}, nil
 		})
 		actorReady <- err
@@ -1335,7 +1335,7 @@ func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testi
 	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventClientDisconnect}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.disconnectClientsForReload([]*clientConn{cc1, cc2})
 		return struct{}{}, nil
 	}); err != nil {

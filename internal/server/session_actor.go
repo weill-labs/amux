@@ -17,7 +17,7 @@ func enqueueSessionQuery[T any](ctx context.Context, s *Session, fn func(context
 	}, errSessionShuttingDown)
 }
 
-func enqueueSessionQueryLegacy[T any](ctx context.Context, s *Session, fn func(*Session) (T, error)) (T, error) {
+func enqueueSessionQueryOnState[T any](ctx context.Context, s *Session, fn func(*Session) (T, error)) (T, error) {
 	return enqueueSessionQuery(ctx, s, func(_ context.Context, sess *Session) (T, error) {
 		return fn(sess)
 	})

@@ -43,7 +43,7 @@ type idleWaitState struct {
 }
 
 func (s *Session) queryIdleWaitState(paneID uint32) (idleWaitState, error) {
-	return enqueueSessionQueryLegacy(s.context(), s, func(sess *Session) (idleWaitState, error) {
+	return enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (idleWaitState, error) {
 		pane := sess.findPaneByID(paneID)
 		if pane == nil {
 			return idleWaitState{}, nil

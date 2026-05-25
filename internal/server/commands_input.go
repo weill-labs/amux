@@ -381,7 +381,7 @@ func resolveBroadcastTargets(sess *Session, args broadcastCommandArgs) ([]resolv
 }
 
 func resolveBroadcastTargetsForActor(sess *Session, actorPaneID uint32, args broadcastCommandArgs) ([]resolvedPaneRef, error) {
-	return enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) ([]resolvedPaneRef, error) {
+	return enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) ([]resolvedPaneRef, error) {
 		switch {
 		case len(args.paneRefs) > 0:
 			return resolveBroadcastPaneRefs(sess, actorPaneID, args.paneRefs)

@@ -37,7 +37,7 @@ func stopSessionBackgroundLoops(t *testing.T, sess *Session) {
 func mustSessionQuery[T any](t *testing.T, sess *Session, fn func(*Session) T) T {
 	t.Helper()
 
-	value, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (T, error) {
+	value, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (T, error) {
 		return fn(sess), nil
 	})
 	if err != nil {
@@ -49,7 +49,7 @@ func mustSessionQuery[T any](t *testing.T, sess *Session, fn func(*Session) T) T
 func mustSessionMutation(t *testing.T, sess *Session, fn func(*Session)) {
 	t.Helper()
 
-	if _, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		fn(sess)
 		return struct{}{}, nil
 	}); err != nil {
@@ -86,7 +86,7 @@ func setSessionLayoutForTest(t *testing.T, sess *Session, activeWindowID uint32,
 func mustCreatePane(t *testing.T, sess *Session, srv *Server, cols, rows int) *mux.Pane {
 	t.Helper()
 
-	pane, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (*mux.Pane, error) {
+	pane, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*mux.Pane, error) {
 		return sess.createPane(srv, cols, rows)
 	})
 	if err != nil {

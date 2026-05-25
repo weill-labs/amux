@@ -175,7 +175,7 @@ func (p *serverPaneData) InCopyMode() bool       { return false }
 func (p *serverPaneData) CopyModeSearch() string { return "" }
 
 func (s *Session) captureFullSessionSnapshot() (serverFullSessionCapture, error) {
-	return enqueueSessionQueryLegacy(s.context(), s, func(s *Session) (serverFullSessionCapture, error) {
+	return enqueueSessionQueryOnState(s.context(), s, func(s *Session) (serverFullSessionCapture, error) {
 		w := s.activeWindow()
 		if w == nil || w.Root == nil {
 			return serverFullSessionCapture{}, fmt.Errorf("no window")

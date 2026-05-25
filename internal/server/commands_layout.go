@@ -166,7 +166,7 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 }
 
 func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, placement createPanePlacement, paneRef, windowRef string) (createPaneSnapshot, error) {
-	return enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (createPaneSnapshot, error) {
+	return enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (createPaneSnapshot, error) {
 		if placement == createPanePlacementColumnFill {
 			resolvedWindowRef, err := resolveCreatePaneWindowHint(sess, actorPaneID, paneRef, windowRef)
 			if err != nil {
@@ -688,7 +688,7 @@ func cmdRespawn(ctx *CommandContext) {
 }
 
 func queryRespawnTarget(sess *Session, actorPaneID uint32, args []string) (respawnTarget, error) {
-	return enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (respawnTarget, error) {
+	return enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (respawnTarget, error) {
 		pane, _, err := sess.resolvePaneWindowForActor(actorPaneID, "respawn", args)
 		if err != nil {
 			return respawnTarget{}, err
@@ -852,7 +852,7 @@ func runCopyMode(ctx *CommandContext, actorPaneID uint32, opts copyModeOptions) 
 	var err error
 	var pane resolvedPaneRef
 	if opts.paneRef == "" {
-		pane, err = enqueueSessionQueryLegacy(ctx.context(), ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
+		pane, err = enqueueSessionQueryOnState(ctx.context(), ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
 			w := sess.activeWindow()
 			if w == nil || w.ActivePane == nil {
 				return resolvedPaneRef{}, fmt.Errorf("no active pane")

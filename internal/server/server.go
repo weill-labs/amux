@@ -274,7 +274,7 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		cwdWork []pidEntry
 	}
 
-	snap, err := enqueueSessionQueryLegacy(s.context(), s, func(s *Session) (crashSnapshot, error) {
+	snap, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (crashSnapshot, error) {
 		if len(s.Windows) == 0 {
 			return crashSnapshot{}, nil
 		}

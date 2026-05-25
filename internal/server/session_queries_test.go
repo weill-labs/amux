@@ -150,7 +150,7 @@ func TestResolvePaneAcrossWindowsForActorPrefersActorWindowForDuplicateNames(t *
 		return struct{}{}
 	})
 
-	resolved, err := enqueueSessionQueryLegacy(sess.context(), sess, func(sess *Session) (resolvedPaneRef, error) {
+	resolved, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (resolvedPaneRef, error) {
 		pane, window, err := sess.resolvePaneAcrossWindowsForActor(p3.ID, "shared")
 		if err != nil {
 			return resolvedPaneRef{}, err

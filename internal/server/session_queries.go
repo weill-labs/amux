@@ -236,7 +236,7 @@ func (s *Session) queryActiveWindowSnapshot() (activeWindowSnapshot, error) {
 }
 
 func (s *Session) queryActiveWindowSnapshotContext(ctx context.Context) (activeWindowSnapshot, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (activeWindowSnapshot, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (activeWindowSnapshot, error) {
 		w := s.activeWindow()
 		if w == nil {
 			return activeWindowSnapshot{}, fmt.Errorf("no window")
@@ -261,7 +261,7 @@ func (s *Session) queryResolvedPaneForActor(actorPaneID uint32, ref string) (res
 }
 
 func (s *Session) queryResolvedPaneForActorContext(ctx context.Context, actorPaneID uint32, ref string) (resolvedPaneRef, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (resolvedPaneRef, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (resolvedPaneRef, error) {
 		pane, w, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
 		if err != nil {
 			return resolvedPaneRef{}, err
@@ -284,7 +284,7 @@ func (s *Session) queryActivePaneForWindow(ref string) (resolvedPaneRef, error) 
 }
 
 func (s *Session) queryActivePaneForWindowContext(ctx context.Context, ref string) (resolvedPaneRef, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (resolvedPaneRef, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (resolvedPaneRef, error) {
 		w := s.resolveWindow(ref)
 		if w == nil {
 			return resolvedPaneRef{}, fmt.Errorf("window %q not found", ref)
@@ -307,7 +307,7 @@ func (s *Session) queryKillTarget(actorPaneID uint32, ref string) (killTargetSna
 }
 
 func (s *Session) queryKillTargetContext(ctx context.Context, actorPaneID uint32, ref string) (killTargetSnapshot, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (killTargetSnapshot, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (killTargetSnapshot, error) {
 		var pane *mux.Pane
 		if ref == "" {
 			w := s.windowForActor(actorPaneID)
@@ -335,7 +335,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 }
 
 func (s *Session) queryPaneListContext(ctx context.Context) ([]paneListEntry, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) ([]paneListEntry, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) ([]paneListEntry, error) {
 		entries := make([]paneListEntry, 0, len(s.Panes))
 		w := s.activeWindow()
 		now := s.clock().Now()
@@ -405,7 +405,7 @@ func (s *Session) querySessionStatus() (sessionStatusSnapshot, error) {
 }
 
 func (s *Session) querySessionStatusContext(ctx context.Context) (sessionStatusSnapshot, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (sessionStatusSnapshot, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (sessionStatusSnapshot, error) {
 		snap := sessionStatusSnapshot{
 			total:       len(s.Panes),
 			windowCount: len(s.Windows),
@@ -424,7 +424,7 @@ func (s *Session) queryWindowList() ([]windowListEntry, error) {
 }
 
 func (s *Session) queryWindowListContext(ctx context.Context) ([]windowListEntry, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) ([]windowListEntry, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) ([]windowListEntry, error) {
 		entries := make([]windowListEntry, 0, len(s.Windows))
 		for i, w := range s.Windows {
 			entries = append(entries, windowListEntry{
@@ -444,7 +444,7 @@ func (s *Session) queryClientList() ([]clientListEntry, error) {
 }
 
 func (s *Session) queryClientListContext(ctx context.Context) ([]clientListEntry, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) ([]clientListEntry, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) ([]clientListEntry, error) {
 		clients := s.ensureClientManager().clients
 		entries := make([]clientListEntry, 0, len(clients))
 		sizeOwner := s.effectiveSizeClient()
@@ -467,7 +467,7 @@ func (s *Session) queryConnectionLog() ([]ConnectionLogEntry, error) {
 }
 
 func (s *Session) queryConnectionLogContext(ctx context.Context) ([]ConnectionLogEntry, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) ([]ConnectionLogEntry, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) ([]ConnectionLogEntry, error) {
 		return s.ensureConnectionLog().Snapshot(), nil
 	})
 }
@@ -477,7 +477,7 @@ func (s *Session) queryPaneLog() ([]PaneLogEntry, error) {
 }
 
 func (s *Session) queryPaneLogContext(ctx context.Context) ([]PaneLogEntry, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) ([]PaneLogEntry, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) ([]PaneLogEntry, error) {
 		return s.ensurePaneLog().Snapshot(), nil
 	})
 }
@@ -487,7 +487,7 @@ func (s *Session) queryUIClient(requestedClientID, eventName string) (uiClientSn
 }
 
 func (s *Session) queryUIClientContext(ctx context.Context, requestedClientID, eventName string) (uiClientSnapshot, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (uiClientSnapshot, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (uiClientSnapshot, error) {
 		return s.resolveUIClientSnapshot(requestedClientID, eventName)
 	})
 }
@@ -497,7 +497,7 @@ func (s *Session) queryFirstClient() (*clientConn, error) {
 }
 
 func (s *Session) queryFirstClientContext(ctx context.Context) (*clientConn, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (*clientConn, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (*clientConn, error) {
 		if s.ensureClientManager().clientCount() == 0 {
 			return nil, fmt.Errorf("no client attached")
 		}

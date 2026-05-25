@@ -16,7 +16,7 @@ func (s *Session) queryPaneRef(ref string) (proto.PaneRef, error) {
 }
 
 func (s *Session) queryPaneRefContext(ctx context.Context, ref string) (proto.PaneRef, error) {
-	return enqueueSessionQueryLegacy(ctx, s, func(s *Session) (proto.PaneRef, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (proto.PaneRef, error) {
 		return s.parsePaneRef(ref)
 	})
 }

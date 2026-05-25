@@ -112,7 +112,7 @@ func (m *waiterManager) notifyPaneOutputSubs(paneID uint32) {
 }
 
 func (m *waiterManager) beginPaneOutputWait(sess *Session, paneID uint32, substr string) (paneOutputWaitStart, error) {
-	return enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (paneOutputWaitStart, error) {
+	return enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (paneOutputWaitStart, error) {
 		pane := s.findPaneByID(paneID)
 		if pane == nil {
 			return paneOutputWaitStart{}, nil
@@ -147,7 +147,7 @@ func (m *waiterManager) waitGeneration(sess *Session, afterGen uint64, timeout t
 		matched bool
 	}
 
-	reg, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (waitRegistration, error) {
+	reg, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (waitRegistration, error) {
 		gen := s.generation.Load()
 		if gen > afterGen {
 			return waitRegistration{gen: gen}, nil
@@ -171,7 +171,7 @@ func (m *waiterManager) waitGeneration(sess *Session, afterGen uint64, timeout t
 	case gen := <-reg.reply:
 		return gen, true
 	case <-timer.C:
-		state, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (waitState, error) {
+		state, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (waitState, error) {
 			delete(m.layoutWaiters, reg.waiterID)
 			gen := s.generation.Load()
 			return waitState{gen: gen, matched: gen > afterGen}, nil
@@ -184,7 +184,7 @@ func (m *waiterManager) waitGeneration(sess *Session, afterGen uint64, timeout t
 }
 
 func (m *waiterManager) waitGenerationAfterCurrent(sess *Session, timeout time.Duration) (uint64, bool) {
-	afterGen, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (uint64, error) {
+	afterGen, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (uint64, error) {
 		return s.generation.Load(), nil
 	})
 	if err != nil {
@@ -221,7 +221,7 @@ func (m *waiterManager) waitClipboard(sess *Session, afterGen uint64, timeout ti
 		matched bool
 	}
 
-	reg, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (waitRegistration, error) {
+	reg, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (waitRegistration, error) {
 		gen := m.clipboardGen.Load()
 		if gen > afterGen {
 			return waitRegistration{payload: m.lastClipboardB64}, nil
@@ -245,7 +245,7 @@ func (m *waiterManager) waitClipboard(sess *Session, afterGen uint64, timeout ti
 	case payload := <-reg.reply:
 		return payload, true
 	case <-timer.C:
-		state, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (waitState, error) {
+		state, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (waitState, error) {
 			delete(m.clipboardWaiters, reg.waiterID)
 			if m.clipboardGen.Load() > afterGen {
 				return waitState{payload: m.lastClipboardB64, matched: true}, nil
@@ -260,7 +260,7 @@ func (m *waiterManager) waitClipboard(sess *Session, afterGen uint64, timeout ti
 }
 
 func (m *waiterManager) waitClipboardAfterCurrent(sess *Session, timeout time.Duration) (string, bool) {
-	afterGen, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (uint64, error) {
+	afterGen, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (uint64, error) {
 		return m.clipboardGen.Load(), nil
 	})
 	if err != nil {
@@ -301,7 +301,7 @@ func (m *waiterManager) waitCrashCheckpoint(sess *Session, afterGen uint64, time
 		matched bool
 	}
 
-	reg, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (waitRegistration, error) {
+	reg, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (waitRegistration, error) {
 		if m.crashCheckpointGen > afterGen {
 			return waitRegistration{
 				record: crashCheckpointRecord{
@@ -329,7 +329,7 @@ func (m *waiterManager) waitCrashCheckpoint(sess *Session, afterGen uint64, time
 	case record := <-reg.reply:
 		return record, true
 	case <-timer.C:
-		state, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (waitState, error) {
+		state, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (waitState, error) {
 			delete(m.checkpointWaiters, reg.waiterID)
 			if m.crashCheckpointGen > afterGen {
 				return waitState{
@@ -350,7 +350,7 @@ func (m *waiterManager) waitCrashCheckpoint(sess *Session, afterGen uint64, time
 }
 
 func (m *waiterManager) waitCrashCheckpointAfterCurrent(sess *Session, timeout time.Duration) (crashCheckpointRecord, bool) {
-	afterGen, err := enqueueSessionQueryLegacy(sess.context(), sess, func(s *Session) (uint64, error) {
+	afterGen, err := enqueueSessionQueryOnState(sess.context(), sess, func(s *Session) (uint64, error) {
 		return m.crashCheckpointGen, nil
 	})
 	if err != nil {
