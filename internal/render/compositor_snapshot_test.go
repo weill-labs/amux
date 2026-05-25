@@ -47,6 +47,7 @@ func TestRenderDiffPublishesOwnedPrevGridSnapshot(t *testing.T) {
 }
 
 func TestPublishPrevGridSnapshotDoesNotAllocate(t *testing.T) {
+	// Not parallel: testing.AllocsPerRun panics when called after t.Parallel.
 	comp := NewCompositor(80, 24, "test")
 	grid := NewScreenGrid(80, 24)
 
