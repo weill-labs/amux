@@ -51,18 +51,15 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneRenderSnapshot
 	screenState, screenChanged := captureScreenSnapshot(emu, prev, width, height)
 
 	cursorBlockCol, cursorBlockRow, hasCursorBlock := emu.CursorBlockPosition()
-	rendered, renderedNoCursor := captureRenderedSnapshot(emu, prev, width, height, screenChanged, cursorBlockCol, cursorBlockRow, hasCursorBlock)
 	snap := paneRenderSnapshot{
-		width:            width,
-		height:           height,
-		cursorCol:        cursorCol,
-		cursorRow:        cursorRow,
-		cursorHidden:     emu.CursorHidden(),
-		terminal:         cloneTerminalState(emu.TerminalState()),
-		rendered:         rendered,
-		renderedNoCursor: renderedNoCursor,
-		scrollback:       scrollbackState.scrollback,
-		screen:           screenState.screen,
+		width:        width,
+		height:       height,
+		cursorCol:    cursorCol,
+		cursorRow:    cursorRow,
+		cursorHidden: emu.CursorHidden(),
+		terminal:     cloneTerminalState(emu.TerminalState()),
+		scrollback:   scrollbackState.scrollback,
+		screen:       screenState.screen,
 	}
 	if hasCursorBlock {
 		snap.cursorBlockCol = cursorBlockCol
@@ -70,11 +67,6 @@ func capturePaneRenderSnapshot(emu mux.TerminalEmulator, prev paneRenderSnapshot
 		snap.hasCursorBlock = true
 	}
 	state := mergePaneSnapshotState(scrollbackState, screenState)
-	state.renderWidth = width
-	state.renderHeight = height
-	state.rendered = rendered
-	state.renderedNoCursor = renderedNoCursor
-	state.renderedValid = true
 	state.cursorBlockCol = cursorBlockCol
 	state.cursorBlockRow = cursorBlockRow
 	state.hasCursorBlock = hasCursorBlock
@@ -328,11 +320,7 @@ type snapshotPaneData struct {
 }
 
 func (p *snapshotPaneData) RenderScreen(active bool) string {
-	rendered := p.pane.rendered
-	if !active && p.pane.hasCursorBlock {
-		rendered = p.pane.renderedNoCursor
-	}
-	return filterRenderedANSI(rendered, p.caps)
+	return renderPaneSnapshotANSI(p.pane, active, p.caps)
 }
 
 func (p *snapshotPaneData) CellAt(col, row int, active bool) render.ScreenCell {
@@ -387,7 +375,12 @@ func (p *snapshotPaneData) CopyModeSearch() string {
 }
 
 func (p paneRenderSnapshot) ansiString(caps proto.ClientCapabilities) string {
-	return filterRenderedANSI(p.rendered, caps)
+	return renderPaneSnapshotANSI(p, true, caps)
+}
+
+func renderPaneSnapshotANSI(pane paneRenderSnapshot, active bool, caps proto.ClientCapabilities) string {
+	data := snapshotPaneData{pane: pane, caps: caps}
+	return filterRenderedANSI(render.RenderPaneViewportANSI(pane.width, pane.height, active, &data), caps)
 }
 
 func (p paneRenderSnapshot) textString() string {
