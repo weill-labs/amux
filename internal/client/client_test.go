@@ -1693,6 +1693,45 @@ func TestRenderCoalescedLocalActionReplySentBeforeExit(t *testing.T) {
 	}
 }
 
+func TestRenderCoalescedCaptureBarrierSeesCoalescedPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 4)
+	cr.HandleLayout(singlePane20x3())
+	cr.renderFrameInterval = time.Hour
+	msgCh := make(chan *RenderMsg, 8)
+	done := make(chan struct{})
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("first ")}
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("second")}
+
+	barrierDone := make(chan struct{})
+	go func() {
+		callLocalRenderAction[struct{}](cr, msgCh, func(*ClientRenderer) localRenderResult {
+			return localRenderResult{}
+		})
+		close(barrierDone)
+	}()
+
+	select {
+	case <-barrierDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("capture barrier did not drain queued pane output")
+	}
+
+	if got := cr.CapturePaneText(1, false); !strings.Contains(got, "first second") {
+		t.Fatalf("capture after barrier = %q, want queued pane output", got)
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
 func TestRenderCoalescedPaneOutputRendersImmediatelyAfterIdle(t *testing.T) {
 	t.Parallel()
 
@@ -1921,6 +1960,20 @@ func TestRenderCoalescedDoesNotPrioritizeBackgroundPaneAfterLocalInput(t *testin
 	msgCh <- &RenderMsg{Typ: RenderMsgExit}
 	close(msgCh)
 	<-done
+}
+
+func TestHandlePaneOutputBatchDoesNotPrioritizeBackgroundAfterActiveNoop(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.MarkLocalInput()
+
+	effects, _ := cr.handlePaneOutputBatch([]*RenderMsg{
+		{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("\x1b[?1002h\x1b[?1006h")},
+		{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")},
+	})
+
+	assertClientEffectKinds(t, effects, []clientEffectKind{clientEffectScheduleRender})
 }
 
 func TestClientRenderLoopStateShouldRenderNowReturnsFalseWithPendingTimer(t *testing.T) {

@@ -400,6 +400,61 @@ func BenchmarkPublishPaneCaptureFullScrollback(b *testing.B) {
 	}
 }
 
+func BenchmarkPaneOutputCaptureRefreshBurst(b *testing.B) {
+	const (
+		width           = 160
+		layoutHeight    = 25
+		scrollbackLines = mux.DefaultScrollbackLines
+		paneID          = 1
+		burstMessages   = 32
+	)
+
+	newRenderer := func(b *testing.B) (*Renderer, [][]byte, int) {
+		b.Helper()
+		r := NewWithScrollback(width, layoutHeight+1, scrollbackLines)
+		b.Cleanup(r.Close)
+		r.HandleLayout(benchLayoutSnapshot(1, width, layoutHeight))
+		contentHeight := mux.PaneContentHeight(layoutHeight)
+		r.HandlePaneOutputInfo(paneID, benchRenderSnapshotScreen(width, contentHeight), true)
+		payloads := benchRenderSnapshotScreenChanges(width, contentHeight, burstMessages)
+		totalBytes := 0
+		for _, payload := range payloads {
+			totalBytes += len(payload)
+		}
+		return r, payloads, totalBytes
+	}
+
+	b.Run("per-message", func(b *testing.B) {
+		r, payloads, totalBytes := newRenderer(b)
+		b.SetBytes(int64(totalBytes))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			for _, payload := range payloads {
+				r.HandlePaneOutputInfo(paneID, payload, true)
+			}
+		}
+	})
+
+	b.Run("batched", func(b *testing.B) {
+		r, payloads, totalBytes := newRenderer(b)
+		items := make([]paneOutputBatchItem, len(payloads))
+		for i, payload := range payloads {
+			items[i] = paneOutputBatchItem{
+				paneID:      paneID,
+				data:        payload,
+				trackCursor: true,
+			}
+		}
+		b.SetBytes(int64(totalBytes))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			r.HandlePaneOutputBatchInfo(items)
+		}
+	})
+}
+
 func BenchmarkCapturePaneRenderSnapshotRender(b *testing.B) {
 	const (
 		width           = 80

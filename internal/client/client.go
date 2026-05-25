@@ -171,14 +171,22 @@ func (cr *ClientRenderer) HandlePaneOutputWithEpoch(paneID uint32, data []byte, 
 	return info.screenChanged || info.cursorChanged
 }
 
+func paneOutputCursorVisible(state *clientSnapshot, activePaneID, paneID uint32) bool {
+	return paneID != 0 &&
+		paneID == activePaneID &&
+		state.ui.copyModes[paneID] == nil &&
+		!paneDragHidesCursor(state, activePaneID, paneID)
+}
+
+func paneOutputNeedsRender(info paneOutputRenderInfo, copyModeVisible bool) bool {
+	return info.cursorChanged || (info.paneVisible && !copyModeVisible && info.screenChanged)
+}
+
 func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte, sourceEpoch uint32) paneOutputRenderInfo {
 	state := cr.loadState()
 	activePaneID := cr.renderer.ActivePaneID()
 	copyModeVisible := state.ui.copyModes[paneID] != nil
-	cursorVisible := paneID != 0 &&
-		paneID == activePaneID &&
-		!copyModeVisible &&
-		!paneDragHidesCursor(state, activePaneID, paneID)
+	cursorVisible := paneOutputCursorVisible(state, activePaneID, paneID)
 
 	var before panePredictionSnapshot
 	if sourceEpoch != 0 {
@@ -193,8 +201,7 @@ func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte,
 			}
 		}
 	}
-	needsRender := info.cursorChanged || (info.paneVisible && !copyModeVisible && info.screenChanged)
-	if !needsRender {
+	if !paneOutputNeedsRender(info, copyModeVisible) {
 		return info
 	}
 	result := cr.reduceUI(uiActionPaneOutput{paneID: paneID})
@@ -524,6 +531,31 @@ func appendStopAndRenderNow(effects []clientEffect) []clientEffect {
 	)
 }
 
+func paneOutputCanBatch(msg *RenderMsg) bool {
+	return msg != nil && msg.Typ == RenderMsgPaneOutput && msg.SourceEpoch == 0
+}
+
+func collectPaneOutputBatch(first *RenderMsg, msgCh <-chan *RenderMsg) (batch []*RenderMsg, next *RenderMsg, closed bool) {
+	batch = append(batch, first)
+	if !paneOutputCanBatch(first) {
+		return batch, nil, false
+	}
+	for {
+		select {
+		case msg, ok := <-msgCh:
+			if !ok {
+				return batch, nil, true
+			}
+			if !paneOutputCanBatch(msg) {
+				return batch, msg, false
+			}
+			batch = append(batch, msg)
+		default:
+			return batch, nil, false
+		}
+	}
+}
+
 func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 	switch msg.Typ {
 	case RenderMsgLayout:
@@ -574,6 +606,73 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 	default:
 		return nil
 	}
+}
+
+func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffect, int) {
+	if len(msgs) == 0 {
+		return nil, 0
+	}
+	if len(msgs) == 1 {
+		effects := cr.handleRenderMsg(msgs[0])
+		return effects, len(msgs[0].Data)
+	}
+
+	state := cr.loadState()
+	activePaneID := cr.renderer.ActivePaneID()
+	items := make([]paneOutputBatchItem, 0, len(msgs))
+	paneOrder := make([]uint32, 0, len(msgs))
+	seenPanes := make(map[uint32]struct{})
+	copyModeVisible := make(map[uint32]bool)
+	totalBytes := 0
+	for _, msg := range msgs {
+		totalBytes += len(msg.Data)
+		paneID := msg.PaneID
+		if _, ok := seenPanes[paneID]; !ok {
+			seenPanes[paneID] = struct{}{}
+			paneOrder = append(paneOrder, paneID)
+			copyModeVisible[paneID] = state.ui.copyModes[paneID] != nil
+		}
+		items = append(items, paneOutputBatchItem{
+			paneID:      paneID,
+			data:        msg.Data,
+			trackCursor: paneOutputCursorVisible(state, activePaneID, paneID),
+		})
+	}
+
+	infos := cr.renderer.HandlePaneOutputBatchInfo(items)
+	dirtyPaneIDs := make([]uint32, 0, len(paneOrder))
+	for _, paneID := range paneOrder {
+		info := infos[paneID]
+		if paneOutputNeedsRender(info, copyModeVisible[paneID]) {
+			dirtyPaneIDs = append(dirtyPaneIDs, paneID)
+		}
+	}
+	if len(dirtyPaneIDs) == 0 {
+		return nil, totalBytes
+	}
+
+	prioritize := false
+	for _, paneID := range dirtyPaneIDs {
+		if cr.shouldPrioritizePaneOutput(paneID) {
+			prioritize = true
+			break
+		}
+	}
+
+	result := cr.updateState(func(next *clientSnapshot) clientUIResult {
+		var merged clientUIResult
+		for _, paneID := range dirtyPaneIDs {
+			result := next.ui.reduce(uiActionPaneOutput{paneID: paneID})
+			merged.uiEvents = append(merged.uiEvents, result.uiEvents...)
+		}
+		return merged
+	})
+	effects := appendUIEventEffect(nil, result.uiEvents)
+	if prioritize {
+		return appendStopAndRenderNow(effects), totalBytes
+	}
+	effects = append(effects, clientEffect{kind: clientEffectScheduleRender})
+	return effects, totalBytes
 }
 
 func (cr *ClientRenderer) handleLocalRenderMsg(state *clientRenderLoopState, msg *RenderMsg, write func(string)) bool {
@@ -688,33 +787,48 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 		renderFrameInterval: frameInterval,
 	}
 
+	var pendingMsg *RenderMsg
 	for {
-		select {
-		case msg, ok := <-msgCh:
-			if !ok {
-				return
-			}
-			if msg.Typ == RenderMsgLocalAction {
-				if cr.handleLocalRenderMsg(state, msg, write) {
+		var msg *RenderMsg
+		if pendingMsg != nil {
+			msg = pendingMsg
+			pendingMsg = nil
+		} else {
+			select {
+			case next, ok := <-msgCh:
+				if !ok {
 					return
 				}
+				msg = next
+			case <-state.renderC:
+				cr.renderNow(state, write)
 				continue
 			}
-			if msg.Typ == RenderMsgPaneOutput {
-				effects := cr.handleRenderMsg(msg)
-				if len(effects) != 0 && state.recordPaneOutput(len(msg.Data), cr.renderOverflowThreshold()) {
-					cr.RequestFullRedraw()
-				}
-				if cr.executeRenderEffects(state, effects, write) {
-					return
-				}
-				continue
-			}
-			if cr.executeRenderEffects(state, cr.handleRenderMsg(msg), write) {
+		}
+
+		if msg.Typ == RenderMsgLocalAction {
+			if cr.handleLocalRenderMsg(state, msg, write) {
 				return
 			}
-		case <-state.renderC:
-			cr.renderNow(state, write)
+			continue
+		}
+		if msg.Typ == RenderMsgPaneOutput {
+			batch, next, closed := collectPaneOutputBatch(msg, msgCh)
+			pendingMsg = next
+			effects, bytes := cr.handlePaneOutputBatch(batch)
+			if len(effects) != 0 && state.recordPaneOutput(bytes, cr.renderOverflowThreshold()) {
+				cr.RequestFullRedraw()
+			}
+			if cr.executeRenderEffects(state, effects, write) {
+				return
+			}
+			if closed {
+				return
+			}
+			continue
+		}
+		if cr.executeRenderEffects(state, cr.handleRenderMsg(msg), write) {
+			return
 		}
 	}
 }
