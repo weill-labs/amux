@@ -230,7 +230,7 @@ func (ctx waitCommandContext) WaitReady(actorPaneID uint32, args []string) error
 	if err != nil {
 		return err
 	}
-	return waitForPaneReady(ctx.Sess, paneRef, pane, opts)
+	return waitForPaneReady(ctx.context(), ctx.Sess, paneRef, pane, opts)
 }
 
 func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error {
@@ -244,7 +244,7 @@ func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error 
 	if err != nil {
 		return err
 	}
-	return waitForPaneIdle(ctx.Sess, paneRef, pane.paneID, opts)
+	return waitForPaneIdle(ctx.context(), ctx.Sess, paneRef, pane.paneID, opts)
 }
 
 func cmdCursor(ctx *CommandContext) {

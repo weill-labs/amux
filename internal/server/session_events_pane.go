@@ -360,9 +360,13 @@ type paneOutputSubscribeCmd struct {
 	reply  chan chan struct{}
 }
 
-func (e paneOutputSubscribeCmd) handle(_ context.Context, s *Session) {
+func (e paneOutputSubscribeCmd) handle(ctx context.Context, s *Session) {
 	ch := s.addPaneOutputSubscriber(e.paneID)
-	e.reply <- ch
+	select {
+	case e.reply <- ch:
+	case <-ctx.Done():
+		s.ensureWaiters().removePaneOutputSubscriber(e.paneID, ch)
+	}
 }
 
 type paneOutputUnsubscribeCmd struct {
@@ -375,7 +379,7 @@ func (e paneOutputUnsubscribeCmd) handle(_ context.Context, s *Session) {
 }
 
 func (s *Session) enqueuePaneOutputSubscribe(ctx context.Context, paneID uint32) chan struct{} {
-	reply := make(chan (chan struct{}), 1)
+	reply := make(chan (chan struct{}))
 	if !s.enqueueEvent(ctx, paneOutputSubscribeCmd{paneID: paneID, reply: reply}) {
 		return nil
 	}

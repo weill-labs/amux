@@ -188,7 +188,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 	disableAutomaticEnterPacingForIdlePane(chunks, pane.pane)
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
-		if err := waitForPaneReady(ctx.Sess, pane.paneName, pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
+		if err := waitForPaneReady(ctx.context(), ctx.Sess, pane.paneName, pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
 			return "", 0, err
 		}
 		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, nil); err != nil {

@@ -470,7 +470,7 @@ type commandMutationEvent struct {
 	reply chan commandMutationResult
 }
 
-func (e commandMutationEvent) handle(eventCtx context.Context, s *Session) {
+func (e commandMutationEvent) handle(_ context.Context, s *Session) {
 	beforeActiveWindowID := s.ActiveWindowID
 	ctx := newMutationContext(s)
 	res := recoverCommandMutation(e.fn, ctx)
@@ -502,10 +502,7 @@ func (e commandMutationEvent) handle(eventCtx context.Context, s *Session) {
 		}
 		res.paneRenders = nil
 	}
-	select {
-	case e.reply <- res:
-	case <-eventCtx.Done():
-	}
+	e.reply <- res
 }
 
 func (s *Session) drainScheduledMutationPanes(ctx *MutationContext) {
@@ -637,7 +634,12 @@ func (s *Session) enqueueCommandMutationContext(ctx context.Context, fn func(*Mu
 	case res := <-reply:
 		return res
 	case <-ctx.Done():
-		return commandMutationResult{err: ctx.Err()}
+		select {
+		case res := <-reply:
+			return res
+		default:
+			return commandMutationResult{err: ctx.Err()}
+		}
 	case <-s.sessionEventDone:
 		// The event loop exited (e.g., wantShutdown after our handler).
 		// The reply may already be buffered — prefer it over the error.
