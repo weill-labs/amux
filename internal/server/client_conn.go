@@ -333,6 +333,9 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 	commandQueue := make(chan *Message, 64)
 	go func() {
 		for msg := range commandQueue {
+			if cc.context().Err() != nil {
+				return
+			}
 			cc.handleCommand(srv, sess, msg)
 		}
 	}()
