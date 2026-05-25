@@ -12,6 +12,7 @@ import (
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 type captureSnapshotFakeEmulator struct {
@@ -261,90 +262,110 @@ func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 	}
 }
 
-func TestCapturePaneRenderSnapshotReusesRenderedANSIWhenScreenUnchanged(t *testing.T) {
+func TestCapturePaneRenderSnapshotSkipsRenderedANSIOnPublish(t *testing.T) {
 	t.Parallel()
 
 	emu := newCaptureSnapshotFakeEmulator(nil, 0)
 	emu.screen = []string{"cached", "screen"}
 	emu.screenChanged = true
-
-	first, state, screenChanged := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
-	if !screenChanged {
-		t.Fatal("initial capture should report drained screen changes")
-	}
-	if got, want := emu.renderCalls, 1; got != want {
-		t.Fatalf("initial Render calls = %d, want %d", got, want)
-	}
-
-	emu.renderCalls = 0
-	emu.screenChanged = false
-	second, _, screenChanged := capturePaneRenderSnapshot(emu, state)
-	if screenChanged {
-		t.Fatal("unchanged capture should not report screen changes")
-	}
-
-	if got := emu.renderCalls; got != 0 {
-		t.Fatalf("Render calls after unchanged screen = %d, want 0", got)
-	}
-	if second.rendered != first.rendered {
-		t.Fatalf("rendered ANSI changed after unchanged screen: got %q, want %q", second.rendered, first.rendered)
-	}
-	if second.renderedNoCursor != first.renderedNoCursor {
-		t.Fatalf("cursorless ANSI changed after unchanged screen: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
-	}
-}
-
-func TestCapturePaneRenderSnapshotCachesCursorlessANSI(t *testing.T) {
-	t.Parallel()
-
-	emu := newCaptureSnapshotFakeEmulator(nil, 0)
-	emu.screen = []string{"cursor", "screen"}
-	emu.screenChanged = true
 	emu.hasCursorBlock = true
 	emu.cursorBlockCol = 1
 	emu.cursorBlockRow = 0
 
-	first, state, _ := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
-	if !first.hasCursorBlock {
+	snap, state, screenChanged := capturePaneRenderSnapshot(emu, paneRenderSnapshotState{})
+	if !screenChanged {
+		t.Fatal("initial capture should report drained screen changes")
+	}
+	if !snap.hasCursorBlock {
 		t.Fatal("snapshot should record cursor block metadata")
 	}
-	if first.cursorBlockCol != 1 || first.cursorBlockRow != 0 {
-		t.Fatalf("cursor block position = %d,%d, want 1,0", first.cursorBlockCol, first.cursorBlockRow)
+	if snap.cursorBlockCol != 1 || snap.cursorBlockRow != 0 {
+		t.Fatalf("cursor block position = %d,%d, want 1,0", snap.cursorBlockCol, snap.cursorBlockRow)
 	}
-	if got, want := emu.renderCalls, 1; got != want {
-		t.Fatalf("initial Render calls = %d, want %d", got, want)
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("initial Render calls = %d, want 0", got)
 	}
-	if got, want := emu.renderNoCursorCalls, 1; got != want {
-		t.Fatalf("initial RenderWithoutCursorBlock calls = %d, want %d", got, want)
+	if got := emu.renderNoCursorCalls; got != 0 {
+		t.Fatalf("initial RenderWithoutCursorBlock calls = %d, want 0", got)
 	}
 
 	emu.renderCalls = 0
 	emu.renderNoCursorCalls = 0
 	emu.screenChanged = false
-	second, state, _ := capturePaneRenderSnapshot(emu, state)
+	_, _, screenChanged = capturePaneRenderSnapshot(emu, state)
+	if screenChanged {
+		t.Fatal("unchanged capture should not report screen changes")
+	}
 	if got := emu.renderCalls; got != 0 {
-		t.Fatalf("same cursor-block Render calls = %d, want 0", got)
+		t.Fatalf("Render calls after unchanged screen = %d, want 0", got)
 	}
 	if got := emu.renderNoCursorCalls; got != 0 {
-		t.Fatalf("same cursor-block RenderWithoutCursorBlock calls = %d, want 0", got)
+		t.Fatalf("RenderWithoutCursorBlock calls after unchanged screen = %d, want 0", got)
 	}
-	if second.renderedNoCursor != first.renderedNoCursor {
-		t.Fatalf("cursorless ANSI was not reused: got %q, want %q", second.renderedNoCursor, first.renderedNoCursor)
+}
+
+func TestPaneRenderSnapshotANSIStringUsesCapturedCells(t *testing.T) {
+	t.Parallel()
+
+	snap := paneRenderSnapshot{
+		width:  4,
+		height: 2,
+		screen: []paneBufferLine{
+			{cells: []render.ScreenCell{
+				{Char: "h", Width: 1},
+				{Char: "i", Width: 1},
+				{Char: " ", Width: 1},
+				{Char: " ", Width: 1},
+			}},
+			{cells: []render.ScreenCell{
+				{Char: "l", Width: 1},
+				{Char: "i", Width: 1, Link: uv.Link{URL: "https://example.com"}},
+				{Char: "n", Width: 1, Link: uv.Link{URL: "https://example.com"}},
+				{Char: "k", Width: 1},
+			}},
+		},
 	}
 
-	emu.cursorBlockCol = 2
-	third, _, _ := capturePaneRenderSnapshot(emu, state)
-	if got, want := emu.renderCalls, 1; got != want {
-		t.Fatalf("moved cursor-block Render calls = %d, want %d", got, want)
+	plainCaps := proto.ClientCapabilities{}
+	if got := render.MaterializeGrid(snap.ansiString(plainCaps), snap.width, snap.height); got != "hi\nlink" {
+		t.Fatalf("materialized ANSI capture = %q, want %q", got, "hi\nlink")
 	}
-	if got, want := emu.renderNoCursorCalls, 1; got != want {
-		t.Fatalf("moved cursor-block RenderWithoutCursorBlock calls = %d, want %d", got, want)
+	if ansi := snap.ansiString(plainCaps); strings.Contains(ansi, "\033]8;") {
+		t.Fatalf("ANSI capture should filter hyperlinks without capability, got %q", ansi)
 	}
-	if third.rendered == second.rendered {
-		t.Fatalf("moved cursor block should refresh rendered ANSI, got %q", third.rendered)
+
+	ansi := snap.ansiString(proto.ClientCapabilities{Hyperlinks: true})
+	if !strings.Contains(ansi, "\033]8;") {
+		t.Fatalf("ANSI capture should preserve hyperlinks with capability, got %q", ansi)
 	}
-	if third.renderedNoCursor == second.renderedNoCursor {
-		t.Fatalf("moved cursor block should refresh cursorless ANSI, got %q", third.renderedNoCursor)
+}
+
+func TestSnapshotPaneDataRenderScreenStripsInactiveCursorBlock(t *testing.T) {
+	t.Parallel()
+
+	reverse := uv.Style{Attrs: uv.AttrReverse}
+	snap := paneRenderSnapshot{
+		width:          2,
+		height:         1,
+		cursorBlockCol: 0,
+		cursorBlockRow: 0,
+		hasCursorBlock: true,
+		screen: []paneBufferLine{
+			{cells: []render.ScreenCell{
+				{Char: " ", Width: 1, Style: reverse},
+				{Char: "x", Width: 1},
+			}},
+		},
+	}
+	pane := snapshotPaneData{pane: snap}
+
+	active := pane.RenderScreen(true)
+	if !strings.Contains(active, "\033[7m") {
+		t.Fatalf("active pane ANSI should preserve cursor block reverse video, got %q", active)
+	}
+	inactive := pane.RenderScreen(false)
+	if strings.Contains(inactive, "\033[7m") {
+		t.Fatalf("inactive pane ANSI should strip cursor block reverse video, got %q", inactive)
 	}
 }
 
