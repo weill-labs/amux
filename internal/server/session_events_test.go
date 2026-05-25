@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -331,6 +332,51 @@ func TestEnqueueLiveInputPaneResolvesFreshSessionPane(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("targeted live input did not reach the fresh-session pane")
+	}
+}
+
+func TestSessionEventCommandReportsActionType(t *testing.T) {
+	t.Parallel()
+
+	got := (sessionEventCommand{sessionAction: liveInputEvent{}}).EventLoopCommandType()
+	if !strings.Contains(got, "liveInputEvent") {
+		t.Fatalf("EventLoopCommandType() = %q, want liveInputEvent", got)
+	}
+}
+
+func TestSessionWatchdogTimeoutConfigUsesSessionOverride(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{SessionEventWatchdogTimeout: 75 * time.Millisecond}
+	if got := sess.EventLoopWatchdogTimeout(); got != 75*time.Millisecond {
+		t.Fatalf("EventLoopWatchdogTimeout() = %v, want 75ms", got)
+	}
+}
+
+func TestSessionWatchdogTimeoutClosesStopAndShutsDownServer(t *testing.T) {
+	t.Parallel()
+
+	shutdownDone := make(chan struct{})
+	srv := &Server{shutdownDone: shutdownDone}
+	sess := &Session{
+		Name:             "watchdog-timeout-test",
+		logger:           auditlog.Discard(),
+		sessionEventStop: make(chan struct{}),
+		exitServer:       srv,
+	}
+
+	sess.HandleEventLoopWatchdogTimeout("server.liveInputEvent", time.Now(), 31*time.Second, 30*time.Second, 123)
+
+	select {
+	case <-sess.sessionEventStop:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog timeout did not close sessionEventStop")
+	}
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog timeout did not trigger server shutdown")
 	}
 }
 
