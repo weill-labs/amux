@@ -392,10 +392,6 @@ func waitForUIEvent(ctx context.Context, sess *Session, requestedClientID, event
 	}
 }
 
-func waitForNextUIEvent(sess *Session, client uiClientSnapshot, eventName string, timeout time.Duration) error {
-	return waitForNextUIEventContext(sess.context(), sess, client, eventName, timeout)
-}
-
 func waitForNextUIEventContext(ctx context.Context, sess *Session, client uiClientSnapshot, eventName string, timeout time.Duration) error {
 	_, err := waitForUIEvent(ctx, sess, client.clientID, eventName, client.currentGen, true, timeout)
 	return err

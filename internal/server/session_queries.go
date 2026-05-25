@@ -231,10 +231,6 @@ func (s *Session) windowForActor(actorPaneID uint32) *mux.Window {
 	return s.activeWindow()
 }
 
-func (s *Session) queryActiveWindowSnapshot() (activeWindowSnapshot, error) {
-	return s.queryActiveWindowSnapshotContext(s.context())
-}
-
 func (s *Session) queryActiveWindowSnapshotContext(ctx context.Context) (activeWindowSnapshot, error) {
 	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (activeWindowSnapshot, error) {
 		w := s.activeWindow()
@@ -256,10 +252,6 @@ func (s *Session) queryActiveWindowSnapshotContext(ctx context.Context) (activeW
 	})
 }
 
-func (s *Session) queryResolvedPaneForActor(actorPaneID uint32, ref string) (resolvedPaneRef, error) {
-	return s.queryResolvedPaneForActorContext(s.context(), actorPaneID, ref)
-}
-
 func (s *Session) queryResolvedPaneForActorContext(ctx context.Context, actorPaneID uint32, ref string) (resolvedPaneRef, error) {
 	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (resolvedPaneRef, error) {
 		pane, w, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
@@ -279,10 +271,6 @@ func (s *Session) queryResolvedPaneForActorContext(ctx context.Context, actorPan
 	})
 }
 
-func (s *Session) queryActivePaneForWindow(ref string) (resolvedPaneRef, error) {
-	return s.queryActivePaneForWindowContext(s.context(), ref)
-}
-
 func (s *Session) queryActivePaneForWindowContext(ctx context.Context, ref string) (resolvedPaneRef, error) {
 	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (resolvedPaneRef, error) {
 		w := s.resolveWindow(ref)
@@ -300,10 +288,6 @@ func (s *Session) queryActivePaneForWindowContext(ctx context.Context, ref strin
 			windowID: w.ID,
 		}, nil
 	})
-}
-
-func (s *Session) queryKillTarget(actorPaneID uint32, ref string) (killTargetSnapshot, error) {
-	return s.queryKillTargetContext(s.context(), actorPaneID, ref)
 }
 
 func (s *Session) queryKillTargetContext(ctx context.Context, actorPaneID uint32, ref string) (killTargetSnapshot, error) {
@@ -400,10 +384,6 @@ func (s *Session) queryPaneListContext(ctx context.Context) ([]paneListEntry, er
 	})
 }
 
-func (s *Session) querySessionStatus() (sessionStatusSnapshot, error) {
-	return s.querySessionStatusContext(s.context())
-}
-
 func (s *Session) querySessionStatusContext(ctx context.Context) (sessionStatusSnapshot, error) {
 	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (sessionStatusSnapshot, error) {
 		snap := sessionStatusSnapshot{
@@ -417,10 +397,6 @@ func (s *Session) querySessionStatusContext(ctx context.Context) (sessionStatusS
 		}
 		return snap, nil
 	})
-}
-
-func (s *Session) queryWindowList() ([]windowListEntry, error) {
-	return s.queryWindowListContext(s.context())
 }
 
 func (s *Session) queryWindowListContext(ctx context.Context) ([]windowListEntry, error) {
@@ -472,10 +448,6 @@ func (s *Session) queryConnectionLogContext(ctx context.Context) ([]ConnectionLo
 	})
 }
 
-func (s *Session) queryPaneLog() ([]PaneLogEntry, error) {
-	return s.queryPaneLogContext(s.context())
-}
-
 func (s *Session) queryPaneLogContext(ctx context.Context) ([]PaneLogEntry, error) {
 	return enqueueSessionQueryOnState(ctx, s, func(s *Session) ([]PaneLogEntry, error) {
 		return s.ensurePaneLog().Snapshot(), nil
@@ -490,10 +462,6 @@ func (s *Session) queryUIClientContext(ctx context.Context, requestedClientID, e
 	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (uiClientSnapshot, error) {
 		return s.resolveUIClientSnapshot(requestedClientID, eventName)
 	})
-}
-
-func (s *Session) queryFirstClient() (*clientConn, error) {
-	return s.queryFirstClientContext(s.context())
 }
 
 func (s *Session) queryFirstClientContext(ctx context.Context) (*clientConn, error) {
