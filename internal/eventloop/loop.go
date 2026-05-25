@@ -12,6 +12,9 @@ import (
 
 var ErrStopped = errors.New("event loop stopped")
 
+// DefaultWatchdogTimeout bounds a single Command.Handle call. A wedged actor
+// should stop loudly and recover through normal daemon restart instead of
+// leaving producers blocked forever.
 const DefaultWatchdogTimeout = 30 * time.Second
 
 type Command[S any] interface {

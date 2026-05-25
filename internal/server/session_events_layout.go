@@ -566,6 +566,9 @@ func (s *Session) HandleEventLoopWatchdogTimeout(commandType string, started tim
 		)
 	}
 	closeStopSignal(s.sessionEventStop)
+	if s.exitServer != nil {
+		go s.exitServer.Shutdown()
+	}
 }
 
 func (s *Session) stopEventLoop() {
