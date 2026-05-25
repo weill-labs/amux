@@ -46,7 +46,10 @@ type Compositor struct {
 	cachedBorderRoot *mux.LayoutCell
 	cachedBorderH    int
 
-	// Previous frame's grid for diff rendering. Nil forces full paint.
+	// Previous frame's grid for diff rendering. Nil forces full paint. Once a
+	// grid is assigned here it is immutable: dirty rendering must clone it
+	// before composing the next frame, allowing prevGridSnap to publish the
+	// same owned grid without a second full-cell copy.
 	prevGrid          *ScreenGrid
 	prevGridSnap      atomic.Pointer[ScreenGrid]
 	prevGridLayoutKey string
@@ -386,11 +389,7 @@ func preciseSGREnabled() bool {
 }
 
 func (c *Compositor) publishPrevGridSnapshot(g *ScreenGrid) {
-	if g == nil {
-		c.prevGridSnap.Store(nil)
-		return
-	}
-	c.prevGridSnap.Store(g.Clone())
+	c.prevGridSnap.Store(g)
 }
 
 func (c *Compositor) layoutReuseKey(root *mux.LayoutCell, activePaneID uint32, layoutHeight int) string {
