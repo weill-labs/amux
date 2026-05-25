@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -41,6 +42,72 @@ func TestEnqueueCommandMutationReturnsOnSessionShutdown(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("enqueueCommandMutation did not return after shutdown")
+	}
+}
+
+func TestClientDisconnectCancelsLongRunningSessionQuery(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	queryStarted := make(chan struct{})
+	queryCanceled := make(chan struct{})
+	releaseQuery := make(chan struct{})
+	t.Cleanup(func() { close(releaseQuery) })
+
+	srv.commands = map[string]CommandHandler{
+		"long-query": func(ctx *CommandContext) {
+			_, _ = enqueueSessionQuery(ctx.Context, sess, func(queryCtx context.Context, _ *Session) (struct{}, error) {
+				close(queryStarted)
+				select {
+				case <-queryCtx.Done():
+					close(queryCanceled)
+					return struct{}{}, queryCtx.Err()
+				case <-releaseQuery:
+					return struct{}{}, nil
+				}
+			})
+		},
+	}
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { _ = peerConn.Close() })
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	cc := newClientConn(serverConn)
+	t.Cleanup(cc.Close)
+
+	readLoopDone := make(chan struct{})
+	go func() {
+		defer close(readLoopDone)
+		cc.readLoop(srv, sess)
+	}()
+
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeCommand, CmdName: "long-query"}); err != nil {
+		t.Fatalf("WriteMsg command: %v", err)
+	}
+
+	select {
+	case <-queryStarted:
+	case <-time.After(time.Second):
+		t.Fatal("long-running query did not start")
+	}
+
+	if err := peerConn.Close(); err != nil {
+		t.Fatalf("Close peer connection: %v", err)
+	}
+
+	select {
+	case <-queryCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("client disconnect did not cancel the in-flight session query")
+	}
+
+	select {
+	case <-readLoopDone:
+	case <-time.After(time.Second):
+		t.Fatal("readLoop did not exit after client disconnect")
 	}
 }
 

@@ -1,6 +1,7 @@
 package eventloop
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -76,6 +77,16 @@ func (c blockingWatchdogCommand) Handle(s *watchdogTestState) {
 	if c.rename != "" {
 		s.name = c.rename
 	}
+	<-c.release
+}
+
+type blockingCounterCommand struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c blockingCounterCommand) Handle(context.Context, *counterState) {
+	close(c.entered)
 	<-c.release
 }
 
@@ -324,6 +335,75 @@ func TestEnqueueReturnsFalseAfterStop(t *testing.T) {
 
 	if Enqueue(queue, stop, addCommand{delta: 1}) {
 		t.Fatal("Enqueue() = true after stop, want false")
+	}
+}
+
+func TestEnqueueReturnsPromptlyWhenContextCanceledWhileQueueSaturated(t *testing.T) {
+	t.Parallel()
+
+	queue := make(chan QueuedCommand[counterState], 1)
+	stop := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	queue <- QueuedCommand[counterState]{}
+
+	start := time.Now()
+	if Enqueue(ctx, queue, stop, addCommand{delta: 1}) {
+		t.Fatal("Enqueue() = true after context cancellation, want false")
+	}
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Fatalf("Enqueue() returned after %v with canceled context, want under 50ms", elapsed)
+	}
+}
+
+func TestEnqueueQueryReturnsPromptlyWhenContextCanceledWaitingForReply(t *testing.T) {
+	t.Parallel()
+
+	state := &counterState{}
+	queue := make(chan QueuedCommand[counterState], 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		close(stop)
+		<-done
+	})
+
+	go Run(state, queue, stop, done, nil)
+
+	blocker := blockingCounterCommand{
+		entered: make(chan struct{}),
+		release: release,
+	}
+	if !Enqueue(context.Background(), queue, stop, blocker) {
+		t.Fatal("Enqueue(blocking command) = false, want true")
+	}
+	select {
+	case <-blocker.entered:
+	case <-time.After(time.Second):
+		t.Fatal("blocking command did not enter Handle")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	queryErr := make(chan error, 1)
+	go func() {
+		_, err := EnqueueQuery(ctx, queue, stop, done, func(context.Context, *counterState) (int, error) {
+			return 1, nil
+		}, nil, ErrStopped)
+		queryErr <- err
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-queryErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("EnqueueQuery() error = %v, want %v", err, context.Canceled)
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("EnqueueQuery() did not return within 50ms after context cancellation")
 	}
 }
 
