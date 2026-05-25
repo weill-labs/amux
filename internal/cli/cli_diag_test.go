@@ -18,66 +18,66 @@ func TestRunDiagCommandFetchesExpectedEndpoints(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		args       []string
-		wantPath   string
-		wantOutput string
-		wantFile   string
+		name        string
+		args        []string
+		wantPath    string
+		wantOutput  string
+		wantFile    string
 		wantTimeout time.Duration
 	}{
 		{
-			name:       "default dumps goroutines",
-			wantPath:   "/debug/pprof/goroutine?debug=2",
-			wantOutput: "profile-body",
+			name:        "default dumps goroutines",
+			wantPath:    "/debug/pprof/goroutine?debug=2",
+			wantOutput:  "profile-body",
 			wantTimeout: 5 * time.Second,
 		},
 		{
-			name:       "dump dumps goroutines",
-			args:       []string{"dump"},
-			wantPath:   "/debug/pprof/goroutine?debug=2",
-			wantOutput: "profile-body",
+			name:        "dump dumps goroutines",
+			args:        []string{"dump"},
+			wantPath:    "/debug/pprof/goroutine?debug=2",
+			wantOutput:  "profile-body",
 			wantTimeout: 5 * time.Second,
 		},
 		{
-			name:       "heap writes binary profile to stdout",
-			args:       []string{"heap"},
-			wantPath:   "/debug/pprof/heap?gc=1",
-			wantOutput: "profile-body",
+			name:        "heap writes binary profile to stdout",
+			args:        []string{"heap"},
+			wantPath:    "/debug/pprof/heap?gc=1",
+			wantOutput:  "profile-body",
 			wantTimeout: 5 * time.Second,
 		},
 		{
-			name:       "heap writes binary profile to output file",
-			args:       []string{"heap", "--output", "heap.pprof"},
-			wantPath:   "/debug/pprof/heap?gc=1",
-			wantFile:   "heap.pprof",
+			name:        "heap writes binary profile to output file",
+			args:        []string{"heap", "--output", "heap.pprof"},
+			wantPath:    "/debug/pprof/heap?gc=1",
+			wantFile:    "heap.pprof",
 			wantTimeout: 5 * time.Second,
 		},
 		{
-			name:       "profile defaults to ten seconds",
-			args:       []string{"profile"},
-			wantPath:   "/debug/pprof/profile?seconds=10",
-			wantOutput: "profile-body",
+			name:        "profile defaults to ten seconds",
+			args:        []string{"profile"},
+			wantPath:    "/debug/pprof/profile?seconds=10",
+			wantOutput:  "profile-body",
 			wantTimeout: 15 * time.Second,
 		},
 		{
-			name:       "profile accepts seconds and output file",
-			args:       []string{"profile", "--seconds", "2", "--output", "cpu.pprof"},
-			wantPath:   "/debug/pprof/profile?seconds=2",
-			wantFile:   "cpu.pprof",
+			name:        "profile accepts seconds and output file",
+			args:        []string{"profile", "--seconds", "2", "--output", "cpu.pprof"},
+			wantPath:    "/debug/pprof/profile?seconds=2",
+			wantFile:    "cpu.pprof",
 			wantTimeout: 7 * time.Second,
 		},
 		{
-			name:       "generic pprof passes name through",
-			args:       []string{"pprof", "block"},
-			wantPath:   "/debug/pprof/block",
-			wantOutput: "profile-body",
+			name:        "generic pprof passes name through",
+			args:        []string{"pprof", "block"},
+			wantPath:    "/debug/pprof/block",
+			wantOutput:  "profile-body",
 			wantTimeout: 5 * time.Second,
 		},
 		{
-			name:       "generic trace passes name through",
-			args:       []string{"pprof", "trace", "--output", "trace.out"},
-			wantPath:   "/debug/pprof/trace",
-			wantFile:   "trace.out",
+			name:        "generic trace passes name through",
+			args:        []string{"pprof", "trace", "--output", "trace.out"},
+			wantPath:    "/debug/pprof/trace",
+			wantFile:    "trace.out",
 			wantTimeout: 5 * time.Second,
 		},
 	}
@@ -311,7 +311,7 @@ func TestDiscoverDiagPprofSocketUsesLivePIDFromSS(t *testing.T) {
 	var probed []string
 	got, err := discoverDiagPprofSocketWithDeps(context.Background(), session, &config.Config{Debug: config.DebugConfig{Pprof: true}}, diagDiscoveryDeps{
 		serverSocketPath: func(string) string { return mainSocket },
-		pprofSocketPath: func(string) string { return "/tmp/amux-1000/diag-session.pprof" },
+		pprofSocketPath:  func(string) string { return "/tmp/amux-1000/diag-session.pprof" },
 		runSS: func(context.Context) ([]byte, error) {
 			return []byte(ssOutput), nil
 		},
@@ -348,7 +348,7 @@ func TestDiscoverDiagPprofSocketFallsBackToProbedSockets(t *testing.T) {
 	var probes []string
 	got, err := discoverDiagPprofSocketWithDeps(context.Background(), session, &config.Config{Debug: config.DebugConfig{Pprof: true}}, diagDiscoveryDeps{
 		serverSocketPath: func(string) string { return "/tmp/amux-1000/diag-session" },
-		pprofSocketPath: func(string) string { return liveSocket },
+		pprofSocketPath:  func(string) string { return liveSocket },
 		runSS: func(context.Context) ([]byte, error) {
 			return nil, errors.New("ss unavailable")
 		},

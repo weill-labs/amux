@@ -22,6 +22,10 @@ func sessionCLICommands() map[string]commandHandler {
 			inv.runtime.RunDebugCommand(inv.sessionName, args)
 			return 0
 		},
+		"_diag": func(inv invocation, args []string) int {
+			inv.runtime.RunDiagCommand(inv.sessionName, args)
+			return 0
+		},
 		"_server": func(inv invocation, args []string) int {
 			name := inv.sessionName
 			if len(args) > 0 {

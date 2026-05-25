@@ -16,6 +16,7 @@ type Runtime struct {
 	WriteVersionOutput func(io.Writer, []string) error
 	InstallTerminfo    func() error
 	RunDebugCommand    func(string, []string)
+	RunDiagCommand     func(string, []string)
 	RunServer          func(string, bool)
 	RunServerCommand   func(string, string, []string)
 	RunEventsCommand   func(string, []string)

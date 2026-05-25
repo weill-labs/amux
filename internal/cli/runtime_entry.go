@@ -77,6 +77,7 @@ func defaultRuntime(buildCommit string) Runtime {
 		},
 		InstallTerminfo: terminfo.Install,
 		RunDebugCommand: runDebugCommand,
+		RunDiagCommand:  runDiagCommand,
 		RunServer: func(sessionName string, managedTakeover bool) {
 			RunServer(sessionName, managedTakeover, buildVersion(buildCommit))
 		},
