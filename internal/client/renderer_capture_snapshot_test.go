@@ -660,7 +660,7 @@ func TestPaneCaptureMissingWarmSnapshotReturnsBlank(t *testing.T) {
 	if len(pane.screen) != pane.height {
 		t.Fatalf("screen lines = %d, want %d", len(pane.screen), pane.height)
 	}
-	if got, want := pane.rendered, "\n\n\n"; got != want {
+	if got, want := render.MaterializeGrid(pane.ansiString(proto.ClientCapabilities{}), pane.width, pane.height), "\n\n\n"; got != want {
 		t.Fatalf("rendered blank pane = %q, want %q", got, want)
 	}
 	if !pane.cursorHidden {
