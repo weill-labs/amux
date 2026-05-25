@@ -299,15 +299,33 @@ func (st *rendererActorState) refreshPaneCaptures(snap *rendererSnapshot, emulat
 }
 
 func (r *Renderer) publishPaneCapture(st *rendererActorState, paneID uint32) bool {
-	emu := st.emulators[paneID]
-	if emu == nil {
-		return false
+	changed := r.publishPaneCaptures(st, map[uint32]struct{}{paneID: {}})
+	return changed[paneID]
+}
+
+func (r *Renderer) publishPaneCaptures(st *rendererActorState, paneIDs map[uint32]struct{}) map[uint32]bool {
+	screenChanged := make(map[uint32]bool)
+	if len(paneIDs) == 0 {
+		return screenChanged
 	}
+
 	next := *st.snapshot
 	next.paneCaptures = clonePaneRenderSnapshots(st.snapshot.paneCaptures)
-	capture, state, screenChanged := capturePaneRenderSnapshot(emu, st.paneCaptureStates[paneID])
-	next.paneCaptures[paneID] = capture
-	st.paneCaptureStates[paneID] = state
+	published := false
+	for paneID := range paneIDs {
+		emu := st.emulators[paneID]
+		if emu == nil {
+			continue
+		}
+		capture, state, changed := capturePaneRenderSnapshot(emu, st.paneCaptureStates[paneID])
+		next.paneCaptures[paneID] = capture
+		st.paneCaptureStates[paneID] = state
+		screenChanged[paneID] = changed
+		published = true
+	}
+	if !published {
+		return screenChanged
+	}
 	st.snapshot = &next
 	r.publishSnapshot(&next)
 	return screenChanged

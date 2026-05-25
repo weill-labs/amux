@@ -199,6 +199,12 @@ type paneOutputRenderInfo struct {
 	cursorChanged bool
 }
 
+type paneOutputBatchItem struct {
+	paneID      uint32
+	data        []byte
+	trackCursor bool
+}
+
 type terminalCursorState struct {
 	col    int
 	row    int
@@ -215,42 +221,79 @@ func captureTerminalCursorState(emu mux.TerminalEmulator) terminalCursorState {
 }
 
 func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor bool) paneOutputRenderInfo {
-	return withRendererActorValue(r, func(st *rendererActorState) paneOutputRenderInfo {
+	infos := r.HandlePaneOutputBatchInfo([]paneOutputBatchItem{{
+		paneID:      paneID,
+		data:        data,
+		trackCursor: trackCursor,
+	}})
+	return infos[paneID]
+}
+
+func (r *Renderer) HandlePaneOutputBatchInfo(items []paneOutputBatchItem) map[uint32]paneOutputRenderInfo {
+	return withRendererActorValue(r, func(st *rendererActorState) map[uint32]paneOutputRenderInfo {
+		return r.handlePaneOutputBatchInfo(st, items)
+	})
+}
+
+func (r *Renderer) handlePaneOutputBatchInfo(st *rendererActorState, items []paneOutputBatchItem) map[uint32]paneOutputRenderInfo {
+	infos := make(map[uint32]paneOutputRenderInfo)
+	if len(items) == 0 {
+		return infos
+	}
+
+	cursorBefore := make(map[uint32]terminalCursorState)
+	trackedCursorPanes := make(map[uint32]struct{})
+	dirtyCapturePanes := make(map[uint32]struct{})
+	for _, item := range items {
+		paneID := item.paneID
 		if _, ok := st.snapshot.paneInfo[paneID]; !ok {
-			return paneOutputRenderInfo{}
+			continue
 		}
 		if !st.snapshot.paneVisible(paneID) {
 			if emu := st.emulators[paneID]; emu != nil {
 				st.warmPaneOutput(paneID, st.emulators)
-				_, _ = emu.Write(data)
-				r.publishPaneCapture(st, paneID)
-				return paneOutputRenderInfo{}
+				_, _ = emu.Write(item.data)
+				dirtyCapturePanes[paneID] = struct{}{}
+				continue
 			}
-			st.bufferPaneOutput(paneID, data)
-			return paneOutputRenderInfo{}
+			st.bufferPaneOutput(paneID, item.data)
+			continue
 		}
+
 		emu := st.ensurePaneEmulator(paneID)
 		if emu == nil {
-			return paneOutputRenderInfo{}
+			continue
 		}
 		st.warmPaneOutput(paneID, st.emulators)
-
-		var before terminalCursorState
-		if trackCursor {
-			before = captureTerminalCursorState(emu)
+		if item.trackCursor {
+			if _, ok := cursorBefore[paneID]; !ok {
+				cursorBefore[paneID] = captureTerminalCursorState(emu)
+			}
+			trackedCursorPanes[paneID] = struct{}{}
 		}
 
-		_, _ = emu.Write(data)
+		_, _ = emu.Write(item.data)
+		info := infos[paneID]
+		info.paneVisible = true
+		infos[paneID] = info
+		dirtyCapturePanes[paneID] = struct{}{}
+	}
 
-		info := paneOutputRenderInfo{
-			paneVisible: true,
+	for paneID, changed := range r.publishPaneCaptures(st, dirtyCapturePanes) {
+		info := infos[paneID]
+		info.screenChanged = info.screenChanged || changed
+		infos[paneID] = info
+	}
+	for paneID := range trackedCursorPanes {
+		emu := st.emulators[paneID]
+		if emu == nil {
+			continue
 		}
-		if trackCursor {
-			info.cursorChanged = before != captureTerminalCursorState(emu)
-		}
-		info.screenChanged = r.publishPaneCapture(st, paneID)
-		return info
-	})
+		info := infos[paneID]
+		info.cursorChanged = cursorBefore[paneID] != captureTerminalCursorState(emu)
+		infos[paneID] = info
+	}
+	return infos
 }
 
 // Resize updates the client's terminal dimensions.
