@@ -624,7 +624,6 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 	seenPanes := make(map[uint32]struct{})
 	copyModeVisible := make(map[uint32]bool)
 	totalBytes := 0
-	prioritize := false
 	for _, msg := range msgs {
 		totalBytes += len(msg.Data)
 		paneID := msg.PaneID
@@ -638,9 +637,6 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 			data:        msg.Data,
 			trackCursor: paneOutputCursorVisible(state, activePaneID, paneID),
 		})
-		if cr.shouldPrioritizePaneOutput(paneID) {
-			prioritize = true
-		}
 	}
 
 	infos := cr.renderer.HandlePaneOutputBatchInfo(items)
@@ -653,6 +649,14 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 	}
 	if len(dirtyPaneIDs) == 0 {
 		return nil, totalBytes
+	}
+
+	prioritize := false
+	for _, paneID := range dirtyPaneIDs {
+		if cr.shouldPrioritizePaneOutput(paneID) {
+			prioritize = true
+			break
+		}
 	}
 
 	result := cr.updateState(func(next *clientSnapshot) clientUIResult {

@@ -1962,6 +1962,20 @@ func TestRenderCoalescedDoesNotPrioritizeBackgroundPaneAfterLocalInput(t *testin
 	<-done
 }
 
+func TestHandlePaneOutputBatchDoesNotPrioritizeBackgroundAfterActiveNoop(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.MarkLocalInput()
+
+	effects, _ := cr.handlePaneOutputBatch([]*RenderMsg{
+		{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("\x1b[?1002h\x1b[?1006h")},
+		{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")},
+	})
+
+	assertClientEffectKinds(t, effects, []clientEffectKind{clientEffectScheduleRender})
+}
+
 func TestClientRenderLoopStateShouldRenderNowReturnsFalseWithPendingTimer(t *testing.T) {
 	t.Parallel()
 
