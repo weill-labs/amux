@@ -82,15 +82,17 @@ wait_for_head_runs() {
     local want_sha="$1"
     local deadline=$(( $(current_epoch) + run_discovery_timeout ))
     local run_json
-    while (( $(current_epoch) < deadline )); do
+    while :; do
         run_json="$(gh run list --commit "$want_sha" --json databaseId,workflowName,displayTitle,url,conclusion,status -L "$failed_run_limit" 2>/dev/null || true)"
         if json_has_items "$run_json"; then
             printf '%s\n' "$run_json"
             return 0
         fi
+        if (( $(current_epoch) >= deadline )); then
+            return 1
+        fi
         sleep_seconds "$run_discovery_interval"
     done
-    return 1
 }
 
 poll_required_checks() {

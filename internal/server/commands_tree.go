@@ -92,7 +92,7 @@ func (ctx treeCommandContext) Rotate(forward bool) commandpkg.Result {
 }
 
 func runSwapForward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -105,7 +105,7 @@ func runSwapForward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
 }
 
 func runSwapBackward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -118,7 +118,7 @@ func runSwapBackward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result 
 }
 
 func runSwap(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -144,7 +144,7 @@ func cmdSwap(ctx *CommandContext) {
 }
 
 func runSwapTree(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -170,7 +170,7 @@ func cmdSwapTree(ctx *CommandContext) {
 }
 
 func runMove(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string, before bool) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -204,7 +204,7 @@ func cmdMove(ctx *CommandContext) {
 }
 
 func runMoveTo(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -234,7 +234,7 @@ func cmdMoveTo(ctx *CommandContext) {
 }
 
 func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, edge string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		pane, sourceWindow, err := mctx.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
@@ -297,7 +297,7 @@ func cmdDropPane(ctx *CommandContext) {
 }
 
 func runMoveSibling(ctx *CommandContext, actorPaneID uint32, paneRef, direction string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
@@ -336,7 +336,7 @@ func cmdMoveDown(ctx *CommandContext) {
 }
 
 func runRotate(ctx *CommandContext, forward bool) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}

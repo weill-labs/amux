@@ -12,7 +12,7 @@ func cmdResizeActive(ctx *CommandContext) {
 
 func cmdResizePane(ctx *CommandContext) {
 	if len(ctx.Args) > 0 {
-		ref, err := ctx.Sess.queryPaneRef(ctx.Args[0])
+		ref, err := ctx.Sess.queryPaneRefContext(ctx.context(), ctx.Args[0])
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return

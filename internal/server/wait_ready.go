@@ -168,7 +168,7 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 }
 
 func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef, opts waitReadyOptions) error {
-	outputCh := sess.enqueuePaneOutputSubscribe(paneRefData.paneID)
+	outputCh := sess.enqueuePaneOutputSubscribe(sess.context(), paneRefData.paneID)
 	if outputCh == nil {
 		return fmt.Errorf("session shutting down")
 	}
@@ -247,7 +247,7 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 }
 
 func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
-	state, err := enqueueSessionQuery(sess, func(sess *Session) (paneReadyState, error) {
+	state, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (paneReadyState, error) {
 		pane := sess.findPaneByID(paneID)
 		if pane == nil {
 			return paneReadyState{}, nil

@@ -144,7 +144,7 @@ func TestWaitForUIEventCurrentMatchWithoutAfterReturnsImmediately(t *testing.T) 
 		return struct{}{}
 	})
 
-	clientID, err := waitForUIEvent(sess, "", proto.UIEventCopyModeShown, 0, false, 50*time.Millisecond)
+	clientID, err := waitForUIEvent(sess.context(), sess, "", proto.UIEventCopyModeShown, 0, false, 50*time.Millisecond)
 	if err != nil {
 		t.Fatalf("waitForUIEvent current match: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestWaitForNextUIEventWaitsForFreshTransition(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- waitForNextUIEvent(sess, snapshot, proto.UIEventInputIdle, 250*time.Millisecond)
+		done <- waitForNextUIEventContext(sess.context(), sess, snapshot, proto.UIEventInputIdle, 250*time.Millisecond)
 	}()
 
 	select {
@@ -301,7 +301,7 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 
-		if !sess.enqueueEvent(crashCheckpointWrittenEvent{path: "/tmp/new-checkpoint.json"}) {
+		if !sess.enqueueEvent(sess.context(), crashCheckpointWrittenEvent{path: "/tmp/new-checkpoint.json"}) {
 			t.Fatal("enqueueEvent(crashCheckpointWrittenEvent) = false")
 		}
 

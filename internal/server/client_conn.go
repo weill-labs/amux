@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,8 @@ const (
 // clientConn manages a single client connection to the server.
 type clientConn struct {
 	conn               net.Conn
+	ctx                context.Context
+	cancel             context.CancelFunc
 	reader             *proto.Reader
 	ID                 string
 	displayPanesShown  bool
@@ -60,8 +63,11 @@ type pendingPredictionEpoch struct {
 
 // newClientConn wraps a net.Conn for protocol communication.
 func newClientConn(conn net.Conn) *clientConn {
+	ctx, cancel := context.WithCancel(serverInternalContext())
 	cc := &clientConn{
 		conn:        conn,
+		ctx:         ctx,
+		cancel:      cancel,
 		reader:      proto.NewReader(conn),
 		inputIdle:   true,
 		predictions: make(map[uint32][]pendingPredictionEpoch),
@@ -69,6 +75,13 @@ func newClientConn(conn net.Conn) *clientConn {
 	}
 	cc.writer = newClientWriter(conn)
 	return cc
+}
+
+func (cc *clientConn) context() context.Context {
+	if cc != nil && cc.ctx != nil {
+		return cc.ctx
+	}
+	return serverInternalContext()
 }
 
 func (cc *clientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
@@ -108,6 +121,9 @@ func (cc *clientConn) Flush() error {
 
 // Close shuts down the connection.
 func (cc *clientConn) Close() {
+	if cc.cancel != nil {
+		cc.cancel()
+	}
 	if cc.typeKeyQueue != nil {
 		cc.typeKeyQueue.close()
 	}
@@ -314,7 +330,20 @@ func (cc *clientConn) consumePredictionEpoch(paneID uint32, data []byte) uint32 
 // readLoop reads messages from the client and dispatches them to the session.
 func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 	detachReason := DisconnectReasonSocketError
+	commandQueue := make(chan *Message, 64)
+	go func() {
+		for msg := range commandQueue {
+			if cc.context().Err() != nil {
+				return
+			}
+			cc.handleCommand(srv, sess, msg)
+		}
+	}()
 	defer func() {
+		if cc.cancel != nil {
+			cc.cancel()
+		}
+		close(commandQueue)
 		sess.enqueueDetachClient(cc, detachReason)
 		cc.Close()
 	}()
@@ -342,7 +371,11 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 			return
 
 		case MsgTypeCommand:
-			cc.handleCommand(srv, sess, msg)
+			select {
+			case commandQueue <- msg:
+			case <-cc.context().Done():
+				return
+			}
 
 		case MsgTypeCaptureResponse:
 			sess.routeCaptureResponse(msg)
@@ -356,6 +389,7 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	started := time.Now()
 	ctx := &CommandContext{
+		Context:     cc.context(),
 		CommandName: msg.CmdName,
 		CC:          cc,
 		Srv:         srv,

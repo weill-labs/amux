@@ -92,7 +92,7 @@ func TestSessionAuditLogsLifecycleEvents(t *testing.T) {
 		sess.refreshInputTarget()
 	})
 
-	pane2, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+	pane2, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*mux.Pane, error) {
 		pane := newTestPane(sess, 2, "pane-2")
 		return pane, sess.insertPreparedPaneIntoActiveWindow(pane, mux.SplitHorizontal, false, false)
 	})
@@ -112,7 +112,7 @@ func TestSessionAuditLogsLifecycleEvents(t *testing.T) {
 		sess.handleFinalizedPaneRemoval(pane2.ID, false, "exit 0")
 	})
 
-	pane3, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+	pane3, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*mux.Pane, error) {
 		pane := newTestPane(sess, 3, "pane-3")
 		return pane, sess.insertPreparedPaneIntoActiveWindow(pane, mux.SplitHorizontal, false, false)
 	})
@@ -133,7 +133,7 @@ func TestSessionAuditLogsLifecycleEvents(t *testing.T) {
 
 	cc.markDisconnectReason(disconnectReasonClosed)
 	mustSessionMutation(t, sess, func(sess *Session) {
-		(detachClientEvent{cc: cc, reason: DisconnectReasonSocketError}).handle(sess)
+		(detachClientEvent{cc: cc, reason: DisconnectReasonSocketError}).handle(sess.context(), sess)
 	})
 
 	records := parseAuditRecords(t, buf)

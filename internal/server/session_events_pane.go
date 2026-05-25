@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -14,7 +15,7 @@ type paneOutputEvent struct {
 	seq    uint64
 }
 
-func (e paneOutputEvent) handle(s *Session) {
+func (e paneOutputEvent) handle(_ context.Context, s *Session) {
 	s.broadcastPaneOutputNow(e.paneID, e.data, e.seq)
 }
 
@@ -23,7 +24,7 @@ type paneExitEvent struct {
 	reason string
 }
 
-func (e paneExitEvent) handle(s *Session) {
+func (e paneExitEvent) handle(_ context.Context, s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
@@ -65,7 +66,7 @@ type clipboardEvent struct {
 	data   []byte
 }
 
-func (e clipboardEvent) handle(s *Session) {
+func (e clipboardEvent) handle(_ context.Context, s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
@@ -77,7 +78,7 @@ type crashCheckpointWrittenEvent struct {
 	path string
 }
 
-func (e crashCheckpointWrittenEvent) handle(s *Session) {
+func (e crashCheckpointWrittenEvent) handle(_ context.Context, s *Session) {
 	if e.path == "" {
 		return
 	}
@@ -88,7 +89,7 @@ type idleTimeoutEvent struct {
 	paneID uint32
 }
 
-func (e idleTimeoutEvent) handle(s *Session) {
+func (e idleTimeoutEvent) handle(_ context.Context, s *Session) {
 	s.ensureIdleTracker().HandleIdleTimeout(e.paneID)
 
 	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git.
@@ -98,7 +99,7 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		pane := p
 		go func() {
 			cwd, branch := s.detectPaneCwdBranch(pane)
-			s.enqueueEvent(cwdBranchResultEvent{paneID: e.paneID, cwd: cwd, branch: branch})
+			s.enqueueEvent(s.context(), cwdBranchResultEvent{paneID: e.paneID, cwd: cwd, branch: branch})
 		}()
 	}
 
@@ -130,7 +131,7 @@ type vtIdleTimeoutEvent struct {
 	lastOutput time.Time
 }
 
-func (e vtIdleTimeoutEvent) handle(s *Session) {
+func (e vtIdleTimeoutEvent) handle(_ context.Context, s *Session) {
 	if !s.ensureIdleTracker().HandleVTIdleTimeout(e.paneID, e.lastOutput) {
 		return
 	}
@@ -143,7 +144,7 @@ type agentIdleCheckResultEvent struct {
 	idle     bool
 }
 
-func (e agentIdleCheckResultEvent) handle(s *Session) {
+func (e agentIdleCheckResultEvent) handle(_ context.Context, s *Session) {
 	if !e.idle {
 		return
 	}
@@ -161,7 +162,7 @@ type cwdBranchResultEvent struct {
 	branch string
 }
 
-func (e cwdBranchResultEvent) handle(s *Session) {
+func (e cwdBranchResultEvent) handle(_ context.Context, s *Session) {
 	if p := s.findPaneByID(e.paneID); p != nil {
 		p.ApplyCwdBranch(e.cwd, e.branch)
 		s.broadcastLayoutNow()
@@ -173,7 +174,7 @@ type metaUpdateEvent struct {
 	update mux.MetaUpdate
 }
 
-func (e metaUpdateEvent) handle(s *Session) {
+func (e metaUpdateEvent) handle(_ context.Context, s *Session) {
 	p := s.findPaneByID(e.paneID)
 	if p == nil {
 		return
@@ -196,7 +197,7 @@ type takeoverEvent struct {
 	req    mux.TakeoverRequest
 }
 
-func (e takeoverEvent) handle(s *Session) {
+func (e takeoverEvent) handle(_ context.Context, s *Session) {
 	go s.handleTakeover(e.paneID, e.req)
 }
 
@@ -205,7 +206,7 @@ type remotePaneExitEvent struct {
 	reason string
 }
 
-func (e remotePaneExitEvent) handle(s *Session) {
+func (e remotePaneExitEvent) handle(_ context.Context, s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
@@ -217,7 +218,7 @@ type remoteStateChangeEvent struct {
 	state    proto.ConnState
 }
 
-func (e remoteStateChangeEvent) handle(s *Session) {
+func (e remoteStateChangeEvent) handle(_ context.Context, s *Session) {
 	if rs := s.remoteSessions[e.hostName]; rs != nil {
 		rs.State = e.state
 	}
@@ -234,7 +235,7 @@ type remoteLayoutEvent struct {
 	layout   *proto.LayoutSnapshot
 }
 
-func (e remoteLayoutEvent) handle(s *Session) {
+func (e remoteLayoutEvent) handle(_ context.Context, s *Session) {
 	rs := s.remoteSessions[e.hostName]
 	if rs == nil || e.layout == nil {
 		return
@@ -253,7 +254,7 @@ type localPaneBuildResultEvent struct {
 	done        chan error
 }
 
-func (e localPaneBuildResultEvent) handle(s *Session) {
+func (e localPaneBuildResultEvent) handle(_ context.Context, s *Session) {
 	notify := func(err error) {
 		if e.done == nil {
 			return
@@ -317,39 +318,39 @@ func (e localPaneBuildResultEvent) handle(s *Session) {
 }
 
 func (s *Session) enqueuePaneOutput(paneID uint32, data []byte, seq uint64) {
-	s.enqueueEvent(paneOutputEvent{paneID: paneID, data: data, seq: seq})
+	s.enqueueEvent(s.context(), paneOutputEvent{paneID: paneID, data: data, seq: seq})
 }
 
 func (s *Session) enqueuePaneExit(paneID uint32, reason string) {
-	s.enqueueEvent(paneExitEvent{paneID: paneID, reason: reason})
+	s.enqueueEvent(s.context(), paneExitEvent{paneID: paneID, reason: reason})
 }
 
 func (s *Session) enqueueClipboard(paneID uint32, data []byte) {
-	s.enqueueEvent(clipboardEvent{paneID: paneID, data: data})
+	s.enqueueEvent(s.context(), clipboardEvent{paneID: paneID, data: data})
 }
 
 func (s *Session) enqueueIdleTimeout(paneID uint32) {
-	s.enqueueEvent(idleTimeoutEvent{paneID: paneID})
+	s.enqueueEvent(s.context(), idleTimeoutEvent{paneID: paneID})
 }
 
 func (s *Session) enqueueVTIdleTimeout(paneID uint32, lastOutput time.Time) {
-	s.enqueueEvent(vtIdleTimeoutEvent{paneID: paneID, lastOutput: lastOutput})
+	s.enqueueEvent(s.context(), vtIdleTimeoutEvent{paneID: paneID, lastOutput: lastOutput})
 }
 
 func (s *Session) enqueueTakeover(srv *Server, paneID uint32, req mux.TakeoverRequest) {
-	s.enqueueEvent(takeoverEvent{srv: srv, paneID: paneID, req: req})
+	s.enqueueEvent(s.context(), takeoverEvent{srv: srv, paneID: paneID, req: req})
 }
 
 func (s *Session) enqueueRemotePaneExit(paneID uint32, reason string) {
-	s.enqueueEvent(remotePaneExitEvent{paneID: paneID, reason: reason})
+	s.enqueueEvent(s.context(), remotePaneExitEvent{paneID: paneID, reason: reason})
 }
 
 func (s *Session) enqueueRemoteStateChange(hostName string, state proto.ConnState) {
-	s.enqueueEvent(remoteStateChangeEvent{hostName: hostName, state: state})
+	s.enqueueEvent(s.context(), remoteStateChangeEvent{hostName: hostName, state: state})
 }
 
 func (s *Session) enqueueRemoteLayout(hostName string, layout *proto.LayoutSnapshot) {
-	s.enqueueEvent(remoteLayoutEvent{hostName: hostName, layout: layout})
+	s.enqueueEvent(s.context(), remoteLayoutEvent{hostName: hostName, layout: layout})
 }
 
 // --- Pane output subscribe/unsubscribe through the event loop ---
@@ -359,7 +360,7 @@ type paneOutputSubscribeCmd struct {
 	reply  chan chan struct{}
 }
 
-func (e paneOutputSubscribeCmd) handle(s *Session) {
+func (e paneOutputSubscribeCmd) handle(_ context.Context, s *Session) {
 	ch := s.addPaneOutputSubscriber(e.paneID)
 	e.reply <- ch
 }
@@ -369,23 +370,25 @@ type paneOutputUnsubscribeCmd struct {
 	ch     chan struct{}
 }
 
-func (e paneOutputUnsubscribeCmd) handle(s *Session) {
+func (e paneOutputUnsubscribeCmd) handle(_ context.Context, s *Session) {
 	s.ensureWaiters().removePaneOutputSubscriber(e.paneID, e.ch)
 }
 
-func (s *Session) enqueuePaneOutputSubscribe(paneID uint32) chan struct{} {
+func (s *Session) enqueuePaneOutputSubscribe(ctx context.Context, paneID uint32) chan struct{} {
 	reply := make(chan (chan struct{}), 1)
-	if !s.enqueueEvent(paneOutputSubscribeCmd{paneID: paneID, reply: reply}) {
+	if !s.enqueueEvent(ctx, paneOutputSubscribeCmd{paneID: paneID, reply: reply}) {
 		return nil
 	}
 	select {
 	case ch := <-reply:
 		return ch
+	case <-ctx.Done():
+		return nil
 	case <-s.sessionEventDone:
 		return nil
 	}
 }
 
 func (s *Session) enqueuePaneOutputUnsubscribe(paneID uint32, ch chan struct{}) {
-	s.enqueueEvent(paneOutputUnsubscribeCmd{paneID: paneID, ch: ch})
+	s.enqueueEvent(s.context(), paneOutputUnsubscribeCmd{paneID: paneID, ch: ch})
 }

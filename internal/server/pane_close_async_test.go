@@ -106,7 +106,7 @@ func TestSessionEventLoopStaysResponsiveWhilePaneCloseBlocks(t *testing.T) {
 
 			queryDone := make(chan error, 1)
 			go func() {
-				_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+				_, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 					return struct{}{}, tt.assert(sess)
 				})
 				queryDone <- err
@@ -378,7 +378,7 @@ func TestEnqueueCommandMutationSchedulesPaneCloseOffLoop(t *testing.T) {
 
 	queryDone := make(chan error, 1)
 	go func() {
-		_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		_, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 			return struct{}{}, nil
 		})
 		queryDone <- err

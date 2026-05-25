@@ -48,7 +48,7 @@ func (s *Session) broadcastNow(msg *Message) {
 
 // broadcast sends a message to all connected clients.
 func (s *Session) broadcast(msg *Message) {
-	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+	_, _ = enqueueSessionQueryOnState(s.context(), s, func(s *Session) (struct{}, error) {
 		s.broadcastNow(msg)
 		return struct{}{}, nil
 	})
@@ -72,7 +72,7 @@ func (s *Session) metaCallback() func(paneID uint32, update mux.MetaUpdate) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.enqueueEvent(metaUpdateEvent{paneID: paneID, update: update})
+		s.enqueueEvent(s.context(), metaUpdateEvent{paneID: paneID, update: update})
 	}
 }
 
@@ -147,7 +147,7 @@ func (s *Session) broadcastLayoutNow() {
 // broadcastLayout sends the current layout snapshot to all clients
 // and increments the layout generation counter.
 func (s *Session) broadcastLayout() {
-	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+	_, _ = enqueueSessionQueryOnState(s.context(), s, func(s *Session) (struct{}, error) {
 		s.broadcastLayoutNow()
 		return struct{}{}, nil
 	})
@@ -257,7 +257,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 // the substring. It resolves the pane through the session event loop, then
 // inspects the emulator outside the event loop.
 func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
-	pane, err := enqueueSessionQuery(s, func(s *Session) (*mux.Pane, error) {
+	pane, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (*mux.Pane, error) {
 		return s.findPaneByID(paneID), nil
 	})
 	if err != nil || pane == nil {

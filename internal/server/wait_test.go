@@ -113,7 +113,7 @@ func TestWaitCrashCheckpoint_WakesOnWrite(t *testing.T) {
 		})
 	})
 
-	if !sess.enqueueEvent(crashCheckpointWrittenEvent{path: "/tmp/checkpoint-2.json"}) {
+	if !sess.enqueueEvent(sess.context(), crashCheckpointWrittenEvent{path: "/tmp/checkpoint-2.json"}) {
 		t.Fatal("enqueueEvent(crashCheckpointWrittenEvent) = false")
 	}
 
@@ -234,7 +234,7 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 	sess := newSession("test-pane-output-subs")
 	stopCrashCheckpointLoop(t, sess)
 
-	ch := sess.enqueuePaneOutputSubscribe(1)
+	ch := sess.enqueuePaneOutputSubscribe(sess.context(), 1)
 
 	// Notification should be received (routed through event loop).
 	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {

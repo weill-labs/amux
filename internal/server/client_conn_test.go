@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -277,7 +278,7 @@ func TestClientConnQueuesInputBehindBusySessionActor(t *testing.T) {
 				}
 			})
 			blocker := blockingSessionEvent{entered: make(chan struct{}), release: release}
-			if !sess.enqueueEvent(blocker) {
+			if !sess.enqueueEvent(sess.context(), blocker) {
 				t.Fatal("enqueue blocking event")
 			}
 			select {
@@ -785,7 +786,7 @@ type blockingSessionEvent struct {
 	release <-chan struct{}
 }
 
-func (e blockingSessionEvent) handle(*Session) {
+func (e blockingSessionEvent) handle(_ context.Context, _ *Session) {
 	close(e.entered)
 	<-e.release
 }

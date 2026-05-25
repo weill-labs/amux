@@ -256,7 +256,7 @@ func TestQueryRespawnTargetCapturesColorProfile(t *testing.T) {
 func mustCreatePaneWithMeta(t *testing.T, sess *Session, srv *Server, meta mux.PaneMeta, cols, rows int) *mux.Pane {
 	t.Helper()
 
-	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+	pane, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*mux.Pane, error) {
 		return sess.createPaneWithMeta(srv, meta, cols, rows)
 	})
 	if err != nil {

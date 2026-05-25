@@ -226,7 +226,7 @@ func newSessionCheckpointCoordinator(sess *Session) crashCheckpointCoordinator {
 		BuildCrashCheckpoint: sess.buildCrashCheckpoint,
 		IsShuttingDown:       func() bool { return sess.shutdown.Load() },
 		OnCheckpointWritten: func(path string) {
-			sess.enqueueEvent(crashCheckpointWrittenEvent{path: path})
+			sess.enqueueEvent(sess.context(), crashCheckpointWrittenEvent{path: path})
 		},
 		LogCheckpointWrite: func(path string, duration time.Duration, err error) {
 			sess.logCheckpointWrite("crash", path, duration, err)

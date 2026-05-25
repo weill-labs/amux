@@ -117,7 +117,7 @@ func TestHandleAttachEventEmitsClientConnect(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{pane}
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventClientConnect}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventClientConnect}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	cc := &clientConn{ID: "client-1", inputIdle: true}
@@ -423,7 +423,7 @@ func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
 		return len(data), nil
 	})
 
-	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	_, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		return struct{}{}, sess.enqueueLivePaneInput(pane, []byte("blocked"))
 	})
 	if err != nil {
@@ -444,13 +444,13 @@ func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
 		}
 	}
 
-	if !sess.enqueueEvent(liveInputEvent{data: []byte("overflow")}) {
+	if !sess.enqueueEvent(sess.context(), liveInputEvent{data: []byte("overflow")}) {
 		t.Fatal("enqueueEvent(liveInputEvent) = false, want true")
 	}
 
 	actorReady := make(chan error, 1)
 	go func() {
-		_, err := enqueueSessionQuery(sess, func(*Session) (struct{}, error) {
+		_, err := enqueueSessionQueryOnState(sess.context(), sess, func(*Session) (struct{}, error) {
 			return struct{}{}, nil
 		})
 		actorReady <- err
@@ -581,10 +581,10 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
 	sess.Panes = []*mux.Pane{pane}
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventOutput}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventOutput}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	waitCh := sess.enqueuePaneOutputSubscribe(pane.ID)
+	waitCh := sess.enqueuePaneOutputSubscribe(sess.context(), pane.ID)
 	defer sess.enqueuePaneOutputUnsubscribe(pane.ID, waitCh)
 
 	sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
@@ -1286,7 +1286,7 @@ func TestDetachClientEventEmitsDisconnectReason(t *testing.T) {
 		return struct{}{}
 	})
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventClientDisconnect}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventClientDisconnect}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	sess.enqueueDetachClient(cc, DisconnectReasonExplicitDetach)
@@ -1332,10 +1332,10 @@ func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testi
 		return struct{}{}
 	})
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventClientDisconnect}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventClientDisconnect}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.disconnectClientsForReload([]*clientConn{cc1, cc2})
 		return struct{}{}, nil
 	}); err != nil {
@@ -1424,7 +1424,7 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 		})
 	})
 
-	naiveSub := sess.enqueueEventSubscribe(eventFilter{
+	naiveSub := sess.enqueueEventSubscribe(sess.context(), eventFilter{
 		Types:    []string{proto.UIEventCopyModeHidden},
 		ClientID: cc.ID,
 	}, false)
@@ -1435,7 +1435,7 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	default:
 	}
 
-	atomicSub, err := sess.enqueueUIWaitSubscribe("", proto.UIEventCopyModeHidden)
+	atomicSub, err := sess.enqueueUIWaitSubscribe(sess.context(), "", proto.UIEventCopyModeHidden)
 	if err != nil {
 		t.Fatalf("enqueueUIWaitSubscribe: %v", err)
 	}
@@ -1458,7 +1458,7 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 		})
 	})
 
-	futureSub, err := sess.enqueueUIWaitSubscribe("", proto.UIEventCopyModeHidden)
+	futureSub, err := sess.enqueueUIWaitSubscribe(sess.context(), "", proto.UIEventCopyModeHidden)
 	if err != nil {
 		t.Fatalf("enqueueUIWaitSubscribe future: %v", err)
 	}
@@ -1506,7 +1506,7 @@ func TestMetaUpdateEventSetsTaskAndPR(t *testing.T) {
 
 	task := "deploy"
 	pr := "99"
-	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Task: &task, PR: &pr}}.handle(sess)
+	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Task: &task, PR: &pr}}.handle(sess.context(), sess)
 
 	if pane.Meta.Task != "deploy" {
 		t.Fatalf("task = %q, want %q", pane.Meta.Task, "deploy")
@@ -1536,7 +1536,7 @@ func TestMetaUpdateEventSetsBranchManual(t *testing.T) {
 	sess.Panes = []*mux.Pane{pane}
 
 	branch := "feat/manual"
-	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Branch: &branch}}.handle(sess)
+	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Branch: &branch}}.handle(sess.context(), sess)
 
 	if pane.Meta.GitBranch != "feat/manual" {
 		t.Fatalf("git_branch = %q, want %q", pane.Meta.GitBranch, "feat/manual")
@@ -1571,7 +1571,7 @@ func TestMetaUpdateEventClearsBranch(t *testing.T) {
 	sess.Panes = []*mux.Pane{pane}
 
 	empty := ""
-	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Branch: &empty}}.handle(sess)
+	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Branch: &empty}}.handle(sess.context(), sess)
 
 	if pane.Meta.GitBranch != "" {
 		t.Fatalf("git_branch = %q, want empty after clear", pane.Meta.GitBranch)
@@ -1629,7 +1629,7 @@ func TestMetaUpdateEventIgnoresMissingPane(t *testing.T) {
 
 	// No panes in session; should not panic
 	task := "x"
-	metaUpdateEvent{paneID: 999, update: mux.MetaUpdate{Task: &task}}.handle(sess)
+	metaUpdateEvent{paneID: 999, update: mux.MetaUpdate{Task: &task}}.handle(sess.context(), sess)
 }
 
 func TestCwdBranchResultEventUpdatesPane(t *testing.T) {
@@ -1651,7 +1651,7 @@ func TestCwdBranchResultEventUpdatesPane(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{pane}
 
-	cwdBranchResultEvent{paneID: 1, cwd: "/home/user/repo", branch: "main"}.handle(sess)
+	cwdBranchResultEvent{paneID: 1, cwd: "/home/user/repo", branch: "main"}.handle(sess.context(), sess)
 
 	if pane.LiveCwd() != "/home/user/repo" {
 		t.Fatalf("liveCwd = %q, want %q", pane.LiveCwd(), "/home/user/repo")
@@ -1669,7 +1669,7 @@ func TestCwdBranchResultEventIgnoresMissingPane(t *testing.T) {
 	defer stopSessionBackgroundLoops(t, sess)
 
 	// No panes; should not panic
-	cwdBranchResultEvent{paneID: 999, cwd: "/tmp", branch: "main"}.handle(sess)
+	cwdBranchResultEvent{paneID: 999, cwd: "/tmp", branch: "main"}.handle(sess.context(), sess)
 }
 
 func TestIdleTimeoutEventRefreshesPaneMetaWhenAutoRefreshEnabled(t *testing.T) {
@@ -1807,7 +1807,7 @@ func TestIdleTimeoutEventEmitsExitedWhenPaneHasNoChildren(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{pane}
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventExited}}, false)
 	if res.sub == nil {
 		t.Fatal("exited subscribe returned nil subscription")
 	}
@@ -1849,7 +1849,7 @@ func TestIdleTimeoutEventEmitsExitedAsyncWithoutBlockingLoop(t *testing.T) {
 	sess.Panes = []*mux.Pane{pane}
 
 	// Subscribe to both idle and exited events to verify ordering.
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle, EventExited}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventIdle, EventExited}}, false)
 	if res.sub == nil {
 		t.Fatal("subscribe returned nil")
 	}
@@ -1904,7 +1904,7 @@ func TestIdleTimeoutEventSkipsExitedWhenPaneIsBusy(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{pane}
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}}, false)
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{Types: []string{EventExited}}, false)
 	if res.sub == nil {
 		t.Fatal("subscribe returned nil")
 	}
@@ -1912,7 +1912,7 @@ func TestIdleTimeoutEventSkipsExitedWhenPaneIsBusy(t *testing.T) {
 
 	// Directly enqueue a non-idle result — this simulates AgentStatus
 	// reporting the pane as busy.
-	sess.enqueueEvent(agentIdleCheckResultEvent{
+	sess.enqueueEvent(sess.context(), agentIdleCheckResultEvent{
 		paneID:   pane.ID,
 		paneName: "pane-1",
 		host:     mux.DefaultHost,
@@ -1920,7 +1920,7 @@ func TestIdleTimeoutEventSkipsExitedWhenPaneIsBusy(t *testing.T) {
 	})
 
 	// Enqueue a no-op event after to ensure the result was processed.
-	sess.enqueueEvent(crashCheckpointWrittenEvent{path: ""})
+	sess.enqueueEvent(sess.context(), crashCheckpointWrittenEvent{path: ""})
 
 	// No EventExited should arrive.
 	select {
@@ -1941,7 +1941,7 @@ func TestStopSessionBackgroundLoopsKeepsLateEnqueueClosed(t *testing.T) {
 	if sess.sessionEventStop == nil {
 		t.Fatal("sessionEventStop = nil, want closed channel retained")
 	}
-	if sess.enqueueEvent(crashCheckpointWrittenEvent{path: "/tmp/checkpoint.json"}) {
+	if sess.enqueueEvent(sess.context(), crashCheckpointWrittenEvent{path: "/tmp/checkpoint.json"}) {
 		t.Fatal("enqueueEvent() = true after stop, want false")
 	}
 }
@@ -1985,17 +1985,17 @@ func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 
 	cc := &clientConn{ID: "client-1", inputIdle: true}
 
-	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess)
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess.context(), sess)
 	if cc.uiGeneration != 1 {
 		t.Fatalf("uiGeneration after first busy = %d, want 1", cc.uiGeneration)
 	}
 
-	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess)
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess.context(), sess)
 	if cc.uiGeneration != 1 {
 		t.Fatalf("uiGeneration after duplicate busy = %d, want 1", cc.uiGeneration)
 	}
 
-	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputIdle}.handle(sess)
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputIdle}.handle(sess.context(), sess)
 	if cc.uiGeneration != 2 {
 		t.Fatalf("uiGeneration after idle = %d, want 2", cc.uiGeneration)
 	}
@@ -2010,12 +2010,12 @@ func TestUIEventCmdClientFocusAlwaysIncrementsGeneration(t *testing.T) {
 
 	cc := &clientConn{ID: "client-1", inputIdle: true}
 
-	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess)
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess.context(), sess)
 	if cc.uiGeneration != 1 {
 		t.Fatalf("uiGeneration after first client focus = %d, want 1", cc.uiGeneration)
 	}
 
-	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess)
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess.context(), sess)
 	if cc.uiGeneration != 2 {
 		t.Fatalf("uiGeneration after second client focus = %d, want 2", cc.uiGeneration)
 	}

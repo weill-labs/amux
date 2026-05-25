@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+
 	"github.com/weill-labs/amux/internal/proto"
 	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 )
@@ -10,6 +12,7 @@ type CommandHandler func(ctx *CommandContext)
 
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
+	Context     context.Context
 	CommandName string
 	CC          *clientConn
 	Srv         *Server
@@ -17,6 +20,19 @@ type CommandContext struct {
 	Args        []string
 	ActorPaneID uint32
 	auditErr    string
+}
+
+func (ctx *CommandContext) context() context.Context {
+	if ctx != nil && ctx.Context != nil {
+		return ctx.Context
+	}
+	if ctx != nil && ctx.CC != nil {
+		return ctx.CC.context()
+	}
+	if ctx != nil && ctx.Sess != nil {
+		return ctx.Sess.context()
+	}
+	return serverInternalContext()
 }
 
 func (ctx *CommandContext) send(msg *Message) {
@@ -87,7 +103,7 @@ func (s commandStreamSender) Flush() error {
 func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
 	switch {
 	case res.Mutate != nil:
-		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 			result := res.Mutate()
 			mctx.syncFromSession()
 			return toCommandMutationResult(result)

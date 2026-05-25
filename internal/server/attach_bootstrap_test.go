@@ -414,7 +414,7 @@ func newAttachTestPane(sess *Session, id uint32, name string, cols, rows int) *m
 }
 
 func setAttachTestLayout(sess *Session, windows []*mux.Window, activeWindowID uint32, panes []*mux.Pane) error {
-	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	_, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		sess.Windows = windows
 		sess.ActiveWindowID = activeWindowID
 		sess.Panes = panes
@@ -424,7 +424,7 @@ func setAttachTestLayout(sess *Session, windows []*mux.Window, activeWindowID ui
 }
 
 func subscribeAttachTestPaneOutput(sess *Session, paneID uint32) (chan struct{}, func()) {
-	ch := sess.enqueuePaneOutputSubscribe(paneID)
+	ch := sess.enqueuePaneOutputSubscribe(sess.context(), paneID)
 	cleanup := func() {}
 	if ch != nil {
 		cleanup = func() {
@@ -448,7 +448,7 @@ func queueAttachTestSplit(sess *Session, pane *mux.Pane, dir mux.SplitDir, rootL
 }
 
 func snapshotAttachTestLayout(sess *Session) (*proto.LayoutSnapshot, error) {
-	return enqueueSessionQuery(sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
+	return enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
 		idleSnap := sess.snapshotIdleState()
 		return sess.snapshotLayout(idleSnap), nil
 	})

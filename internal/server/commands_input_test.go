@@ -107,7 +107,7 @@ func TestCmdSendKeysWaitsForPendingLocalPaneInputTarget(t *testing.T) {
 		return defaultLocalPaneBuilder(req)
 	}
 
-	_, err := enqueueSessionQuery(sess, func(sess *Session) (ensureInitialWindowResult, error) {
+	_, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (ensureInitialWindowResult, error) {
 		return sess.ensureInitialWindowLocked(srv, 80, 24, nil)
 	})
 	if err != nil {

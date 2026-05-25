@@ -91,7 +91,7 @@ func (s *Session) captureClientSnapshot(req caputil.Request, target *capturePane
 }
 
 func (s *Session) captureClientSnapshotForActor(req caputil.Request, actorPaneID uint32, target *capturePaneTarget) (captureClientSnapshot, error) {
-	return enqueueSessionQuery(s, func(s *Session) (captureClientSnapshot, error) {
+	return enqueueSessionQueryOnState(s.context(), s, func(s *Session) (captureClientSnapshot, error) {
 		snap := captureClientSnapshot{}
 		for _, cc := range s.ensureClientManager().snapshotClients() {
 			if cc.isBootstrapping() {
@@ -217,7 +217,7 @@ func ensureTrailingNewline(s string) string {
 // routeCaptureResponse delivers a capture response from the interactive client
 // to the waiting forwardCapture caller. Thread-safe.
 func (s *Session) routeCaptureResponse(msg *Message) {
-	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+	_, _ = enqueueSessionQueryOnState(s.context(), s, func(s *Session) (struct{}, error) {
 		s.ensureCaptureForwarder().routeResponse(msg, s.sendCaptureRequestAsync)
 		return struct{}{}, nil
 	})
@@ -245,7 +245,7 @@ func (s *Session) startNextCaptureRequest() {
 }
 
 func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
-	_, err := enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+	_, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (struct{}, error) {
 		s.ensureCaptureForwarder().enqueue(req, s.sendCaptureRequestAsync)
 		return struct{}{}, nil
 	})
@@ -253,7 +253,7 @@ func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
 }
 
 func (s *Session) cancelCaptureRequest(id uint64) {
-	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+	_, _ = enqueueSessionQueryOnState(s.context(), s, func(s *Session) (struct{}, error) {
 		s.ensureCaptureForwarder().cancel(id, s.sendCaptureRequestAsync)
 		return struct{}{}, nil
 	})

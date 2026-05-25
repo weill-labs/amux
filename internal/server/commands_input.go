@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -177,9 +178,9 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 	applyFinalDelay(chunks, opts.delayFinal)
 	var pane resolvedPaneRef
 	if target.windowRef != "" {
-		pane, err = ctx.Sess.queryActivePaneForWindow(target.windowRef)
+		pane, err = ctx.Sess.queryActivePaneForWindowContext(ctx.context(), target.windowRef)
 	} else {
-		pane, err = ctx.Sess.queryResolvedPaneForActor(actorPaneID, target.paneRef)
+		pane, err = ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, target.paneRef)
 	}
 	if err != nil {
 		return "", 0, err
@@ -190,19 +191,19 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 		if err := waitForPaneReady(ctx.Sess, pane.paneName, pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
 			return "", 0, err
 		}
-		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, nil); err != nil {
+		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, nil); err != nil {
 			return "", 0, err
 		}
 	case sendKeysWaitInputIdle:
-		uiWait, err := querySendKeysClient(ctx.Sess, opts.requestedClientID, proto.UIEventInputIdle)
+		uiWait, err := querySendKeysClient(ctx.context(), ctx.Sess, opts.requestedClientID, proto.UIEventInputIdle)
 		if err != nil {
 			return "", 0, err
 		}
-		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, uiWait); err != nil {
+		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, uiWait); err != nil {
 			return "", 0, err
 		}
 	default:
-		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, nil); err != nil {
+		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, nil); err != nil {
 			return "", 0, err
 		}
 	}
@@ -211,7 +212,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 
 func cmdSendKeys(ctx *CommandContext) {
 	if len(ctx.Args) > 0 && ctx.Args[0] != "--window" {
-		ref, err := ctx.Sess.queryPaneRef(ctx.Args[0])
+		ref, err := ctx.Sess.queryPaneRefContext(ctx.context(), ctx.Args[0])
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -224,22 +225,22 @@ func cmdSendKeys(ctx *CommandContext) {
 	ctx.applyCommandResult(inputcmd.SendKeys(inputCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
-func enqueueSendKeysInput(sess *Session, pane resolvedPaneRef, chunks []encodedKeyChunk, opts sendKeysOptions, uiWait *uiClientSnapshot) error {
+func enqueueSendKeysInput(ctx context.Context, sess *Session, pane resolvedPaneRef, chunks []encodedKeyChunk, opts sendKeysOptions, uiWait *uiClientSnapshot) error {
 	if opts.transport == sendKeysViaClient {
 		if uiWait == nil {
 			var err error
-			uiWait, err = querySendKeysClient(sess, opts.requestedClientID, "")
+			uiWait, err = querySendKeysClient(ctx, sess, opts.requestedClientID, "")
 			if err != nil {
 				return err
 			}
 		}
-		return enqueueTargetedClientKeys(sess, uiWait.client, pane.pane, chunks, uiWait, opts.waitTimeout)
+		return enqueueTargetedClientKeys(ctx, sess, uiWait.client, pane.pane, chunks, uiWait, opts.waitTimeout)
 	}
 	return sess.enqueuePacedPaneInput(pane.pane, chunks)
 }
 
-func querySendKeysClient(sess *Session, requestedClientID, eventName string) (*uiClientSnapshot, error) {
-	snap, err := sess.queryUIClient(requestedClientID, eventName)
+func querySendKeysClient(ctx context.Context, sess *Session, requestedClientID, eventName string) (*uiClientSnapshot, error) {
+	snap, err := sess.queryUIClientContext(ctx, requestedClientID, eventName)
 	if err != nil {
 		return nil, err
 	}
@@ -255,14 +256,14 @@ func applyFinalDelay(chunks []encodedKeyChunk, delay time.Duration) {
 	last.paceBefore = false
 }
 
-func enqueueTargetedClientKeys(sess *Session, client *clientConn, pane *mux.Pane, chunks []encodedKeyChunk, uiWait *uiClientSnapshot, waitTimeout time.Duration) error {
+func enqueueTargetedClientKeys(ctx context.Context, sess *Session, client *clientConn, pane *mux.Pane, chunks []encodedKeyChunk, uiWait *uiClientSnapshot, waitTimeout time.Duration) error {
 	if err := client.enqueueTypeKeysToPane(pane.ID, chunks); err != nil {
 		return err
 	}
 	if uiWait == nil {
 		return nil
 	}
-	return waitForNextUIEvent(sess, *uiWait, proto.UIEventInputIdle, waitTimeout)
+	return waitForNextUIEventContext(ctx, sess, *uiWait, proto.UIEventInputIdle, waitTimeout)
 }
 
 type broadcastCommandArgs struct {
@@ -380,7 +381,7 @@ func resolveBroadcastTargets(sess *Session, args broadcastCommandArgs) ([]resolv
 }
 
 func resolveBroadcastTargetsForActor(sess *Session, actorPaneID uint32, args broadcastCommandArgs) ([]resolvedPaneRef, error) {
-	return enqueueSessionQuery(sess, func(sess *Session) ([]resolvedPaneRef, error) {
+	return enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) ([]resolvedPaneRef, error) {
 		switch {
 		case len(args.paneRefs) > 0:
 			return resolveBroadcastPaneRefs(sess, actorPaneID, args.paneRefs)
@@ -518,13 +519,13 @@ func (ctx inputCommandContext) TypeKeys(args []string) (int, error) {
 		uiWait uiClientSnapshot
 	)
 	if opts.waitInputIdle {
-		uiWait, err = ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
+		uiWait, err = ctx.Sess.queryUIClientContext(ctx.context(), "", proto.UIEventInputIdle)
 		if err != nil {
 			return 0, err
 		}
 		client = uiWait.client
 	} else {
-		client, err = ctx.Sess.queryFirstClient()
+		client, err = ctx.Sess.queryFirstClientContext(ctx.context())
 		if err != nil {
 			return 0, err
 		}
@@ -534,7 +535,7 @@ func (ctx inputCommandContext) TypeKeys(args []string) (int, error) {
 		return 0, err
 	}
 	if opts.waitInputIdle {
-		if err := waitForNextUIEvent(ctx.Sess, uiWait, proto.UIEventInputIdle, opts.waitTimeout); err != nil {
+		if err := waitForNextUIEventContext(ctx.context(), ctx.Sess, uiWait, proto.UIEventInputIdle, opts.waitTimeout); err != nil {
 			return 0, err
 		}
 	}

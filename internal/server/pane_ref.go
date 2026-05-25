@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -11,7 +12,11 @@ type remoteHostNamesProvider interface {
 }
 
 func (s *Session) queryPaneRef(ref string) (proto.PaneRef, error) {
-	return enqueueSessionQuery(s, func(s *Session) (proto.PaneRef, error) {
+	return s.queryPaneRefContext(s.context(), ref)
+}
+
+func (s *Session) queryPaneRefContext(ctx context.Context, ref string) (proto.PaneRef, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (proto.PaneRef, error) {
 		return s.parsePaneRef(ref)
 	})
 }

@@ -349,7 +349,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	}
 
 	prepared := newStandaloneProxyPane(9, "pane-9")
-	_, err = enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	_, err = enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		return struct{}{}, sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitHorizontal, false, false)
 	})
 	if err == nil || err.Error() != "no window" {
@@ -360,7 +360,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	window := newTestWindowWithPanes(t, sess, 1, "main", base)
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, base)
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		return struct{}{}, sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, true, false)
 	}); err != nil {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow success path: %v", err)
@@ -389,7 +389,7 @@ func TestInsertPreparedPaneIntoActiveWindowKeepFocusPreservesZoomAndFocus(t *tes
 	window.ZoomedPaneID = pane1.ID
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	if _, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (struct{}, error) {
 		return struct{}{}, sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, false, true)
 	}); err != nil {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow keepFocus: %v", err)

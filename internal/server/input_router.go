@@ -145,7 +145,7 @@ func (r *inputRouter) activeInputPaneForWrite(sess *Session, cc *clientConn) *mu
 		return pane
 	}
 
-	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+	pane, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*mux.Pane, error) {
 		return sess.ensureInputRouter().activeInputPaneForWriteOnActor(sess, cc), nil
 	})
 	if err != nil {
@@ -173,7 +173,7 @@ func (s *Session) activeInputPaneForWrite(cc *clientConn) *mux.Pane {
 }
 
 func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {
-	queue, err := enqueueSessionQuery(s, func(sess *Session) (*paneInputQueue, error) {
+	queue, err := enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (*paneInputQueue, error) {
 		if !sess.hasPane(pane.ID) {
 			return nil, fmt.Errorf("%s not found", pane.Meta.Name)
 		}
@@ -233,7 +233,7 @@ func waitForPaneInputTarget(sess *Session, paneID uint32, paneName string) (*mux
 	defer ticker.Stop()
 
 	for {
-		target, err := enqueueSessionQuery(sess, func(sess *Session) (paneInputTarget, error) {
+		target, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (paneInputTarget, error) {
 			pane := sess.findPaneByID(paneID)
 			if pane == nil {
 				return paneInputTarget{}, nil

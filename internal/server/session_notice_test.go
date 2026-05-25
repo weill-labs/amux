@@ -32,19 +32,19 @@ func TestShowSessionNoticeReplacementIgnoresStaleTimer(t *testing.T) {
 	sess := &Session{idle: NewIdleTracker(nil), takenOverPanes: make(map[uint32]bool)}
 
 	firstReply := make(chan sessionNoticeSetResult, 1)
-	sessionNoticeSetCmd{message: "first", reply: firstReply}.handle(sess)
+	sessionNoticeSetCmd{message: "first", reply: firstReply}.handle(sess.context(), sess)
 	firstToken := (<-firstReply).token
 
 	secondReply := make(chan sessionNoticeSetResult, 1)
-	sessionNoticeSetCmd{message: "second", reply: secondReply}.handle(sess)
+	sessionNoticeSetCmd{message: "second", reply: secondReply}.handle(sess.context(), sess)
 	secondToken := (<-secondReply).token
 
-	sessionNoticeClearCmd{token: firstToken}.handle(sess)
+	sessionNoticeClearCmd{token: firstToken}.handle(sess.context(), sess)
 	if got := sess.notice; got != "second" {
 		t.Fatalf("notice after stale clear = %q, want %q", got, "second")
 	}
 
-	sessionNoticeClearCmd{token: secondToken}.handle(sess)
+	sessionNoticeClearCmd{token: secondToken}.handle(sess.context(), sess)
 	if got := sess.notice; got != "" {
 		t.Fatalf("notice after matching clear = %q, want empty", got)
 	}

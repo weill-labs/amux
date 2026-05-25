@@ -684,8 +684,8 @@ func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
 		sess.ActiveWindowID = window.ID
 		sess.Panes = []*mux.Pane{pane1, pane2}
 
-		sub := sess.enqueueEventSubscribe(eventFilter{PaneName: "pane-2"}, false)
-		waitCh := sess.enqueuePaneOutputSubscribe(pane2.ID)
+		sub := sess.enqueueEventSubscribe(sess.context(), eventFilter{PaneName: "pane-2"}, false)
+		waitCh := sess.enqueuePaneOutputSubscribe(sess.context(), pane2.ID)
 		defer sess.enqueueEventUnsubscribe(sub.sub)
 		defer sess.enqueuePaneOutputUnsubscribe(pane2.ID, waitCh)
 

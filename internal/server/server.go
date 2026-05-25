@@ -113,6 +113,8 @@ type Session struct {
 	checkpointCoordinator crashCheckpointCoordinator
 
 	// Async session event loop — phase 1 serializes callback-driven writes.
+	sessionCtx       context.Context
+	cancelSessionCtx context.CancelFunc
 	sessionEvents    chan sessionEvent
 	sessionEventStop chan struct{}
 	sessionEventDone chan struct{}
@@ -193,6 +195,20 @@ func defaultSessionLaunchColorProfile() string {
 	return sessionLaunchColorProfile(processEnviron{})
 }
 
+// serverInternalContext is the documented root for server-owned work that is
+// not tied to a client request. Production sessions replace it with a
+// session-scoped child that is canceled when the event loop stops.
+func serverInternalContext() context.Context {
+	return context.Background()
+}
+
+func (s *Session) context() context.Context {
+	if s != nil && s.sessionCtx != nil {
+		return s.sessionCtx
+	}
+	return serverInternalContext()
+}
+
 func (s *Session) clock() Clock {
 	if s.Clock != nil {
 		return s.Clock
@@ -258,7 +274,7 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		cwdWork []pidEntry
 	}
 
-	snap, err := enqueueSessionQuery(s, func(s *Session) (crashSnapshot, error) {
+	snap, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (crashSnapshot, error) {
 		if len(s.Windows) == 0 {
 			return crashSnapshot{}, nil
 		}
