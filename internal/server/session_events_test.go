@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/auditlog"
+	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -353,6 +354,18 @@ func TestSessionWatchdogTimeoutConfigUsesSessionOverride(t *testing.T) {
 	}
 }
 
+func TestSessionWatchdogSnapshotCapturesSessionName(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{Name: "snapshot-before-handle"}
+	got := sess.EventLoopWatchdogSnapshot()
+	sess.Name = "snapshot-during-handle"
+
+	if got.StateName != "snapshot-before-handle" {
+		t.Fatalf("EventLoopWatchdogSnapshot().StateName = %q, want pre-handle session name", got.StateName)
+	}
+}
+
 func TestSessionWatchdogTimeoutClosesStopAndShutsDownServer(t *testing.T) {
 	t.Parallel()
 
@@ -365,7 +378,14 @@ func TestSessionWatchdogTimeoutClosesStopAndShutsDownServer(t *testing.T) {
 		exitServer:       srv,
 	}
 
-	sess.HandleEventLoopWatchdogTimeout("server.liveInputEvent", time.Now(), 31*time.Second, 30*time.Second, 123)
+	sess.HandleEventLoopWatchdogTimeout(eventloop.WatchdogTimeoutInfo{
+		CommandType: "server.liveInputEvent",
+		Started:     time.Now(),
+		Elapsed:     31 * time.Second,
+		Timeout:     30 * time.Second,
+		GoroutineID: 123,
+		StateName:   "watchdog-timeout-test",
+	})
 
 	select {
 	case <-sess.sessionEventStop:

@@ -22,6 +22,8 @@ func (c addCommand) Handle(s *counterState) {
 
 type watchdogTestState struct {
 	timeout  time.Duration
+	name     string
+	entered  chan struct{}
 	timedOut chan watchdogTimeoutCall
 }
 
@@ -31,29 +33,49 @@ type watchdogTimeoutCall struct {
 	elapsed     time.Duration
 	timeout     time.Duration
 	goroutineID uint64
+	stateName   string
 }
 
 func (s *watchdogTestState) EventLoopWatchdogTimeout() time.Duration {
 	return s.timeout
 }
 
-func (s *watchdogTestState) HandleEventLoopWatchdogTimeout(commandType string, started time.Time, elapsed, timeout time.Duration, goroutineID uint64) {
+func (s *watchdogTestState) EnterEventLoopCommand() {
+	if s.entered == nil {
+		return
+	}
+	select {
+	case s.entered <- struct{}{}:
+	default:
+	}
+}
+
+func (s *watchdogTestState) EventLoopWatchdogSnapshot() WatchdogSnapshot {
+	return WatchdogSnapshot{StateName: s.name}
+}
+
+func (s *watchdogTestState) HandleEventLoopWatchdogTimeout(info WatchdogTimeoutInfo) {
 	s.timedOut <- watchdogTimeoutCall{
-		commandType: commandType,
-		started:     started,
-		elapsed:     elapsed,
-		timeout:     timeout,
-		goroutineID: goroutineID,
+		commandType: info.CommandType,
+		started:     info.Started,
+		elapsed:     info.Elapsed,
+		timeout:     info.Timeout,
+		goroutineID: info.GoroutineID,
+		stateName:   info.StateName,
 	}
 }
 
 type blockingWatchdogCommand struct {
 	entered chan struct{}
 	release chan struct{}
+	rename  string
 }
 
-func (c blockingWatchdogCommand) Handle(*watchdogTestState) {
+func (c blockingWatchdogCommand) Handle(s *watchdogTestState) {
 	close(c.entered)
+	if c.rename != "" {
+		s.name = c.rename
+	}
 	<-c.release
 }
 
@@ -210,6 +232,7 @@ func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
 
 	state := &watchdogTestState{
 		timeout:  20 * time.Millisecond,
+		name:     "watchdog-state-before-handle",
 		timedOut: make(chan watchdogTimeoutCall, 1),
 	}
 	queue := make(chan Command[watchdogTestState], 1)
@@ -227,6 +250,7 @@ func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
 	cmd := blockingWatchdogCommand{
 		entered: make(chan struct{}),
 		release: release,
+		rename:  "watchdog-state-during-handle",
 	}
 	if !Enqueue(queue, stop, cmd) {
 		t.Fatal("Enqueue(blocking command) = false, want true")
@@ -254,6 +278,9 @@ func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
 		if call.goroutineID == 0 {
 			t.Fatal("watchdog goroutine ID was zero")
 		}
+		if call.stateName != "watchdog-state-before-handle" {
+			t.Fatalf("watchdog state name = %q, want pre-handle snapshot", call.stateName)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("watchdog did not report the stuck handler")
 	}
@@ -263,6 +290,29 @@ func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("event loop did not stop after watchdog timeout")
 	}
+}
+
+func TestRunWatchdogEntersHandlerBeforeFirstCommand(t *testing.T) {
+	t.Parallel()
+
+	state := &watchdogTestState{
+		timeout: 100 * time.Millisecond,
+		entered: make(chan struct{}, 1),
+	}
+	queue := make(chan Command[watchdogTestState], 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	go Run(state, queue, stop, done, nil)
+
+	select {
+	case <-state.entered:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog handler did not establish command owner before first command")
+	}
+
+	close(stop)
+	<-done
 }
 
 func TestEnqueueReturnsFalseAfterStop(t *testing.T) {
