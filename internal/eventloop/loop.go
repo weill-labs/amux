@@ -2,10 +2,19 @@ package eventloop
 
 import (
 	"errors"
+	"fmt"
 	"runtime/debug"
+	"time"
+
+	"github.com/weill-labs/amux/internal/goroutineid"
 )
 
 var ErrStopped = errors.New("event loop stopped")
+
+// DefaultWatchdogTimeout bounds a single Command.Handle call. A wedged actor
+// should stop loudly and recover through normal daemon restart instead of
+// leaving producers blocked forever.
+const DefaultWatchdogTimeout = 30 * time.Second
 
 type Command[S any] interface {
 	Handle(*S)
@@ -13,10 +22,93 @@ type Command[S any] interface {
 
 type LoopHook[S any] func(*S) bool
 
+type watchdogTimeoutProvider interface {
+	EventLoopWatchdogTimeout() time.Duration
+}
+
+type watchdogTimeoutHandler interface {
+	HandleEventLoopWatchdogTimeout(WatchdogTimeoutInfo)
+}
+
+// WatchdogSnapshot is captured on the command handler goroutine before
+// Command.Handle starts, then reused by the watchdog goroutine if the handler
+// times out.
+type WatchdogSnapshot struct {
+	StateName string
+}
+
+type watchdogSnapshotProvider interface {
+	EventLoopWatchdogSnapshot() WatchdogSnapshot
+}
+
+// WatchdogTimeoutInfo describes a command handler that exceeded the configured
+// watchdog timeout.
+type WatchdogTimeoutInfo struct {
+	CommandType string
+	Started     time.Time
+	Elapsed     time.Duration
+	Timeout     time.Duration
+	GoroutineID uint64
+	StateName   string
+}
+
+type commandEntryHandler interface {
+	EnterEventLoopCommand()
+}
+
+type commandTypeNamer interface {
+	EventLoopCommandType() string
+}
+
+type handleRequest[S any] struct {
+	cmd     Command[S]
+	entered chan handleEntry
+	done    chan struct{}
+}
+
+type handleEntry struct {
+	started     time.Time
+	goroutineID uint64
+	commandType string
+	snapshot    WatchdogSnapshot
+}
+
 // Run processes commands serially until stop closes, the queue closes, or the
 // hook returns false.
 func Run[S any](state *S, queue <-chan Command[S], stop <-chan struct{}, done chan<- struct{}, hook LoopHook[S]) {
 	defer close(done)
+	timeout := watchdogTimeout(state)
+	if timeout <= 0 {
+		runInline(state, queue, stop, hook)
+		return
+	}
+
+	handlerRequests := make(chan handleRequest[S])
+	handlerReady := make(chan struct{})
+	go handleCommands(state, handlerRequests, handlerReady)
+	<-handlerReady
+	defer close(handlerRequests)
+
+	for {
+		select {
+		case <-stop:
+			return
+		case cmd, ok := <-queue:
+			if !ok {
+				return
+			}
+			if cmd != nil && !handleWithWatchdog(state, handlerRequests, cmd, timeout) {
+				return
+			}
+			if hook != nil && !hook(state) {
+				return
+			}
+		}
+	}
+}
+
+func runInline[S any](state *S, queue <-chan Command[S], stop <-chan struct{}, hook LoopHook[S]) {
+	notifyCommandEntry(state)
 	for {
 		select {
 		case <-stop:
@@ -31,6 +123,96 @@ func Run[S any](state *S, queue <-chan Command[S], stop <-chan struct{}, done ch
 			if hook != nil && !hook(state) {
 				return
 			}
+		}
+	}
+}
+
+func handleCommands[S any](state *S, requests <-chan handleRequest[S], ready chan<- struct{}) {
+	notifyCommandEntry(state)
+	close(ready)
+	for req := range requests {
+		req.entered <- handleEntry{
+			started:     time.Now(),
+			goroutineID: goroutineid.Current(),
+			commandType: commandType(req.cmd),
+			snapshot:    watchdogSnapshot(state),
+		}
+		req.cmd.Handle(state)
+		req.done <- struct{}{}
+	}
+}
+
+func notifyCommandEntry[S any](state *S) {
+	if handler, ok := any(state).(commandEntryHandler); ok {
+		handler.EnterEventLoopCommand()
+	}
+}
+
+func handleWithWatchdog[S any](state *S, requests chan<- handleRequest[S], cmd Command[S], timeout time.Duration) bool {
+	entered := make(chan handleEntry, 1)
+	finished := make(chan struct{}, 1)
+	requests <- handleRequest[S]{cmd: cmd, entered: entered, done: finished}
+	entry := <-entered
+
+	timer := time.NewTimer(timeout)
+	defer stopTimer(timer)
+
+	select {
+	case <-finished:
+		return true
+	case <-timer.C:
+		notifyWatchdogTimeout(state, entry, timeout)
+		return false
+	}
+}
+
+func watchdogTimeout[S any](state *S) time.Duration {
+	timeout := DefaultWatchdogTimeout
+	if provider, ok := any(state).(watchdogTimeoutProvider); ok {
+		configured := provider.EventLoopWatchdogTimeout()
+		switch {
+		case configured < 0:
+			return 0
+		case configured > 0:
+			timeout = configured
+		}
+	}
+	return timeout
+}
+
+func notifyWatchdogTimeout[S any](state *S, entry handleEntry, timeout time.Duration) {
+	elapsed := time.Since(entry.started)
+	if handler, ok := any(state).(watchdogTimeoutHandler); ok {
+		handler.HandleEventLoopWatchdogTimeout(WatchdogTimeoutInfo{
+			CommandType: entry.commandType,
+			Started:     entry.started,
+			Elapsed:     elapsed,
+			Timeout:     timeout,
+			GoroutineID: entry.goroutineID,
+			StateName:   entry.snapshot.StateName,
+		})
+	}
+}
+
+func commandType(cmd any) string {
+	if namer, ok := cmd.(commandTypeNamer); ok {
+		return namer.EventLoopCommandType()
+	}
+	return fmt.Sprintf("%T", cmd)
+}
+
+func watchdogSnapshot[S any](state *S) WatchdogSnapshot {
+	if provider, ok := any(state).(watchdogSnapshotProvider); ok {
+		return provider.EventLoopWatchdogSnapshot()
+	}
+	return WatchdogSnapshot{}
+}
+
+func stopTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
 		}
 	}
 }

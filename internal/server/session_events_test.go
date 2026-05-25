@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/auditlog"
+	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -331,6 +333,176 @@ func TestEnqueueLiveInputPaneResolvesFreshSessionPane(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("targeted live input did not reach the fresh-session pane")
+	}
+}
+
+func TestSessionEventCommandReportsActionType(t *testing.T) {
+	t.Parallel()
+
+	got := (sessionEventCommand{sessionAction: liveInputEvent{}}).EventLoopCommandType()
+	if !strings.Contains(got, "liveInputEvent") {
+		t.Fatalf("EventLoopCommandType() = %q, want liveInputEvent", got)
+	}
+}
+
+func TestSessionWatchdogTimeoutConfigUsesSessionOverride(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{SessionEventWatchdogTimeout: 75 * time.Millisecond}
+	if got := sess.EventLoopWatchdogTimeout(); got != 75*time.Millisecond {
+		t.Fatalf("EventLoopWatchdogTimeout() = %v, want 75ms", got)
+	}
+}
+
+func TestSessionWatchdogSnapshotCapturesSessionName(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{Name: "snapshot-before-handle"}
+	got := sess.EventLoopWatchdogSnapshot()
+	sess.Name = "snapshot-during-handle"
+
+	if got.StateName != "snapshot-before-handle" {
+		t.Fatalf("EventLoopWatchdogSnapshot().StateName = %q, want pre-handle session name", got.StateName)
+	}
+}
+
+func TestSessionWatchdogTimeoutClosesStopAndShutsDownServer(t *testing.T) {
+	t.Parallel()
+
+	shutdownDone := make(chan struct{})
+	srv := &Server{shutdownDone: shutdownDone}
+	sess := &Session{
+		Name:             "watchdog-timeout-test",
+		logger:           auditlog.Discard(),
+		sessionEventStop: make(chan struct{}),
+		exitServer:       srv,
+	}
+
+	sess.HandleEventLoopWatchdogTimeout(eventloop.WatchdogTimeoutInfo{
+		CommandType: "server.liveInputEvent",
+		Started:     time.Now(),
+		Elapsed:     31 * time.Second,
+		Timeout:     30 * time.Second,
+		GoroutineID: 123,
+		StateName:   "watchdog-timeout-test",
+	})
+
+	select {
+	case <-sess.sessionEventStop:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog timeout did not close sessionEventStop")
+	}
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog timeout did not trigger server shutdown")
+	}
+}
+
+func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-live-input-queue-full")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+	})
+
+	pane := mustSetupSinglePaneSession(t, sess, func(data []byte) (int, error) {
+		if string(data) == "blocked" {
+			started <- struct{}{}
+			<-release
+		}
+		return len(data), nil
+	})
+
+	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		return struct{}{}, sess.enqueueLivePaneInput(pane, []byte("blocked"))
+	})
+	if err != nil {
+		t.Fatalf("enqueueLivePaneInput(blocked) = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("blocked pane write did not start")
+	}
+
+	queue := mustSessionQuery(t, sess, func(sess *Session) *pacedInputQueue {
+		return sess.ensureInputRouter().paneQueues[pane.ID].queue
+	})
+	for i := 0; i < pacedInputRequestBufferSize; i++ {
+		if err := queue.enqueueAsync([]encodedKeyChunk{{data: []byte("queued")}}); err != nil {
+			t.Fatalf("enqueueAsync(fill %d) = %v", i, err)
+		}
+	}
+
+	if !sess.enqueueEvent(liveInputEvent{data: []byte("overflow")}) {
+		t.Fatal("enqueueEvent(liveInputEvent) = false, want true")
+	}
+
+	actorReady := make(chan error, 1)
+	go func() {
+		_, err := enqueueSessionQuery(sess, func(*Session) (struct{}, error) {
+			return struct{}{}, nil
+		})
+		actorReady <- err
+	}()
+
+	select {
+	case err := <-actorReady:
+		if err != nil {
+			t.Fatalf("session actor returned error after live input: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("liveInputEvent blocked the session actor on a full paced input queue")
+	}
+}
+
+func TestLogLiveInputErrorDowngradesBackpressure(t *testing.T) {
+	t.Parallel()
+
+	logger, buf := newAuditTestLogger()
+	sess := &Session{logger: logger}
+
+	sess.logLiveInputError(7, "pane-7", errPacedInputBackpressure)
+
+	records := parseAuditRecords(t, buf)
+	if len(records) != 1 {
+		t.Fatalf("log record count = %d, want 1", len(records))
+	}
+	if records[0]["msg"] != "live input backpressure" {
+		t.Fatalf("log msg = %v, want live input backpressure", records[0]["msg"])
+	}
+	if records[0]["event"] != "live_input" {
+		t.Fatalf("log event = %v, want live_input", records[0]["event"])
+	}
+}
+
+func TestLogLiveInputErrorWarnsUnexpectedFailures(t *testing.T) {
+	t.Parallel()
+
+	logger, buf := newAuditTestLogger()
+	sess := &Session{logger: logger}
+
+	sess.logLiveInputError(7, "pane-7", errors.New("write failed"))
+
+	records := parseAuditRecords(t, buf)
+	if len(records) != 1 {
+		t.Fatalf("log record count = %d, want 1", len(records))
+	}
+	if records[0]["msg"] != "live input failed" {
+		t.Fatalf("log msg = %v, want live input failed", records[0]["msg"])
+	}
+	if records[0]["event"] != "live_input" {
+		t.Fatalf("log event = %v, want live_input", records[0]["event"])
 	}
 }
 

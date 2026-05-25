@@ -3,7 +3,9 @@ package eventloop
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 type counterState struct {
@@ -16,6 +18,65 @@ type addCommand struct {
 
 func (c addCommand) Handle(s *counterState) {
 	s.value += c.delta
+}
+
+type watchdogTestState struct {
+	timeout  time.Duration
+	name     string
+	entered  chan struct{}
+	timedOut chan watchdogTimeoutCall
+}
+
+type watchdogTimeoutCall struct {
+	commandType string
+	started     time.Time
+	elapsed     time.Duration
+	timeout     time.Duration
+	goroutineID uint64
+	stateName   string
+}
+
+func (s *watchdogTestState) EventLoopWatchdogTimeout() time.Duration {
+	return s.timeout
+}
+
+func (s *watchdogTestState) EnterEventLoopCommand() {
+	if s.entered == nil {
+		return
+	}
+	select {
+	case s.entered <- struct{}{}:
+	default:
+	}
+}
+
+func (s *watchdogTestState) EventLoopWatchdogSnapshot() WatchdogSnapshot {
+	return WatchdogSnapshot{StateName: s.name}
+}
+
+func (s *watchdogTestState) HandleEventLoopWatchdogTimeout(info WatchdogTimeoutInfo) {
+	s.timedOut <- watchdogTimeoutCall{
+		commandType: info.CommandType,
+		started:     info.Started,
+		elapsed:     info.Elapsed,
+		timeout:     info.Timeout,
+		goroutineID: info.GoroutineID,
+		stateName:   info.StateName,
+	}
+}
+
+type blockingWatchdogCommand struct {
+	entered chan struct{}
+	release chan struct{}
+	rename  string
+}
+
+func (c blockingWatchdogCommand) Handle(s *watchdogTestState) {
+	close(c.entered)
+	if c.rename != "" {
+		s.name = c.rename
+	}
+	<-c.release
 }
 
 func TestFilterMatchesAll(t *testing.T) {
@@ -160,6 +221,94 @@ func TestRunProcessesCommands(t *testing.T) {
 	}
 	if result != 5 {
 		t.Fatalf("state value = %d, want 5", result)
+	}
+
+	close(stop)
+	<-done
+}
+
+func TestRunWatchdogReportsStuckHandlerAndStopsLoop(t *testing.T) {
+	t.Parallel()
+
+	state := &watchdogTestState{
+		timeout:  20 * time.Millisecond,
+		name:     "watchdog-state-before-handle",
+		timedOut: make(chan watchdogTimeoutCall, 1),
+	}
+	queue := make(chan Command[watchdogTestState], 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		close(stop)
+		<-done
+	})
+
+	go Run(state, queue, stop, done, nil)
+
+	cmd := blockingWatchdogCommand{
+		entered: make(chan struct{}),
+		release: release,
+		rename:  "watchdog-state-during-handle",
+	}
+	if !Enqueue(queue, stop, cmd) {
+		t.Fatal("Enqueue(blocking command) = false, want true")
+	}
+	select {
+	case <-cmd.entered:
+	case <-time.After(time.Second):
+		t.Fatal("blocking command did not enter Handle")
+	}
+
+	select {
+	case call := <-state.timedOut:
+		if !strings.Contains(call.commandType, "blockingWatchdogCommand") {
+			t.Fatalf("watchdog command type = %q, want blockingWatchdogCommand", call.commandType)
+		}
+		if call.started.IsZero() {
+			t.Fatal("watchdog start time was zero")
+		}
+		if call.elapsed < state.timeout {
+			t.Fatalf("watchdog elapsed = %v, want at least %v", call.elapsed, state.timeout)
+		}
+		if call.timeout != state.timeout {
+			t.Fatalf("watchdog timeout = %v, want %v", call.timeout, state.timeout)
+		}
+		if call.goroutineID == 0 {
+			t.Fatal("watchdog goroutine ID was zero")
+		}
+		if call.stateName != "watchdog-state-before-handle" {
+			t.Fatalf("watchdog state name = %q, want pre-handle snapshot", call.stateName)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watchdog did not report the stuck handler")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("event loop did not stop after watchdog timeout")
+	}
+}
+
+func TestRunWatchdogEntersHandlerBeforeFirstCommand(t *testing.T) {
+	t.Parallel()
+
+	state := &watchdogTestState{
+		timeout: 100 * time.Millisecond,
+		entered: make(chan struct{}, 1),
+	}
+	queue := make(chan Command[watchdogTestState], 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	go Run(state, queue, stop, done, nil)
+
+	select {
+	case <-state.entered:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog handler did not establish command owner before first command")
 	}
 
 	close(stop)

@@ -7,6 +7,21 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+type hostNamesPaneTransport struct {
+	stubPaneTransport
+	names                  []string
+	allHostStatusCallCount int
+}
+
+func (t *hostNamesPaneTransport) RemoteHostNames() []string {
+	return append([]string(nil), t.names...)
+}
+
+func (t *hostNamesPaneTransport) AllHostStatus() map[string]proto.ConnState {
+	t.allHostStatusCallCount++
+	return t.stubPaneTransport.AllHostStatus()
+}
+
 func TestQueryPaneRefResolvesKnownHostOnlyRef(t *testing.T) {
 	t.Parallel()
 
@@ -23,6 +38,27 @@ func TestQueryPaneRefResolvesKnownHostOnlyRef(t *testing.T) {
 	}
 	if got != (proto.PaneRef{Host: "builder"}) {
 		t.Fatalf("queryPaneRef(builder) = %#v, want host-only ref", got)
+	}
+}
+
+func TestQueryPaneRefUsesRemoteHostNamesWithoutStatusQuery(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	transport := &hostNamesPaneTransport{names: []string{"builder"}}
+	installTestPaneTransport(t, sess, transport, nil)
+
+	got, err := sess.queryPaneRef("builder")
+	if err != nil {
+		t.Fatalf("queryPaneRef(builder) error = %v", err)
+	}
+	if got != (proto.PaneRef{Host: "builder"}) {
+		t.Fatalf("queryPaneRef(builder) = %#v, want host-only ref", got)
+	}
+	if transport.allHostStatusCallCount != 0 {
+		t.Fatalf("AllHostStatus calls = %d, want 0", transport.allHostStatusCallCount)
 	}
 }
 

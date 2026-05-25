@@ -4,10 +4,9 @@ package debugowner
 
 import (
 	"fmt"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync/atomic"
+
+	"github.com/weill-labs/amux/internal/goroutineid"
 )
 
 // Checker records the first mutating goroutine and panics on later mutations
@@ -17,7 +16,7 @@ type Checker struct {
 }
 
 func (c *Checker) Assert(typeName, method string) {
-	gid := currentGoroutineID()
+	gid := goroutineid.Current()
 	if gid == 0 {
 		return
 	}
@@ -35,23 +34,11 @@ func (c *Checker) Assert(typeName, method string) {
 
 // PanicIfCurrent panics when the current goroutine matches the recorded owner.
 func (c *Checker) PanicIfCurrent(typeName, method string) {
-	gid := currentGoroutineID()
+	gid := goroutineid.Current()
 	if gid == 0 {
 		return
 	}
 	if owner := c.owner.Load(); owner != 0 && owner == gid {
 		panic(fmt.Sprintf("%s.%s called from owner goroutine %d", typeName, method, gid))
 	}
-}
-
-func currentGoroutineID() uint64 {
-	var buf [64]byte
-	n := runtime.Stack(buf[:], false)
-	line := strings.TrimPrefix(string(buf[:n]), "goroutine ")
-	field := line
-	if i := strings.IndexByte(line, ' '); i >= 0 {
-		field = line[:i]
-	}
-	gid, _ := strconv.ParseUint(field, 10, 64)
-	return gid
 }

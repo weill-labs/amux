@@ -115,6 +115,29 @@ func TestManagerAllHostStatus(t *testing.T) {
 	}
 }
 
+func TestManagerRemoteHostNames(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{Hosts: map[string]config.Host{
+		"dev":   {Type: "remote", Address: "10.0.0.1"},
+		"prod":  {Type: "remote", Address: "10.0.0.2"},
+		"local": {Type: "local"},
+	}}
+	m := newTestManager(t, cfg, "hash")
+
+	installTestHost(t, m, "adhoc", config.Host{Type: "remote"}, Connected)
+
+	got := m.RemoteHostNames()
+	gotSet := make(map[string]bool, len(got))
+	for _, name := range got {
+		gotSet[name] = true
+	}
+	want := map[string]bool{"dev": true, "prod": true, "adhoc": true}
+	if !reflect.DeepEqual(gotSet, want) {
+		t.Fatalf("RemoteHostNames() = %v, want names %v", got, want)
+	}
+}
+
 func TestManagerConnStatusForPane(t *testing.T) {
 	t.Parallel()
 

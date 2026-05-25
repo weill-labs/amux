@@ -29,6 +29,10 @@ func (c sessionEventCommand) Handle(s *Session) {
 	c.sessionAction.handle(s)
 }
 
+func (c sessionEventCommand) EventLoopCommandType() string {
+	return fmt.Sprintf("%T", c.sessionAction)
+}
+
 type commandMutationResult struct {
 	output          string
 	err             error
@@ -525,8 +529,11 @@ func (s *Session) startEventLoop() {
 	s.sessionEventStop = make(chan struct{})
 	s.sessionEventDone = make(chan struct{})
 	go func() {
-		s.eventLoopOwner.Assert("server.Session", "eventLoop")
 		eventloop.Run(s, s.sessionEvents, s.sessionEventStop, s.sessionEventDone, func(s *Session) bool {
+			// With the watchdog enabled, Command.Handle runs on eventloop's
+			// handler goroutine while this hook runs on the Run goroutine after
+			// each handler completes. Keep hook work limited to serialized
+			// maintenance that does not call debugowner-asserted mutation helpers.
 			// Keep the active input target in sync with actor-owned focus/window
 			// state so the common input path can avoid a round-trip through the
 			// session queue.
@@ -540,6 +547,36 @@ func (s *Session) startEventLoop() {
 			return false
 		})
 	}()
+}
+
+func (s *Session) EnterEventLoopCommand() {
+	s.eventLoopOwner.Assert("server.Session", "eventLoop")
+}
+
+func (s *Session) EventLoopWatchdogTimeout() time.Duration {
+	return s.SessionEventWatchdogTimeout
+}
+
+func (s *Session) EventLoopWatchdogSnapshot() eventloop.WatchdogSnapshot {
+	return eventloop.WatchdogSnapshot{StateName: s.Name}
+}
+
+func (s *Session) HandleEventLoopWatchdogTimeout(info eventloop.WatchdogTimeoutInfo) {
+	if s.logger != nil {
+		s.logger.Error("session event loop handler timed out",
+			"event", "event_loop_watchdog",
+			"session", info.StateName,
+			"command_type", info.CommandType,
+			"handler_started_at", info.Started.Format(time.RFC3339Nano),
+			"elapsed", info.Elapsed.String(),
+			"timeout", info.Timeout.String(),
+			"goroutine_id", info.GoroutineID,
+		)
+	}
+	closeStopSignal(s.sessionEventStop)
+	if s.exitServer != nil {
+		go s.exitServer.Shutdown()
+	}
 }
 
 func (s *Session) stopEventLoop() {
