@@ -30,6 +30,7 @@ type captureSnapshotFakeEmulator struct {
 	cursorBlockCol      int
 	cursorBlockRow      int
 	cell                uv.Cell
+	writes              [][]byte
 }
 
 type screenCellRead struct {
@@ -48,7 +49,22 @@ func newCaptureSnapshotFakeEmulator(lines []string, pushed uint64) *captureSnaps
 	}
 }
 
-func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) { return len(data), nil }
+func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) {
+	e.writes = append(e.writes, append([]byte(nil), data...))
+	if len(data) > 0 {
+		if e.height > 0 && len(e.screen) < e.height {
+			e.screen = append(e.screen, make([]string, e.height-len(e.screen))...)
+		}
+		if len(e.screen) == 0 {
+			e.screen = []string{""}
+		}
+		e.screen[0] += string(data)
+		if !slices.Contains(e.changedRows, 0) {
+			e.changedRows = append(e.changedRows, 0)
+		}
+	}
+	return len(data), nil
+}
 func (e *captureSnapshotFakeEmulator) DrainScreenChangeRows() []int {
 	if e.changedRows != nil {
 		rows := e.changedRows
@@ -359,6 +375,44 @@ func TestPublishPaneCaptureMissingEmulatorReportsNoScreenChange(t *testing.T) {
 			t.Fatal("missing emulator publish should not report screen changes")
 		}
 	})
+}
+
+func TestHandlePaneOutputBatchPublishesOneCapturePerPane(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(20, 4, 100)
+	t.Cleanup(r.Close)
+	r.HandleLayout(singlePane20x3())
+
+	emu := newCaptureSnapshotFakeEmulator(nil, 0)
+	emu.screen = []string{"", ""}
+	r.withActor(func(st *rendererActorState) {
+		st.emulators[1] = emu
+		st.paneCaptureStates[1] = paneRenderSnapshotState{}
+	})
+
+	infos := r.HandlePaneOutputBatchInfo([]paneOutputBatchItem{
+		{paneID: 1, data: []byte("first "), trackCursor: true},
+		{paneID: 1, data: []byte("second "), trackCursor: true},
+		{paneID: 1, data: []byte("third"), trackCursor: true},
+	})
+
+	info := infos[1]
+	if !info.paneVisible {
+		t.Fatal("batched visible pane output should report paneVisible")
+	}
+	if !info.screenChanged {
+		t.Fatal("batched visible pane output should report one screen change")
+	}
+	if got, want := len(emu.writes), 3; got != want {
+		t.Fatalf("emulator writes = %d, want %d", got, want)
+	}
+	if got, want := emu.renderCalls, 1; got != want {
+		t.Fatalf("batched pane capture Render calls = %d, want %d", got, want)
+	}
+	if got, want := paneRenderSnapshotLines(r.loadSnapshot().paneCaptures[1].screen)[0], "first second third"; got != want {
+		t.Fatalf("published pane capture row 0 = %q, want %q", got, want)
+	}
 }
 
 func equalStrings(a, b []string) bool {

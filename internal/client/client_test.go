@@ -1693,6 +1693,45 @@ func TestRenderCoalescedLocalActionReplySentBeforeExit(t *testing.T) {
 	}
 }
 
+func TestRenderCoalescedCaptureBarrierSeesCoalescedPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 4)
+	cr.HandleLayout(singlePane20x3())
+	cr.renderFrameInterval = time.Hour
+	msgCh := make(chan *RenderMsg, 8)
+	done := make(chan struct{})
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("first ")}
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("second")}
+
+	barrierDone := make(chan struct{})
+	go func() {
+		callLocalRenderAction[struct{}](cr, msgCh, func(*ClientRenderer) localRenderResult {
+			return localRenderResult{}
+		})
+		close(barrierDone)
+	}()
+
+	select {
+	case <-barrierDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("capture barrier did not drain queued pane output")
+	}
+
+	if got := cr.CapturePaneText(1, false); !strings.Contains(got, "first second") {
+		t.Fatalf("capture after barrier = %q, want queued pane output", got)
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
 func TestRenderCoalescedPaneOutputRendersImmediatelyAfterIdle(t *testing.T) {
 	t.Parallel()
 
