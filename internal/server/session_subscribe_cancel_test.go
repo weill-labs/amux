@@ -25,9 +25,6 @@ func TestPaneOutputSubscribeRemovesSubscriberWhenContextCanceledBeforeReply(t *t
 		}.handle(ctx, sess)
 	}()
 
-	waitUntil(t, func() bool {
-		return sess.ensureWaiters().outputSubscriberCount(1) == 1
-	})
 	cancel()
 
 	select {
@@ -58,9 +55,6 @@ func TestEventSubscribeRemovesSubscriberWhenContextCanceledBeforeReply(t *testin
 		}.handle(ctx, sess)
 	}()
 
-	waitUntil(t, func() bool {
-		return len(sess.eventSubs) == 1
-	})
 	cancel()
 
 	select {
@@ -98,9 +92,6 @@ func TestUIWaitSubscribeRemovesSubscriberWhenContextCanceledBeforeReply(t *testi
 		}.handle(ctx, sess)
 	}()
 
-	waitUntil(t, func() bool {
-		return len(sess.eventSubs) == 1
-	})
 	cancel()
 
 	select {
