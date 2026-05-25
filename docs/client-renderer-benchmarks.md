@@ -2,9 +2,9 @@
 
 `BenchmarkClientRendererBusyMultiPaneRenderLoop` is a reproducible local
 workload for the May 25, 2026 busy client profiles. It uses a 240x82 client
-with ten visible panes arranged as a 2x5 grid, updates four panes per frame
-with styled ANSI output, publishes pane capture snapshots, and runs one dirty
-diff render for each benchmark operation.
+with ten visible panes arranged as a 2x5 grid, sends six short styled ANSI
+bursts to each of four panes, publishes pane capture snapshots, and runs one
+dirty diff render for each benchmark operation.
 
 Run the CI-safe benchmark with allocation reporting:
 

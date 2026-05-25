@@ -60,6 +60,9 @@ func TestBusyMultiPaneClientRendererBenchmarkWorkload(t *testing.T) {
 	if result.ScreenChangedOutputs != result.PaneOutputs {
 		t.Fatalf("screen changed outputs = %d, want %d", result.ScreenChangedOutputs, result.PaneOutputs)
 	}
+	if result.InputBytes != workload.bytesPerStep {
+		t.Fatalf("input bytes = %d, want %d", result.InputBytes, workload.bytesPerStep)
+	}
 	if result.RenderStats.PanesComposited == 0 {
 		t.Fatal("render composed no panes")
 	}
