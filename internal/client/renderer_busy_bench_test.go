@@ -18,6 +18,7 @@ const (
 	busyMultiPaneBenchRows         = 2
 	busyMultiPaneBenchCols         = 5
 	busyMultiPaneBenchPanes        = busyMultiPaneBenchRows * busyMultiPaneBenchCols
+	busyMultiPaneBenchOutputBursts = 6
 )
 
 type busyMultiPaneClientRenderBench struct {
@@ -31,6 +32,7 @@ type busyMultiPaneClientRenderBench struct {
 
 type busyMultiPaneClientRenderResult struct {
 	VisiblePanes         int
+	OutputPanes          int
 	PaneOutputs          int
 	ScreenChangedOutputs int
 	ANSIBytes            int
@@ -48,8 +50,12 @@ func TestBusyMultiPaneClientRendererBenchmarkWorkload(t *testing.T) {
 	if result.VisiblePanes != 10 {
 		t.Fatalf("visible panes = %d, want 10", result.VisiblePanes)
 	}
-	if result.PaneOutputs != 4 {
-		t.Fatalf("pane outputs = %d, want 4", result.PaneOutputs)
+	if result.OutputPanes != 4 {
+		t.Fatalf("output panes = %d, want 4", result.OutputPanes)
+	}
+	wantPaneOutputs := result.OutputPanes * busyMultiPaneBenchOutputBursts
+	if result.PaneOutputs != wantPaneOutputs {
+		t.Fatalf("pane outputs = %d, want %d", result.PaneOutputs, wantPaneOutputs)
 	}
 	if result.ScreenChangedOutputs != result.PaneOutputs {
 		t.Fatalf("screen changed outputs = %d, want %d", result.ScreenChangedOutputs, result.PaneOutputs)
@@ -98,9 +104,12 @@ func newBusyMultiPaneClientRenderBench(tb testing.TB) *busyMultiPaneClientRender
 
 	outputPaneIDs := []uint32{1, 3, 6, 9}
 	bytesPerStep := 0
-	for i, paneID := range outputPaneIDs {
-		cell := paneCells[paneID]
-		bytesPerStep += len(busyMultiPaneTickPayload(paneID, cell.W, mux.PaneContentHeight(cell.H), i))
+	for burst := 0; burst < busyMultiPaneBenchOutputBursts; burst++ {
+		for i, paneID := range outputPaneIDs {
+			cell := paneCells[paneID]
+			seq := burst*len(outputPaneIDs) + i
+			bytesPerStep += len(busyMultiPaneTickPayload(paneID, cell.W, mux.PaneContentHeight(cell.H), seq))
+		}
 	}
 
 	return &busyMultiPaneClientRenderBench{
@@ -119,20 +128,27 @@ func (w *busyMultiPaneClientRenderBench) Close() {
 func (w *busyMultiPaneClientRenderBench) Step() busyMultiPaneClientRenderResult {
 	screenChanged := 0
 	inputBytes := 0
-	for i, paneID := range w.outputPaneIDs {
-		cell := w.paneCells[paneID]
-		payload := busyMultiPaneTickPayload(paneID, cell.W, mux.PaneContentHeight(cell.H), w.step+i)
-		inputBytes += len(payload)
-		info := w.cr.handlePaneOutputRenderInfo(paneID, payload, 0)
-		if info.screenChanged {
-			screenChanged++
+	paneOutputs := 0
+	seqBase := w.step * busyMultiPaneBenchOutputBursts * len(w.outputPaneIDs)
+	for burst := 0; burst < busyMultiPaneBenchOutputBursts; burst++ {
+		for i, paneID := range w.outputPaneIDs {
+			cell := w.paneCells[paneID]
+			seq := seqBase + burst*len(w.outputPaneIDs) + i
+			payload := busyMultiPaneTickPayload(paneID, cell.W, mux.PaneContentHeight(cell.H), seq)
+			inputBytes += len(payload)
+			paneOutputs++
+			info := w.cr.handlePaneOutputRenderInfo(paneID, payload, 0)
+			if info.screenChanged {
+				screenChanged++
+			}
 		}
 	}
 	data, stats := w.cr.renderDiff()
 	w.step++
 	return busyMultiPaneClientRenderResult{
 		VisiblePanes:         len(w.visiblePaneIDs),
-		PaneOutputs:          len(w.outputPaneIDs),
+		OutputPanes:          len(w.outputPaneIDs),
+		PaneOutputs:          paneOutputs,
 		ScreenChangedOutputs: screenChanged,
 		ANSIBytes:            len(data),
 		InputBytes:           inputBytes,
