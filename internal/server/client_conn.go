@@ -330,10 +330,17 @@ func (cc *clientConn) consumePredictionEpoch(paneID uint32, data []byte) uint32 
 // readLoop reads messages from the client and dispatches them to the session.
 func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 	detachReason := DisconnectReasonSocketError
+	commandQueue := make(chan *Message, 64)
+	go func() {
+		for msg := range commandQueue {
+			cc.handleCommand(srv, sess, msg)
+		}
+	}()
 	defer func() {
 		if cc.cancel != nil {
 			cc.cancel()
 		}
+		close(commandQueue)
 		sess.enqueueDetachClient(cc, detachReason)
 		cc.Close()
 	}()
@@ -361,7 +368,11 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 			return
 
 		case MsgTypeCommand:
-			go cc.handleCommand(srv, sess, msg)
+			select {
+			case commandQueue <- msg:
+			case <-cc.context().Done():
+				return
+			}
 
 		case MsgTypeCaptureResponse:
 			sess.routeCaptureResponse(msg)
