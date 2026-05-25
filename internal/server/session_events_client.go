@@ -78,14 +78,7 @@ func (e liveInputEvent) handle(s *Session) {
 	if e.cc != nil {
 		e.cc.notePredictionEpoch(pane.ID, e.epoch, e.data)
 	}
-	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
-		s.logger.Warn("live input failed",
-			"event", "live_input",
-			"pane_id", pane.ID,
-			"pane_name", pane.Meta.Name,
-			"error", err,
-		)
-	}
+	s.logLiveInputError(pane.ID, pane.Meta.Name, s.enqueueLivePaneInput(pane, e.data))
 }
 
 type liveInputPaneEvent struct {
@@ -103,14 +96,24 @@ func (e liveInputPaneEvent) handle(s *Session) {
 	if e.cc != nil {
 		e.cc.notePredictionEpoch(pane.ID, e.epoch, e.data)
 	}
-	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
-		s.logger.Warn("live input failed",
-			"event", "live_input",
-			"pane_id", pane.ID,
-			"pane_name", pane.Meta.Name,
-			"error", err,
-		)
+	s.logLiveInputError(pane.ID, pane.Meta.Name, s.enqueueLivePaneInput(pane, e.data))
+}
+
+func (s *Session) logLiveInputError(paneID uint32, paneName string, err error) {
+	if err == nil || errors.Is(err, errPacedInputClosed) {
+		return
 	}
+	fields := []any{
+		"event", "live_input",
+		"pane_id", paneID,
+		"pane_name", paneName,
+		"error", err,
+	}
+	if errors.Is(err, errPacedInputBackpressure) {
+		s.logger.Debug("live input backpressure", fields...)
+		return
+	}
+	s.logger.Warn("live input failed", fields...)
 }
 
 func (s *Session) enqueueAttachClient(srv *Server, cc *clientConn, cols, rows int) attachResult {

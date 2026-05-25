@@ -466,6 +466,46 @@ func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
 	}
 }
 
+func TestLogLiveInputErrorDowngradesBackpressure(t *testing.T) {
+	t.Parallel()
+
+	logger, buf := newAuditTestLogger()
+	sess := &Session{logger: logger}
+
+	sess.logLiveInputError(7, "pane-7", errPacedInputBackpressure)
+
+	records := parseAuditRecords(t, buf)
+	if len(records) != 1 {
+		t.Fatalf("log record count = %d, want 1", len(records))
+	}
+	if records[0]["msg"] != "live input backpressure" {
+		t.Fatalf("log msg = %v, want live input backpressure", records[0]["msg"])
+	}
+	if records[0]["event"] != "live_input" {
+		t.Fatalf("log event = %v, want live_input", records[0]["event"])
+	}
+}
+
+func TestLogLiveInputErrorWarnsUnexpectedFailures(t *testing.T) {
+	t.Parallel()
+
+	logger, buf := newAuditTestLogger()
+	sess := &Session{logger: logger}
+
+	sess.logLiveInputError(7, "pane-7", errors.New("write failed"))
+
+	records := parseAuditRecords(t, buf)
+	if len(records) != 1 {
+		t.Fatalf("log record count = %d, want 1", len(records))
+	}
+	if records[0]["msg"] != "live input failed" {
+		t.Fatalf("log msg = %v, want live input failed", records[0]["msg"])
+	}
+	if records[0]["event"] != "live_input" {
+		t.Fatalf("log event = %v, want live_input", records[0]["event"])
+	}
+}
+
 func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
 	t.Parallel()
 
