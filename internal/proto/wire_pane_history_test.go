@@ -134,6 +134,41 @@ func TestReadMsgPaneHistoryBinaryFrameWithExplicitHistory(t *testing.T) {
 	}
 }
 
+func TestReadMsgPaneHistoryBinaryFrameWideRunSmallPayload(t *testing.T) {
+	t.Parallel()
+
+	// A short history whose only styled line is a full-width run of identical
+	// cells (e.g. a colored status bar). Run-length encoding compresses the run
+	// to a few bytes, so the run count legitimately exceeds the total payload
+	// size. Regression for "cell run length too large" on attach.
+	const width = 128
+	cells := make([]Cell, width)
+	for i := range cells {
+		cells[i] = Cell{Char: " ", Width: 1, Style: uv.Style{Bg: ansi.BasicColor(4)}}
+	}
+	msg := &Message{
+		Type:          MsgTypePaneHistory,
+		PaneID:        1,
+		History:       []string{"a", "b", "c", strings.Repeat(" ", width)},
+		StyledHistory: []StyledLine{{Text: "a"}, {Text: "b"}, {Text: "c"}, {Text: strings.Repeat(" ", width), Cells: cells}},
+	}
+
+	var buf bytes.Buffer
+	writer := NewWriter(&buf)
+	enableWriterPaneHistoryBinary(t, writer)
+	if err := writer.WriteMsg(msg); err != nil {
+		t.Fatalf("WriteMsg: %v", err)
+	}
+
+	got, err := ReadMsg(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+	if !equalMessages(got, msg) {
+		t.Fatalf("round-trip mismatch:\n got: %#v\nwant: %#v", got, msg)
+	}
+}
+
 func TestWriterWriteMsgPaneHistoryUsesBinaryFrameWhenEnabled(t *testing.T) {
 	t.Parallel()
 
@@ -424,6 +459,47 @@ func TestPaneHistoryBinaryErrorPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("decoder bounds cell runs by per-line cell budget", func(t *testing.T) {
+		t.Parallel()
+
+		// A single run longer than the per-line cell cap is rejected.
+		var oversizedRun bytes.Buffer
+		oversizedRun.WriteByte(0)
+		writePaneHistoryUvarint(&oversizedRun, 1)
+		writePaneHistoryUvarint(&oversizedRun, 1)
+		writePaneHistoryString(&oversizedRun, "x")
+		writePaneHistoryUvarint(&oversizedRun, 0)
+		oversizedRun.WriteByte(paneHistoryLineFlagHasCells)
+		writePaneHistoryString(&oversizedRun, "y")
+		writePaneHistoryUvarint(&oversizedRun, 1)
+		writePaneHistoryUvarint(&oversizedRun, uint64(maxPaneHistoryLineCells+1))
+		if _, err := decodePaneHistoryPayload(1, newPaneHistoryReader(bytes.NewReader(oversizedRun.Bytes()), int64(oversizedRun.Len())), oversizedRun.Len()); err == nil || !strings.Contains(err.Error(), "cell run length too large") {
+			t.Fatalf("decodePaneHistoryPayload(oversized run) error = %v, want cell run length too large", err)
+		}
+
+		// Runs that individually fit but together exceed the cap are rejected.
+		var cumulativeRuns bytes.Buffer
+		cumulativeRuns.WriteByte(0)
+		writePaneHistoryUvarint(&cumulativeRuns, 1)
+		writePaneHistoryUvarint(&cumulativeRuns, 1)
+		writePaneHistoryString(&cumulativeRuns, "x")
+		writePaneHistoryUvarint(&cumulativeRuns, 1)
+		if err := writePaneHistoryStyle(&cumulativeRuns, uv.Style{}); err != nil {
+			t.Fatalf("writePaneHistoryStyle: %v", err)
+		}
+		cumulativeRuns.WriteByte(paneHistoryLineFlagHasCells)
+		writePaneHistoryString(&cumulativeRuns, "y")
+		writePaneHistoryUvarint(&cumulativeRuns, 2)
+		writePaneHistoryUvarint(&cumulativeRuns, uint64(maxPaneHistoryLineCells))
+		writePaneHistoryString(&cumulativeRuns, "a")
+		writePaneHistoryUvarint(&cumulativeRuns, 1)
+		writePaneHistoryUvarint(&cumulativeRuns, 0)
+		writePaneHistoryUvarint(&cumulativeRuns, 1)
+		if _, err := decodePaneHistoryPayload(1, newPaneHistoryReader(bytes.NewReader(cumulativeRuns.Bytes()), int64(cumulativeRuns.Len())), cumulativeRuns.Len()); err == nil || !strings.Contains(err.Error(), "cell run length too large") {
+			t.Fatalf("decodePaneHistoryPayload(cumulative runs) error = %v, want cell run length too large", err)
+		}
+	})
+
 	t.Run("low level readers reject invalid encodings", func(t *testing.T) {
 		t.Parallel()
 
@@ -435,6 +511,15 @@ func TestPaneHistoryBinaryErrorPaths(t *testing.T) {
 		writePaneHistoryUvarint(&countBuf, 5)
 		if _, err := readPaneHistoryCount(newPaneHistoryReader(bytes.NewReader(countBuf.Bytes()), int64(countBuf.Len())), 4, "test count"); err == nil || !strings.Contains(err.Error(), "too large") {
 			t.Fatalf("readPaneHistoryCount() error = %v, want too large", err)
+		}
+
+		var runLenBuf bytes.Buffer
+		writePaneHistoryUvarint(&runLenBuf, 5)
+		if got, err := readPaneHistoryRunLength(newPaneHistoryReader(bytes.NewReader(runLenBuf.Bytes()), int64(runLenBuf.Len())), 8); err != nil || got != 5 {
+			t.Fatalf("readPaneHistoryRunLength() = %d, %v, want 5, nil", got, err)
+		}
+		if _, err := readPaneHistoryRunLength(newPaneHistoryReader(bytes.NewReader(runLenBuf.Bytes()), int64(runLenBuf.Len())), 4); err == nil || !strings.Contains(err.Error(), "cell run length too large") {
+			t.Fatalf("readPaneHistoryRunLength() error = %v, want too large", err)
 		}
 
 		var stringBuf bytes.Buffer

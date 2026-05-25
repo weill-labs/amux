@@ -16,6 +16,14 @@ import (
 
 const wireFormatPaneHistory byte = 0x02
 
+// maxPaneHistoryLineCells bounds the number of cells decoded for a single
+// styled-history line. Run-length encoding lets a run count legitimately
+// exceed the payload byte size (a full-width colored bar compresses to a few
+// bytes), so run lengths cannot be validated against the payload length like
+// other counts. This cap guards the decode-time allocation against corrupted
+// frames while staying far above any real terminal width.
+const maxPaneHistoryLineCells = 1 << 16
+
 const (
 	paneHistoryFlagHistoryFromStyledText byte = 1 << iota
 )
@@ -426,11 +434,13 @@ func decodePaneHistoryPayload(paneID uint32, r *paneHistoryReader, payloadLen in
 				return nil, fmt.Errorf("reading styled line %d run count: %w", i, err)
 			}
 			line.Cells = make([]Cell, 0, runCount)
+			cellsRemaining := maxPaneHistoryLineCells
 			for runIndex := 0; runIndex < runCount; runIndex++ {
-				runLen, err := readPaneHistoryCount(r, payloadLen, "cell run length")
+				runLen, err := readPaneHistoryRunLength(r, cellsRemaining)
 				if err != nil {
 					return nil, fmt.Errorf("reading styled line %d run %d length: %w", i, runIndex, err)
 				}
+				cellsRemaining -= runLen
 				char, err := readPaneHistoryString(r)
 				if err != nil {
 					return nil, fmt.Errorf("reading styled line %d run %d char: %w", i, runIndex, err)
@@ -724,6 +734,21 @@ func readPaneHistoryCount(r *paneHistoryReader, payloadLen int, name string) (in
 	}
 	if n > uint64(payloadLen) {
 		return 0, fmt.Errorf("%s too large: %d", name, n)
+	}
+	return int(n), nil
+}
+
+// readPaneHistoryRunLength reads an RLE run length, bounding it by the cells
+// still allowed for the current line. Because run lengths are compressed, they
+// are validated against the per-line cell budget rather than the payload byte
+// length used by readPaneHistoryCount.
+func readPaneHistoryRunLength(r *paneHistoryReader, cellsRemaining int) (int, error) {
+	n, err := binary.ReadUvarint(r)
+	if err != nil {
+		return 0, fmt.Errorf("reading cell run length: %w", err)
+	}
+	if n > uint64(cellsRemaining) {
+		return 0, fmt.Errorf("cell run length too large: %d", n)
 	}
 	return int(n), nil
 }

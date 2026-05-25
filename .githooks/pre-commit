@@ -51,7 +51,12 @@ if ! command -v golangci-lint &>/dev/null; then
     exit 1
 fi
 
-if ! golangci-lint run $STAGED; then
+# Lint the packages containing staged Go files, not the files themselves.
+# golangci-lint must analyze whole packages so cross-file symbols typecheck;
+# passing bare file paths reports spurious "undefined" errors. Mirrors CI's
+# `golangci-lint run ./...`.
+STAGED_PKGS=$(printf '%s\n' $STAGED | xargs -n1 dirname | sort -u | sed 's#^#./#')
+if ! golangci-lint run $STAGED_PKGS; then
     echo "golangci-lint: fix the reported issues before committing"
     exit 1
 fi
