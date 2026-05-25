@@ -50,15 +50,6 @@ type diagCommandRequest struct {
 	outputPath string
 }
 
-type diagInfo struct {
-	PID        int    `json:"pid"`
-	Uptime     string `json:"uptime"`
-	Binary     string `json:"binary"`
-	Build      string `json:"build"`
-	GoVersion  string `json:"go_version"`
-	Goroutines int    `json:"goroutines"`
-}
-
 func runDiagCommand(sessionName string, args []string) {
 	if err := runDiagCommandWithIO(context.Background(), os.Stdout, sessionName, args); err != nil {
 		fmt.Fprintf(os.Stderr, "amux _diag: %v\n", err)
@@ -311,7 +302,7 @@ func summarizeGoroutineStates(dump []byte) (int, map[string]int) {
 }
 
 func writeDiagInfo(w io.Writer, sessionName string, body []byte, deps diagDeps) error {
-	var info diagInfo
+	var info server.DiagInfo
 	if err := json.Unmarshal(body, &info); err != nil {
 		return fmt.Errorf("decoding info: %w", err)
 	}

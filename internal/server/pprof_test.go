@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,6 +80,13 @@ func TestPprofEndpointRespondsWhileSessionMutationPathWedged(t *testing.T) {
 
 	wedgeStarted := make(chan struct{})
 	releaseWedge := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			close(releaseWedge)
+		})
+	}
+	t.Cleanup(release)
 	wedgedDone := make(chan commandMutationResult, 1)
 	go func() {
 		wedgedDone <- sess.enqueueCommandMutation(func(*MutationContext) commandMutationResult {
@@ -112,7 +120,7 @@ func TestPprofEndpointRespondsWhileSessionMutationPathWedged(t *testing.T) {
 		t.Fatalf("goroutine profile missing header:\n%s", body)
 	}
 
-	close(releaseWedge)
+	release()
 	select {
 	case res := <-wedgedDone:
 		if res.err != nil {
