@@ -85,6 +85,9 @@ type Session struct {
 	// Tests inject short timings here instead of mutating package globals.
 	captureTiming captureTimingConfig
 
+	// Internal event-loop watchdog timing. Zero uses the default 30s timeout.
+	SessionEventWatchdogTimeout time.Duration
+
 	// Remote pane management — nil when no remote transport is configured.
 	RemoteManager   proto.PaneTransport
 	remoteTakeover  PaneTakeoverTransport

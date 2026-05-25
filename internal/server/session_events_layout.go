@@ -29,6 +29,10 @@ func (c sessionEventCommand) Handle(s *Session) {
 	c.sessionAction.handle(s)
 }
 
+func (c sessionEventCommand) EventLoopCommandType() string {
+	return fmt.Sprintf("%T", c.sessionAction)
+}
+
 type commandMutationResult struct {
 	output          string
 	err             error
@@ -525,7 +529,6 @@ func (s *Session) startEventLoop() {
 	s.sessionEventStop = make(chan struct{})
 	s.sessionEventDone = make(chan struct{})
 	go func() {
-		s.eventLoopOwner.Assert("server.Session", "eventLoop")
 		eventloop.Run(s, s.sessionEvents, s.sessionEventStop, s.sessionEventDone, func(s *Session) bool {
 			// Keep the active input target in sync with actor-owned focus/window
 			// state so the common input path can avoid a round-trip through the
@@ -540,6 +543,29 @@ func (s *Session) startEventLoop() {
 			return false
 		})
 	}()
+}
+
+func (s *Session) EnterEventLoopCommand() {
+	s.eventLoopOwner.Assert("server.Session", "eventLoop")
+}
+
+func (s *Session) EventLoopWatchdogTimeout() time.Duration {
+	return s.SessionEventWatchdogTimeout
+}
+
+func (s *Session) HandleEventLoopWatchdogTimeout(commandType string, started time.Time, elapsed, timeout time.Duration, goroutineID uint64) {
+	if s.logger != nil {
+		s.logger.Error("session event loop handler timed out",
+			"event", "event_loop_watchdog",
+			"session", s.Name,
+			"command_type", commandType,
+			"handler_started_at", started.Format(time.RFC3339Nano),
+			"elapsed", elapsed.String(),
+			"timeout", timeout.String(),
+			"goroutine_id", goroutineID,
+		)
+	}
+	closeStopSignal(s.sessionEventStop)
 }
 
 func (s *Session) stopEventLoop() {

@@ -9,7 +9,10 @@ import (
 	"github.com/weill-labs/amux/internal/auditlog"
 )
 
-var errPacedInputClosed = errors.New("paced input queue closed")
+var (
+	errPacedInputClosed       = errors.New("paced input queue closed")
+	errPacedInputBackpressure = errors.New("paced input queue full")
+)
 
 const pacedInputRequestBufferSize = 256
 
@@ -112,8 +115,18 @@ func (q *pacedInputQueue) enqueueAsyncRequest(req pacedInputRequest) error {
 		return errPacedInputClosed
 	case <-q.done:
 		return errPacedInputClosed
+	default:
+	}
+
+	select {
+	case <-q.stop:
+		return errPacedInputClosed
+	case <-q.done:
+		return errPacedInputClosed
 	case q.requests <- req:
 		return nil
+	default:
+		return errPacedInputBackpressure
 	}
 }
 
