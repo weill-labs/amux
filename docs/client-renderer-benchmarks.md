@@ -6,7 +6,7 @@ with ten visible panes arranged as a 2x5 grid, sends six short styled ANSI
 bursts to each of four panes, publishes pane capture snapshots, and runs one
 dirty diff render for each benchmark operation.
 
-Run the CI-safe benchmark with allocation reporting:
+Run the renderer benchmark gate workload with allocation reporting:
 
 ```bash
 go test ./internal/client -run '^$' -bench '^BenchmarkClientRendererBusyMultiPaneRenderLoop$' -benchmem -count=10 -timeout 120s

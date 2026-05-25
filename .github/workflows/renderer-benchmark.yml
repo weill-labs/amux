@@ -29,6 +29,9 @@ jobs:
           - package: ./internal/client
             benchmark: BenchmarkCapturePaneRenderSnapshotRenderChangedScreen
             file: internal/client/renderer_bench_test.go
+          - package: ./internal/client
+            benchmark: BenchmarkClientRendererBusyMultiPaneRenderLoop
+            file: internal/client/renderer_busy_bench_test.go
           - package: ./internal/render
             benchmark: BenchmarkCompositorDirtyPaneRepresentative
             file: internal/render/compositor_bench_test.go
