@@ -812,6 +812,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
+			name:     "diag command uses dedicated pprof runner",
+			args:     []string{"_diag", "dump"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "diag", session: resolvedSessionMarker, args: []string{"dump"}},
+			},
+		},
+		{
 			name:     "remote command dispatches through server",
 			args:     []string{"disconnect", "host-a"},
 			wantExit: 0,
@@ -1084,6 +1092,13 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 		RunDebugCommand: func(sessionName string, args []string) {
 			h.calls = append(h.calls, cliCall{
 				kind:    "debug",
+				session: sessionName,
+				args:    append([]string(nil), args...),
+			})
+		},
+		RunDiagCommand: func(sessionName string, args []string) {
+			h.calls = append(h.calls, cliCall{
+				kind:    "diag",
 				session: sessionName,
 				args:    append([]string(nil), args...),
 			})

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	httppprof "net/http/pprof"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -23,12 +25,29 @@ type pprofEndpoint struct {
 	done     chan struct{}
 }
 
+type DiagInfo struct {
+	PID        int    `json:"pid"`
+	Uptime     string `json:"uptime"`
+	Binary     string `json:"binary"`
+	Build      string `json:"build"`
+	GoVersion  string `json:"go_version"`
+	Goroutines int    `json:"goroutines"`
+}
+
 func PprofSocketPath(session string) string {
 	return filepath.Join(SocketDir(), session+".pprof")
 }
 
-func newPprofMux() *http.ServeMux {
+func newPprofMux(infoProvider func() DiagInfo) *http.ServeMux {
 	mux := http.NewServeMux()
+	if infoProvider != nil {
+		mux.HandleFunc("/debug/amux/info", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(infoProvider()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		})
+	}
 	mux.HandleFunc("/debug/pprof/", httppprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", httppprof.Cmdline)
 	mux.HandleFunc("/debug/pprof/profile", httppprof.Profile)
@@ -43,7 +62,7 @@ func newPprofMux() *http.ServeMux {
 	return mux
 }
 
-func newPprofEndpoint(sockPath string, logger *charmlog.Logger) (*pprofEndpoint, error) {
+func newPprofEndpoint(sockPath string, logger *charmlog.Logger, infoProvider func() DiagInfo) (*pprofEndpoint, error) {
 	if _, err := os.Stat(sockPath); err == nil {
 		conn, dialErr := dialutil.DialUnixStaleProbe(sockPath)
 		if dialErr == nil {
@@ -66,7 +85,7 @@ func newPprofEndpoint(sockPath string, logger *charmlog.Logger) (*pprofEndpoint,
 	endpoint := &pprofEndpoint{
 		sockPath: sockPath,
 		listener: listener,
-		server:   &http.Server{Handler: newPprofMux()},
+		server:   &http.Server{Handler: newPprofMux(infoProvider)},
 		done:     make(chan struct{}),
 	}
 	go func() {
@@ -97,6 +116,27 @@ func (p *pprofEndpoint) close() {
 	_ = os.Remove(p.sockPath)
 }
 
+func (s *Server) DiagInfo() DiagInfo {
+	sess := s.firstSession()
+	startedAt := time.Now()
+	if sess != nil && !sess.startedAt.IsZero() {
+		startedAt = sess.startedAt
+	}
+	binary, _ := os.Executable()
+	build := BuildVersion
+	if build == "" {
+		build = "dev"
+	}
+	return DiagInfo{
+		PID:        os.Getpid(),
+		Uptime:     time.Since(startedAt).Round(time.Millisecond).String(),
+		Binary:     binary,
+		Build:      build,
+		GoVersion:  runtime.Version(),
+		Goroutines: runtime.NumGoroutine(),
+	}
+}
+
 func (s *Server) EnablePprof() error {
 	if s == nil || s.pprof != nil {
 		return nil
@@ -106,7 +146,7 @@ func (s *Server) EnablePprof() error {
 		return fmt.Errorf("pprof debug endpoint requires an active session")
 	}
 
-	endpoint, err := newPprofEndpoint(PprofSocketPath(sess.Name), s.logger)
+	endpoint, err := newPprofEndpoint(PprofSocketPath(sess.Name), s.logger, s.DiagInfo)
 	if err != nil {
 		return err
 	}

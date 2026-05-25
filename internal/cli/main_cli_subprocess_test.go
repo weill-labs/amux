@@ -201,6 +201,18 @@ func TestMainDebugHelp(t *testing.T) {
 	}
 }
 
+func TestMainDiagHelp(t *testing.T) {
+	t.Parallel()
+
+	output, exitCode := runHermeticMain(t, "_diag", "--help")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\noutput:\n%s", exitCode, output)
+	}
+	if !strings.Contains(output, "usage: amux _diag [dump|goroutines|heap|profile|pprof|info]") {
+		t.Fatalf("output = %q, want diag usage", output)
+	}
+}
+
 func TestMainDebugFramesDispatchesDedicatedServerCommand(t *testing.T) {
 	t.Parallel()
 
