@@ -25,6 +25,7 @@ type captureSnapshotFakeEmulator struct {
 	screenReads         []int
 	cellReads           []screenCellRead
 	changedRows         []int
+	drainRowsCalls      int
 	renderCalls         int
 	renderNoCursorCalls int
 	hasCursorBlock      bool
@@ -67,6 +68,7 @@ func (e *captureSnapshotFakeEmulator) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 func (e *captureSnapshotFakeEmulator) DrainScreenChangeRows() []int {
+	e.drainRowsCalls++
 	if e.changedRows != nil {
 		rows := e.changedRows
 		e.changedRows = nil
@@ -428,8 +430,11 @@ func TestHandlePaneOutputBatchPublishesOneCapturePerPane(t *testing.T) {
 	if got, want := len(emu.writes), 3; got != want {
 		t.Fatalf("emulator writes = %d, want %d", got, want)
 	}
-	if got, want := emu.renderCalls, 1; got != want {
-		t.Fatalf("batched pane capture Render calls = %d, want %d", got, want)
+	if got, want := emu.drainRowsCalls, 1; got != want {
+		t.Fatalf("batched pane capture screen drains = %d, want %d", got, want)
+	}
+	if got := emu.renderCalls; got != 0 {
+		t.Fatalf("batched pane capture Render calls = %d, want 0", got)
 	}
 	if got, want := paneRenderSnapshotLines(r.loadSnapshot().paneCaptures[1].screen)[0], "first second third"; got != want {
 		t.Fatalf("published pane capture row 0 = %q, want %q", got, want)
