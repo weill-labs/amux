@@ -63,18 +63,6 @@ func shouldCaptureLocally(req caputil.Request) bool {
 
 func cmdCapture(ctx *CommandContext) {
 	req := caputil.ParseArgs(ctx.Args)
-	if req.PaneRef != "" {
-		ref, err := ctx.Sess.queryPaneRefContext(ctx.context(), req.PaneRef)
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		if ref.Host != "" {
-			req.PaneRef = ref.Pane
-			ctx.applyCommandResult(remoteCommandResult(ctx.Sess, ref.Host, "capture", caputil.ArgsForRequest(req)))
-			return
-		}
-	}
 	if shouldCaptureLocally(req) {
 		ctx.applyCommandResult(commandpkg.Result{Message: captureLocally(ctx, ctx.Args)})
 		return

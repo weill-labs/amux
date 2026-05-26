@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"reflect"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
-	"github.com/weill-labs/amux/internal/transport"
 )
 
 func TestParseSpawnCommandArgs(t *testing.T) {
@@ -41,7 +39,6 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
 		{name: "missing window value", args: []string{"--window"}, wantErrText: spawnUsage},
 		{name: "missing name value", args: []string{"--name"}, wantErrText: spawnUsage},
-		{name: "missing host value", args: []string{"--host"}, wantErrText: spawnUsage},
 		{name: "missing task value", args: []string{"--task"}, wantErrText: spawnUsage},
 		{name: "missing color value", args: []string{"--color"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
@@ -280,27 +277,6 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
-			name:        "remote disconnect unwraps to session command",
-			args:        []string{"remote", "disconnect", "host-a"},
-			wantCmd:     "disconnect",
-			wantArgs:    []string{"host-a"},
-			wantHandled: true,
-		},
-		{
-			name:        "connect forwards host and session flags",
-			args:        []string{"connect", "host-a", "--session", "work"},
-			wantCmd:     "connect",
-			wantArgs:    []string{"host-a", "--session", "work"},
-			wantHandled: true,
-		},
-		{
-			name:        "remote connect unwraps to session command with per-client flag",
-			args:        []string{"remote", "connect", "host-a", "--session-per-client"},
-			wantCmd:     "connect",
-			wantArgs:    []string{"host-a", "--session-per-client"},
-			wantHandled: true,
-		},
-		{
 			name:        "respawn narrows to pane arg",
 			args:        []string{"respawn", "pane-1", "ignored"},
 			wantCmd:     "respawn",
@@ -312,12 +288,6 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			args:        []string{"wait"},
 			wantHandled: true,
 			wantErrText: "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
-		},
-		{
-			name:        "unsplice needs a host",
-			args:        []string{"unsplice"},
-			wantHandled: true,
-			wantErrText: "usage: amux unsplice <host>",
 		},
 		{
 			name:        "rename needs pane and new name",
@@ -819,44 +789,6 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 				{kind: "diag", session: resolvedSessionMarker, args: []string{"dump"}},
 			},
 		},
-		{
-			name:     "remote command dispatches through server",
-			args:     []string{"disconnect", "host-a"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
-			},
-		},
-		{
-			name:     "connect forwards session override through server",
-			args:     []string{"connect", "host-a", "--session", "work"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "connect", args: []string{"host-a", "--session", "work"}},
-			},
-		},
-		{
-			name:     "remote connect forwards per-client flag through server",
-			args:     []string{"remote", "connect", "host-a", "--session-per-client"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "connect", args: []string{"host-a", "--session-per-client"}},
-			},
-		},
-		{
-			name:     "remote subcommand dispatches through server",
-			args:     []string{"remote", "disconnect", "host-a"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
-			},
-		},
-		{
-			name:       "removed ssh command prints migration hint",
-			args:       []string{"ssh", "builder:work"},
-			wantExit:   1,
-			wantStderr: "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder:work\" instead.\n",
-		},
 	}
 
 	for _, tt := range tests {
@@ -874,61 +806,6 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			wantCalls := resolveTestSessions(tt.wantCalls)
 			if !reflect.DeepEqual(h.calls, wantCalls) {
 				t.Fatalf("calls = %#v, want %#v", h.calls, wantCalls)
-			}
-			if got := h.stdout.String(); got != tt.wantStdout {
-				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
-			}
-			if got := h.stderr.String(); got != tt.wantStderr {
-				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
-			}
-		})
-	}
-}
-
-func TestRemoteCLICommandGroupUsageAndErrors(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		args       []string
-		wantExit   int
-		wantStdout string
-		wantStderr string
-	}{
-		{
-			name:       "missing subcommand prints usage",
-			wantExit:   1,
-			wantStderr: remoteUsage + "\n",
-		},
-		{
-			name:       "group help prints usage",
-			args:       []string{"--help"},
-			wantExit:   0,
-			wantStdout: remoteUsage + "\n",
-		},
-		{
-			name:       "nested help prints subcommand usage",
-			args:       []string{"disconnect", "--help"},
-			wantExit:   0,
-			wantStdout: disconnectUsage + "\n",
-		},
-		{
-			name:       "unknown subcommand prints error",
-			args:       []string{"unknown"},
-			wantExit:   1,
-			wantStderr: "amux: unknown remote command \"unknown\"\n" + remoteUsage + "\n",
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newCLIRuntimeHarness()
-			exitCode := remoteCLICommandGroup()(invocation{runtime: h.runtime(), sessionName: resolvedSessionMarker}, tt.args)
-			if exitCode != tt.wantExit {
-				t.Fatalf("exit = %d, want %d", exitCode, tt.wantExit)
 			}
 			if got := h.stdout.String(); got != tt.wantStdout {
 				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
@@ -982,18 +859,6 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantExit:   1,
 			wantStderr: sendKeysUsage + "\n",
 		},
-		{
-			name:       "ssh migration hint stays in dispatch layer",
-			args:       []string{"ssh", "builder"},
-			wantExit:   1,
-			wantStderr: "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder\" instead.\n",
-		},
-		{
-			name:       "connect usage error stays in dispatch layer",
-			args:       []string{"connect"},
-			wantExit:   1,
-			wantStderr: "usage: amux connect <host> [--session <name> | --session-per-client]\n",
-		},
 	}
 
 	for _, tt := range tests {
@@ -1015,30 +880,12 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	}
 }
 
-func TestRunMainSSHMigrationHintDoesNotCallRuntime(t *testing.T) {
-	t.Parallel()
-
-	h := newCLIRuntimeHarness()
-	h.runSSHSessionErr = errors.New("boom")
-
-	if exitCode := RunWithRuntime([]string{"ssh", "builder"}, h.runtime()); exitCode != 1 {
-		t.Fatalf("RunWithRuntime(%v) exit = %d, want 1", []string{"ssh", "builder"}, exitCode)
-	}
-	if got := h.stderr.String(); got != "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder\" instead.\n" {
-		t.Fatalf("stderr = %q, want migration hint", got)
-	}
-	if len(h.calls) != 0 {
-		t.Fatalf("calls = %#v, want no runtime calls", h.calls)
-	}
-}
-
 type cliCall struct {
 	kind    string
 	session string
 	cmd     string
 	args    []string
 	managed bool
-	target  *transport.Target
 }
 
 const resolvedSessionMarker = "__resolved_session__"
@@ -1049,7 +896,6 @@ type cliRuntimeHarness struct {
 	usageCalls        int
 	shouldTakeover    bool
 	tryTakeoverResult bool
-	runSSHSessionErr  error
 	calls             []cliCall
 }
 
@@ -1120,11 +966,6 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 				session: sessionName,
 				args:    append([]string(nil), args...),
 			})
-		},
-		RunSSHSession: func(target transport.Target) error {
-			targetCopy := target
-			h.calls = append(h.calls, cliCall{kind: "ssh", target: &targetCopy})
-			return h.runSSHSessionErr
 		},
 		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})

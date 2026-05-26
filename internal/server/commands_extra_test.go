@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -218,28 +217,6 @@ func TestParseCopyModeArgs(t *testing.T) {
 				t.Fatalf("parsed = %#v, want %#v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestCommandRespawnRejectsProxyPane(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, cleanup := newCommandTestSession(t)
-	defer cleanup()
-
-	pane := newProxyPane(1, mux.PaneMeta{
-		Name:  "pane-1",
-		Host:  "fake-host",
-		Color: config.AccentColor(0),
-	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
-		return len(data), nil
-	})
-	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
-	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
-
-	res := runTestCommand(t, srv, sess, "respawn", "pane-1")
-	if res.cmdErr != "cannot respawn proxy pane" {
-		t.Fatalf("respawn proxy error = %q", res.cmdErr)
 	}
 }
 
@@ -871,103 +848,6 @@ func TestCmdListClientsFormatsClientsAndEmptyState(t *testing.T) {
 			if !strings.Contains(msg.CmdOutput, want) {
 				t.Fatalf("cmdListClients missing %q:\n%s", want, msg.CmdOutput)
 			}
-		}
-	})
-}
-
-func TestRemoteHostCommandsReportConfiguredAndErrorStates(t *testing.T) {
-	t.Parallel()
-
-	cfg := &config.Config{
-		Hosts: map[string]config.Host{
-			"dev":   {Type: "remote", Address: "example.com:22"},
-			"local": {Type: "local"},
-		},
-	}
-
-	t.Run("hosts without manager", func(t *testing.T) {
-		t.Parallel()
-
-		sess := newSession("test-hosts-none")
-		stopCrashCheckpointLoop(t, sess)
-		defer stopSessionBackgroundLoops(t, sess)
-
-		msg := runOneShotCommand(t, sess, nil, cmdHosts)
-		if got := msg.CmdOutput; got != "No remote hosts configured.\n" {
-			t.Fatalf("cmdHosts without manager = %q", got)
-		}
-	})
-
-	t.Run("hosts with configured manager", func(t *testing.T) {
-		t.Parallel()
-
-		sess := newSession("test-hosts-configured")
-		stopCrashCheckpointLoop(t, sess)
-		defer stopSessionBackgroundLoops(t, sess)
-		installTestPaneTransport(t, sess, &stubPaneTransport{
-			hostStatusByName: map[string]proto.ConnState{
-				"dev": proto.Disconnected,
-			},
-		}, cfg.HostColor)
-
-		msg := runOneShotCommand(t, sess, nil, cmdHosts)
-		for _, want := range []string{"HOST", "STATUS", "dev", "disconnected"} {
-			if !strings.Contains(msg.CmdOutput, want) {
-				t.Fatalf("cmdHosts missing %q:\n%s", want, msg.CmdOutput)
-			}
-		}
-	})
-
-	t.Run("disconnect and reconnect error paths", func(t *testing.T) {
-		t.Parallel()
-
-		noMgr := newSession("test-host-commands-no-manager")
-		stopCrashCheckpointLoop(t, noMgr)
-		defer stopSessionBackgroundLoops(t, noMgr)
-
-		msg := runOneShotCommand(t, noMgr, nil, cmdDisconnect)
-		if got := msg.CmdErr; got != "usage: disconnect <host>" {
-			t.Fatalf("disconnect usage error = %q", got)
-		}
-
-		msg = runOneShotCommand(t, noMgr, []string{"dev"}, cmdDisconnect)
-		if got := msg.CmdErr; got != "no remote hosts configured" {
-			t.Fatalf("disconnect no-manager error = %q", got)
-		}
-
-		msg = runOneShotCommand(t, noMgr, nil, cmdReconnect)
-		if got := msg.CmdErr; got != "usage: reconnect <host>" {
-			t.Fatalf("reconnect usage error = %q", got)
-		}
-
-		msg = runOneShotCommand(t, noMgr, []string{"dev"}, cmdReconnect)
-		if got := msg.CmdErr; got != "no remote hosts configured" {
-			t.Fatalf("reconnect no-manager error = %q", got)
-		}
-
-		withMgr := newSession("test-host-commands-configured")
-		stopCrashCheckpointLoop(t, withMgr)
-		defer stopSessionBackgroundLoops(t, withMgr)
-		installTestPaneTransport(t, withMgr, &stubPaneTransport{
-			hostStatusByName: map[string]proto.ConnState{
-				"dev": proto.Disconnected,
-			},
-			disconnectErrs: map[string]error{
-				"dev": fmt.Errorf(`host "dev" not connected`),
-			},
-			reconnectErrs: map[string]error{
-				"dev": fmt.Errorf(`host "dev" not known`),
-			},
-		}, cfg.HostColor)
-
-		msg = runOneShotCommand(t, withMgr, []string{"dev"}, cmdDisconnect)
-		if got := msg.CmdErr; got != "host \"dev\" not connected" {
-			t.Fatalf("disconnect configured error = %q", got)
-		}
-
-		msg = runOneShotCommand(t, withMgr, []string{"dev"}, cmdReconnect)
-		if got := msg.CmdErr; got != "host \"dev\" not known" {
-			t.Fatalf("reconnect configured error = %q", got)
 		}
 	})
 }

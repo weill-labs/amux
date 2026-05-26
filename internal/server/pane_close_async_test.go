@@ -10,18 +10,6 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-type createPaneHookTransport struct {
-	stubPaneTransport
-	onCreatePane func()
-}
-
-func (t *createPaneHookTransport) CreatePane(hostName string, localPaneID uint32, sessionName string) (uint32, error) {
-	if t.onCreatePane != nil {
-		t.onCreatePane()
-	}
-	return t.stubPaneTransport.CreatePane(hostName, localPaneID, sessionName)
-}
-
 func TestSessionEventLoopStaysResponsiveWhilePaneCloseBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -123,65 +111,6 @@ func TestSessionEventLoopStaysResponsiveWhilePaneCloseBlocks(t *testing.T) {
 
 			unblockOnce.Do(func() { close(unblock) })
 		})
-	}
-}
-
-func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, cleanup := newCommandTestSession(t)
-	defer cleanup()
-
-	closed := make(chan *mux.Pane, 1)
-	sess.paneCloser = func(pane *mux.Pane) {
-		closed <- pane
-		_ = pane.Close()
-		_ = pane.WaitClosed()
-	}
-
-	pane := newTestPane(sess, 1, "pane-1")
-	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
-	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
-
-	transport := &createPaneHookTransport{
-		onCreatePane: func() {
-			mustSessionMutation(t, sess, func(sess *Session) {
-				sess.Windows = nil
-				sess.ActiveWindowID = 0
-			})
-		},
-	}
-	installTestPaneTransport(t, sess, transport, func(string) string { return "123abc" })
-
-	ctx := &CommandContext{Srv: srv, Sess: sess}
-	res := runCreatePane(ctx, 0, "spawn", createPanePlacementSplitAt, createPaneRequest{
-		hostName:     "dev",
-		hostExplicit: true,
-		name:         "worker",
-		dir:          mux.SplitVertical,
-	}, true)
-
-	if res.Err == nil || res.Err.Error() != "pane not in any window" {
-		t.Fatalf("runCreatePane error = %v, want pane-not-in-window", res.Err)
-	}
-	if len(res.ClosePanes) != 0 {
-		t.Fatalf("runCreatePane close panes = %d, want 0", len(res.ClosePanes))
-	}
-
-	var closedPane *mux.Pane
-	select {
-	case closedPane = <-closed:
-	case <-time.After(time.Second):
-		t.Fatal("runCreatePane did not schedule the prepared pane for async close")
-	}
-	if got := closedPane.Meta.Name; got != "worker" {
-		t.Fatalf("prepared pane name = %q, want worker", got)
-	}
-	if len(transport.removedPanes) != 1 || transport.removedPanes[0] != closedPane.ID {
-		t.Fatalf("removed panes = %#v, want [%d]", transport.removedPanes, closedPane.ID)
-	}
-	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 1 {
-		t.Fatalf("pane count after stale-window failure = %d, want 1", got)
 	}
 }
 

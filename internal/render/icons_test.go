@@ -103,7 +103,7 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 		host:          "gpu",
 		task:          "task",
 		color:         config.TextColorHex,
-		connStatus:    string(proto.Connected),
+		connStatus:    "connected",
 		copyMode:      true,
 		copySearch:    "/query",
 	}
@@ -180,7 +180,7 @@ func TestCompositorUsesNerdFontIconSetForPaneStatusMetadata(t *testing.T) {
 		host:          "gpu",
 		task:          "build LAB-1650",
 		color:         config.TextColorHex,
-		connStatus:    string(proto.Connected),
+		connStatus:    "connected",
 		copyMode:      true,
 		copySearch:    "/query",
 	}
@@ -223,7 +223,7 @@ func TestNerdFontPaneStatusClippingKeepsGlyphWidths(t *testing.T) {
 		host:          "remote",
 		task:          "long task name",
 		color:         config.TextColorHex,
-		connStatus:    string(proto.Reconnecting),
+		connStatus:    "reconnecting",
 	}
 	comp := NewCompositor(34, 3, "test")
 	comp.SetIconSet(icons)
@@ -314,10 +314,10 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 		t.Fatalf("paneStatusStateIcon(lead) = %q, want L", got)
 	}
 	for status, want := range map[string]string{
-		string(proto.Connected):    "C",
-		string(proto.Reconnecting): "R",
-		string(proto.Disconnected): "D",
-		"unknown":                  "",
+		"connected":    "C",
+		"reconnecting": "R",
+		"disconnected": "D",
+		"unknown":      "",
 	} {
 		if got := connStatusIcon(status, sentinel); got != want {
 			t.Fatalf("connStatusIcon(%q) = %q, want %q", status, got, want)

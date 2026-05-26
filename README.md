@@ -234,7 +234,7 @@ Block until a condition is met. No polling.
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,exited,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
+amux events [--filter layout,idle,busy,exited,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--client client-1] [--throttle 50ms] [--no-reconnect]
 ```
 
 Use `amux list-clients` to discover attached client IDs for `send-keys --client`, `--client` event filters, and `wait ui`.
@@ -296,7 +296,7 @@ Control mode still delivers raw pane content and requires polling. amux has bloc
 Headless tools cut the human out of the loop. Humans and agents work better on a shared screen. Both see the same panes, both can act on them.
 
 **Does amux support all tmux features?**
-No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
+No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
 
 ## CLI Reference
 
@@ -318,7 +318,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 | Command | Description |
 |---------|-------------|
 | `amux list [--no-cwd] [--json]` | List panes with metadata (including cwd by default) |
-| `amux spawn [--auto] [--at <pane>] [--window <name\|id>] [--vertical\|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, column-fill auto spawn, or targeted split placement |
+| `amux spawn [--auto] [--at <pane>] [--window <name\|id>] [--vertical\|--horizontal] [--root] [--focus] [--name NAME] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, column-fill auto spawn, or targeted split placement |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
@@ -369,7 +369,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux cursor ui [--client id]` | Show current client UI generation counter |
 | `amux cursor layout` | Show current layout generation counter |
 | `amux cursor clipboard` | Show current clipboard generation counter |
-| `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms] [--no-reconnect]` | Stream events as NDJSON (output throttled, auto-reconnect by default) |
+| `amux events [--filter type,...] [--pane ref] [--client id] [--throttle 50ms] [--no-reconnect]` | Stream events as NDJSON (output throttled, auto-reconnect by default) |
 | `amux list-clients` | List attached clients and client-local UI state |
 | `amux log clients` | Show recent client attach/detach history |
 | `amux log panes` | Show recent pane create/exit history with exit cwd, git branch, and reason |
@@ -386,21 +386,6 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux last-window` | Switch to the previously active window |
 | `amux rename-window <name>` | Rename the active window |
 | `amux resize-window <cols> <rows>` | Resize window to given dimensions |
-
-### Remote Hosts
-
-Remote host commands are also available under `amux remote ...`.
-
-| Command | Description |
-|---------|-------------|
-| `amux remote hosts` | List configured remote hosts and connection status |
-| `amux remote connect <host> [--session <name> \| --session-per-client]` | Connect to a remote amux session and mirror its panes locally |
-| `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
-| `amux remote disconnect <host>` | Drop a remote host connection |
-| `amux remote reconnect <host>` | Reconnect to a remote host |
-| `amux remote unsplice <host>` | Revert remote takeover, replace remote panes with local |
-
-`amux remote connect <host>` attaches to the remote `main` session by default. Use `--session <name>` to mirror a different remote session, or `--session-per-client` to keep the older per-local-machine managed-session behavior.
 
 ## Keybindings
 
@@ -479,39 +464,6 @@ amux debug client-goroutines
 amux debug client-heap
 amux debug client-profile --duration 30s > client-cpu.pprof.gz
 ```
-
-### Remote Hosts
-
-```toml
-[transport]
-preference = ["mosh", "ssh"] # optional: order for hosts that opt into transport = "auto"
-
-[hosts.lambda-a100]
-type = "remote"
-transport = "ssh"            # optional: "ssh", "mosh", or "auto"; empty still defaults to ssh
-user = "ubuntu"
-address = "150.136.64.231"
-identity_file = "~/.ssh/id_ed25519"
-project_dir = "~/Project"
-gpu = "A100"
-color = "f38ba8"            # Catppuccin Red — optional, auto-assigned if omitted
-scrollback_lines = 2000     # optional: retained history for panes on this host
-
-[hosts.macbook]
-type = "local"
-color = "a6e3a1"            # Catppuccin Green
-scrollback_lines = 10000    # optional: override the session default for this host
-```
-
-### Remote Transports
-
-Remote hosts can choose a transport with `transport = "ssh"`, `transport = "mosh"`, or `transport = "auto"`.
-
-- `ssh` is the current working transport.
-- `mosh` is recognized now but still returns `mosh transport not yet implemented`.
-- `auto` tries each transport in `[transport].preference` order and keeps the first one that works for the rest of the local session.
-
-Hosts without a `transport` field still default to `ssh` for backward compatibility. Existing `hosts.toml` and `config.toml` files keep the exact pre-LAB-1335 behavior until you opt a host into `transport = "auto"`.
 
 ## AI Agent Support
 

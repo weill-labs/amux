@@ -196,12 +196,11 @@ func TestSplitParsesArgsAndDelegates(t *testing.T) {
 		splitResult: commandpkg.Result{Output: "split\n"},
 	}
 
-	got := Split(ctx, 42, []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue", "--focus"})
+	got := Split(ctx, 42, []string{"pane-1", "root", "--vertical", "--name", "worker", "--task", "build", "--color", "blue", "--focus"})
 	wantArgs := SplitArgs{
 		PaneRef:   "pane-1",
 		RootLevel: true,
 		Dir:       mux.SplitVertical,
-		HostName:  "dev",
 		Name:      "worker",
 		Task:      "build",
 		Color:     "blue",
@@ -303,14 +302,13 @@ func TestSpawnParsesArgsAndDelegates(t *testing.T) {
 		spawnResult: commandpkg.Result{Output: "spawned\n"},
 	}
 
-	got := Spawn(ctx, 12, []string{"--focus", "--host", "dev", "--name", "worker", "--task", "build", "--color", "rosewater"})
+	got := Spawn(ctx, 12, []string{"--focus", "--name", "worker", "--task", "build", "--color", "rosewater"})
 	wantArgs := SpawnArgs{
-		Dir:          mux.SplitVertical,
-		Focus:        true,
-		HostExplicit: true,
+		Dir:   mux.SplitVertical,
+		Focus: true,
 		Meta: mux.PaneMeta{
 			Name:  "worker",
-			Host:  "dev",
+			Host:  mux.DefaultHost,
 			Task:  "build",
 			Color: "rosewater",
 		},

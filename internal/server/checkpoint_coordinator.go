@@ -261,10 +261,3 @@ func (s *Session) writeCrashCheckpointNow() (string, error) {
 	}
 	return s.checkpointCoordinator.WriteNow()
 }
-
-func (s *Session) writeCrashCheckpoint() {
-	if s == nil || s.checkpointCoordinator == nil {
-		return
-	}
-	s.checkpointCoordinator.Write()
-}

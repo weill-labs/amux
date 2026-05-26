@@ -12,7 +12,6 @@ import (
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 // Reload checkpoints the server state and exec's the new binary.
@@ -256,13 +255,11 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 		onExit := sess.paneExitCallback()
 
 		if pc.IsProxy {
-			// Restore proxy pane with frozen content, mark as reconnecting.
-			// The remote manager will re-establish the SSH connection.
-			meta := pc.Meta
-			meta.Remote = string(proto.Reconnecting)
-			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLinesForHost(meta.Host),
+			// Restore proxy pane with frozen content. The remote backing is gone
+			// after the "remote" feature removal, so writes are dropped.
+			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, pc.Meta, pc.Cols, pc.Rows, sess.scrollbackLinesForHost(pc.Meta.Host),
 				onOutput, onExit,
-				sess.remoteWriteOverride(pc.ID),
+				func(data []byte) (int, error) { return len(data), nil },
 			))
 		} else {
 			var restoreErr error
@@ -276,7 +273,6 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())
-		pane.SetOnTakeover(sess.takeoverCallback(s))
 		pane.SetOnMetaUpdate(sess.metaCallback())
 		restorePaneRuntimeState(pane, pc.ManualBranch)
 

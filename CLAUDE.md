@@ -235,7 +235,7 @@ Socket location: `/tmp/amux-$UID/<session-name>`
 
 ## Configuration
 
-See [README.md -- Configuration](README.md#configuration) for the `hosts.toml` format. Config parsing lives in `config/config.go`. Pane colors are optional -- if omitted, they're auto-assigned from the Catppuccin Mocha palette.
+See [README.md -- Configuration](README.md#configuration) for the `config.toml` format. Config parsing lives in `config/config.go`.
 
 ## Issue Tracking
 

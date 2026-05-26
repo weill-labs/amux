@@ -181,6 +181,18 @@ func upsertEnv(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+func removeEnv(env []string, key string) []string {
+	prefix := key + "="
+	filtered := env[:0]
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
 func newTestHome(tb testing.TB) string {
 	tb.Helper()
 	home := filepath.Join(tb.TempDir(), "home")

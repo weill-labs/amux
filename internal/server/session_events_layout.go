@@ -56,10 +56,8 @@ type MutationContext struct {
 	ActiveWindowID   uint32
 	PreviousWindowID uint32
 	Panes            []*mux.Pane
-	RemoteManager    proto.PaneTransport
 	generation       *atomic.Uint64
 	waiters          *waiterManager
-	takenOverPanes   map[uint32]bool
 
 	sess       *Session
 	startPanes []*mux.Pane
@@ -84,10 +82,8 @@ func (ctx *MutationContext) syncFromSession() {
 	ctx.ActiveWindowID = ctx.sess.ActiveWindowID
 	ctx.PreviousWindowID = ctx.sess.PreviousWindowID
 	ctx.Panes = ctx.sess.Panes
-	ctx.RemoteManager = ctx.sess.RemoteManager
 	ctx.generation = &ctx.sess.generation
 	ctx.waiters = ctx.sess.waiters
-	ctx.takenOverPanes = ctx.sess.takenOverPanes
 }
 
 // commit copies field-level mutations back to the Session before helpers that
@@ -101,8 +97,6 @@ func (ctx *MutationContext) commit() {
 	ctx.sess.ActiveWindowID = ctx.ActiveWindowID
 	ctx.sess.PreviousWindowID = ctx.PreviousWindowID
 	ctx.sess.Panes = ctx.Panes
-	ctx.sess.RemoteManager = ctx.RemoteManager
-	ctx.sess.takenOverPanes = ctx.takenOverPanes
 	ctx.Window = ctx.sess.activeWindow()
 }
 

@@ -2,14 +2,10 @@ package config
 
 import (
 	"fmt"
-	"hash/crc32"
 	"os"
-	"os/user"
 	"path/filepath"
-	"strings"
 
 	"github.com/BurntSushi/toml"
-	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -85,21 +81,6 @@ const (
 	RedHex       = "f38ba8" // Red — status indicator
 )
 
-// Host defines a machine that can run agents.
-type Host struct {
-	Type                string   `toml:"type"`          // "local" or "remote"
-	Transport           string   `toml:"transport"`     // transport type; empty defaults to ssh
-	TransportPreference []string `toml:"-"`             // resolved global transport preference order
-	User                string   `toml:"user"`          // SSH user (remote only)
-	Address             string   `toml:"address"`       // IP or hostname (remote only)
-	IdentityFile        string   `toml:"identity_file"` // SSH private key path (optional)
-	ProjectDir          string   `toml:"project_dir"`
-	GPU                 string   `toml:"gpu"`
-	Color               string   `toml:"color"`  // hex color, auto-assigned if empty
-	Deploy              *bool    `toml:"deploy"` // auto-deploy binary; nil = true (opt-out with false)
-	ScrollbackLines     *int     `toml:"scrollback_lines"`
-}
-
 type DebugConfig struct {
 	Pprof bool `toml:"pprof"`
 }
@@ -130,39 +111,22 @@ type ThemeConfig struct {
 	Icons       *string `toml:"icons"`
 }
 
-type TransportConfig struct {
-	Preference []string `toml:"preference"`
-}
-
 // Config is the top-level amux configuration.
 type Config struct {
-	ScrollbackLines *int            `toml:"scrollback_lines"`
-	Debug           DebugConfig     `toml:"debug"`
-	Client          ClientConfig    `toml:"client"`
-	Theme           ThemeConfig     `toml:"theme"`
-	Transport       TransportConfig `toml:"transport"`
-	Hosts           map[string]Host `toml:"hosts"`
-}
-
-var defaultTransportPreference = []string{"mosh", "ssh"}
-
-func DefaultTransportPreferences() []string {
-	return append([]string(nil), defaultTransportPreference...)
+	ScrollbackLines *int         `toml:"scrollback_lines"`
+	Debug           DebugConfig  `toml:"debug"`
+	Client          ClientConfig `toml:"client"`
+	Theme           ThemeConfig  `toml:"theme"`
 }
 
 // DefaultPath returns the default config file path.
-// Checks AMUX_CONFIG env var first, then ~/.config/amux/config.toml,
-// then falls back to ~/.config/amux/hosts.toml for backward compatibility.
+// Checks AMUX_CONFIG env var first, then ~/.config/amux/config.toml.
 func DefaultPath() string {
 	if p := os.Getenv("AMUX_CONFIG"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()
-	configPath := filepath.Join(home, ".config", "amux", "config.toml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-	return filepath.Join(home, ".config", "amux", "hosts.toml")
+	return filepath.Join(home, ".config", "amux", "config.toml")
 }
 
 // Load reads the config from the given path. Returns an empty config if the file doesn't exist.
@@ -170,7 +134,7 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Config{Hosts: make(map[string]Host)}, nil
+			return &Config{}, nil
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -179,9 +143,7 @@ func Load(path string) (*Config, error) {
 }
 
 func parseConfig(data []byte) (*Config, error) {
-	cfg := &Config{
-		Hosts: make(map[string]Host),
-	}
+	cfg := &Config{}
 
 	md, err := toml.Decode(string(data), cfg)
 	if err != nil {
@@ -194,11 +156,6 @@ func parseConfig(data []byte) (*Config, error) {
 	if _, err := ResolveScrollbackLines(cfg.ScrollbackLines); err != nil {
 		return nil, err
 	}
-	for name, host := range cfg.Hosts {
-		if _, err := resolveScrollbackLinesField("hosts."+name+".scrollback_lines", host.ScrollbackLines); err != nil {
-			return nil, err
-		}
-	}
 	if _, err := ResolveLocalEchoMode(cfg.Client.LocalEcho); err != nil {
 		return nil, err
 	}
@@ -210,16 +167,6 @@ func parseConfig(data []byte) (*Config, error) {
 	}
 	if _, err := ResolveThemeIcons(cfg.Theme.Icons); err != nil {
 		return nil, err
-	}
-
-	// Auto-assign colors for hosts without explicit color
-	preferences := cfg.TransportPreferences()
-	for name, host := range cfg.Hosts {
-		if host.Color == "" {
-			host.Color = ColorForHost(name)
-		}
-		host.TransportPreference = append([]string(nil), preferences...)
-		cfg.Hosts[name] = host
 	}
 
 	return cfg, nil
@@ -262,40 +209,6 @@ func (c *Config) EffectiveScrollbackLines() int {
 		return proto.DefaultScrollbackLines
 	}
 	return lines
-}
-
-func (c *Config) EffectiveScrollbackLinesForHost(hostname string) int {
-	if c == nil {
-		return proto.DefaultScrollbackLines
-	}
-	if host, ok := c.Hosts[hostname]; ok && host.ScrollbackLines != nil {
-		lines, err := ResolveScrollbackLines(host.ScrollbackLines)
-		if err == nil {
-			return lines
-		}
-	}
-	return c.EffectiveScrollbackLines()
-}
-
-func (c *Config) EffectiveHostScrollbackLines() map[string]int {
-	if c == nil {
-		return nil
-	}
-	out := make(map[string]int)
-	for name, host := range c.Hosts {
-		if host.ScrollbackLines == nil {
-			continue
-		}
-		lines, err := ResolveScrollbackLines(host.ScrollbackLines)
-		if err != nil {
-			continue
-		}
-		out[name] = lines
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func (c *Config) PprofEnabled() bool {
@@ -389,87 +302,4 @@ func (c *Config) EffectiveThemeIcons() string {
 		return ThemeIconsUnicode
 	}
 	return icons
-}
-
-func (c *Config) TransportPreferences() []string {
-	if c == nil || len(c.Transport.Preference) == 0 {
-		return DefaultTransportPreferences()
-	}
-
-	out := make([]string, 0, len(c.Transport.Preference))
-	seen := make(map[string]struct{}, len(c.Transport.Preference))
-	for _, name := range c.Transport.Preference {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	if len(out) == 0 {
-		return DefaultTransportPreferences()
-	}
-	return out
-}
-
-// ColorForHost deterministically picks a Catppuccin color based on hostname.
-func ColorForHost(hostname string) string {
-	h := crc32.ChecksumIEEE([]byte(hostname))
-	return AccentColor(h)
-}
-
-// HostUser returns the SSH user for a host, defaulting to the current OS user.
-func (c *Config) HostUser(hostname string) string {
-	if h, ok := c.Hosts[hostname]; ok && h.User != "" {
-		return h.User
-	}
-	return defaultHostUser()
-}
-
-// HostAddress returns the address for a host, falling back to the hostname itself.
-func (c *Config) HostAddress(hostname string) string {
-	if h, ok := c.Hosts[hostname]; ok && h.Address != "" {
-		return h.Address
-	}
-	return hostname
-}
-
-// HostTransport returns the configured transport for a host, defaulting to ssh.
-func (c *Config) HostTransport(hostname string) string {
-	if h, ok := c.Hosts[hostname]; ok && h.Transport != "" {
-		return h.Transport
-	}
-	return "ssh"
-}
-
-// HostColor returns the color for a host.
-func (c *Config) HostColor(hostname string) string {
-	if h, ok := c.Hosts[hostname]; ok && h.Color != "" {
-		return h.Color
-	}
-	return ColorForHost(hostname)
-}
-
-func defaultHostUser() string {
-	return defaultHostUserWith(user.Current, os.Getenv, func(err error) {
-		charmlog.Warn("failed to determine current ssh user", "error", err)
-	})
-}
-
-func defaultHostUserWith(
-	currentUser func() (*user.User, error),
-	getenv func(string) string,
-	logLookupError func(error),
-) string {
-	usr, err := currentUser()
-	if err == nil && usr != nil && usr.Username != "" {
-		return usr.Username
-	}
-	if err != nil && logLookupError != nil {
-		logLookupError(err)
-	}
-	return getenv("USER")
 }

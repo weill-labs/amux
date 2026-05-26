@@ -16,17 +16,13 @@ const (
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
+	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
-	connectUsage      = "usage: amux connect <host> [--session <name> | --session-per-client]"
-	disconnectUsage   = "usage: amux disconnect <host>"
 	focusUsage        = "usage: amux focus <pane>"
 	listClientsUsage  = "usage: amux list-clients"
 	listUsage         = "usage: amux list [--no-cwd] [--json]"
 	listWindowsUsage  = "usage: amux list-windows"
-	reconnectUsage    = "usage: amux reconnect <host>"
-	reloadServerUsage = "usage: amux reload-server"
 	renameUsage       = "usage: amux rename <pane> <new-name>"
 	renameWindowUsage = "usage: amux rename-window <name>"
 	resetUsage        = "usage: amux reset <pane>"
@@ -35,7 +31,6 @@ const (
 	rotateUsage       = "usage: amux rotate [--reverse]"
 	selectWindowUsage = "usage: amux select-window <index|name>"
 	statusUsage       = "usage: amux status"
-	unspliceUsage     = "usage: amux unsplice <host>"
 	undoUsage         = "usage: amux undo"
 	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
 	newWindowUsage    = "usage: amux new-window [--name NAME]"
@@ -46,7 +41,6 @@ const (
 )
 
 var commandUsageByName = map[string]string{
-	"_inject-proxy":    "usage: amux _inject-proxy <host>",
 	"_diag":            diagUsage,
 	"_layout-json":     "usage: amux _layout-json",
 	"_server":          "usage: amux _server [session]",
@@ -54,14 +48,11 @@ var commandUsageByName = map[string]string{
 	"capture":          captureUsage,
 	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
 	"cursor":           cursorUsage,
-	"connect":          connectUsage,
 	"debug":            debugUsage,
 	"doctor":           doctorUsage,
-	"disconnect":       disconnectUsage,
 	"equalize":         "usage: amux equalize [--vertical|--all]",
-	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]",
+	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--client <id>] [--no-reconnect]",
 	"focus":            focusUsage,
-	"hosts":            "usage: amux hosts",
 	"install-terminfo": "usage: amux install-terminfo",
 	"kill":             "usage: amux kill [--cleanup] [--timeout <duration>] [pane]",
 	"lead":             leadUsage,
@@ -78,9 +69,6 @@ var commandUsageByName = map[string]string{
 	"prev-window":      prevWindowUsage,
 	"last-window":      lastWindowUsage,
 	"rename":           renameUsage,
-	"remote":           remoteUsage,
-	"reconnect":        reconnectUsage,
-	"reload-server":    reloadServerUsage,
 	"rename-window":    renameWindowUsage,
 	"reset":            resetUsage,
 	"respawn":          respawnUsage,
@@ -93,7 +81,6 @@ var commandUsageByName = map[string]string{
 	"status":           statusUsage,
 	"undo":             undoUsage,
 	"swap":             swapUsage,
-	"unsplice":         unspliceUsage,
 	"version":          "usage: amux version [--hash|--json]",
 	"wait":             waitUsage,
 	"zoom":             zoomUsage,
@@ -187,15 +174,13 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] connect <host> [--session <name> | --session-per-client]
-                                       Connect to a remote amux session and mirror its panes locally
   amux [-s session] send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] mouse [--client <id>] [--timeout <duration>] ...
                                        Simulate mouse input through an attached client
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
-  amux [-s session] spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
+  amux [-s session] spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--task TASK] [--color COLOR]
                                        Create a new pane using default spawn, column-fill auto spawn, or targeted split placement
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2> [--tree]
@@ -238,17 +223,8 @@ Usage:
   amux [-s session] rename-window <n>  Rename the active window
   amux [-s session] resize-window <c> <r>
                                        Resize window to cols x rows
-  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
-                                       Stream events as NDJSON (layout, output, idle, busy, exited, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] remote hosts       List configured remote hosts + status
-  amux [-s session] remote disconnect <host>
-                                       Drop a remote host connection
-  amux [-s session] remote reconnect <host>
-                                       Reconnect to a remote host
-  amux [-s session] remote unsplice <host>
-                                       Revert remote takeover for a host
-  amux [-s session] remote reload-server
-                                       Hot-reload the server (preserves panes)
+  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--client <id>] [--no-reconnect]
+                                       Stream events as NDJSON (layout, output, idle, busy, exited, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*)
   amux [-s session] cursor layout      Show current layout cursor
   amux [-s session] cursor clipboard   Show current clipboard cursor
   amux [-s session] cursor ui [--client <id>]

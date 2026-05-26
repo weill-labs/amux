@@ -1290,63 +1290,6 @@ func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 	}
 }
 
-func TestCommandHostsAndRemoteErrors(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, cleanup := newCommandTestSession(t)
-	defer cleanup()
-
-	hostsNil := runTestCommand(t, srv, sess, "hosts")
-	if hostsNil.cmdErr != "" || hostsNil.output != "No remote hosts configured.\n" {
-		t.Fatalf("hosts without manager = %#v", hostsNil)
-	}
-
-	disconnectUsage := runTestCommand(t, srv, sess, "disconnect")
-	if disconnectUsage.cmdErr != "usage: disconnect <host>" {
-		t.Fatalf("disconnect usage error = %q", disconnectUsage.cmdErr)
-	}
-
-	reconnectUsage := runTestCommand(t, srv, sess, "reconnect")
-	if reconnectUsage.cmdErr != "usage: reconnect <host>" {
-		t.Fatalf("reconnect usage error = %q", reconnectUsage.cmdErr)
-	}
-
-	cfg := &config.Config{
-		Hosts: map[string]config.Host{
-			"remote-a": {Type: "remote", Address: "10.0.0.1", User: "ubuntu"},
-			"local":    {Type: "local"},
-		},
-	}
-	mustSessionMutation(t, sess, func(sess *Session) {
-		sess.configurePaneTransport(&stubPaneTransport{
-			hostStatusByName: map[string]proto.ConnState{
-				"remote-a": proto.Disconnected,
-			},
-			disconnectErrs: map[string]error{
-				"remote-a": fmt.Errorf(`host "remote-a" not connected`),
-			},
-			reconnectErrs: map[string]error{
-				"remote-a": fmt.Errorf(`host "remote-a" not known`),
-			},
-		}, cfg.HostColor)
-	})
-
-	hostsRes := runTestCommand(t, srv, sess, "hosts")
-	if hostsRes.cmdErr != "" || !strings.Contains(hostsRes.output, "remote-a") || !strings.Contains(hostsRes.output, "disconnected") {
-		t.Fatalf("hosts result = %#v", hostsRes)
-	}
-
-	disconnectRes := runTestCommand(t, srv, sess, "disconnect", "remote-a")
-	if disconnectRes.cmdErr != `host "remote-a" not connected` {
-		t.Fatalf("disconnect result = %#v", disconnectRes)
-	}
-
-	reconnectRes := runTestCommand(t, srv, sess, "reconnect", "remote-a")
-	if reconnectRes.cmdErr != `host "remote-a" not known` {
-		t.Fatalf("reconnect result = %#v", reconnectRes)
-	}
-}
-
 func TestSessionWindowHelpers(t *testing.T) {
 	t.Parallel()
 

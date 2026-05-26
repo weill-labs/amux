@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 type paneOutputEvent struct {
@@ -191,62 +190,6 @@ func (e metaUpdateEvent) handle(_ context.Context, s *Session) {
 	s.broadcastLayoutNow()
 }
 
-type takeoverEvent struct {
-	srv    *Server
-	paneID uint32
-	req    mux.TakeoverRequest
-}
-
-func (e takeoverEvent) handle(_ context.Context, s *Session) {
-	go s.handleTakeover(e.paneID, e.req)
-}
-
-type remotePaneExitEvent struct {
-	paneID uint32
-	reason string
-}
-
-func (e remotePaneExitEvent) handle(_ context.Context, s *Session) {
-	if s.shutdown.Load() {
-		return
-	}
-	s.handleFinalizedPaneRemoval(e.paneID, false, e.reason)
-}
-
-type remoteStateChangeEvent struct {
-	hostName string
-	state    proto.ConnState
-}
-
-func (e remoteStateChangeEvent) handle(_ context.Context, s *Session) {
-	if rs := s.remoteSessions[e.hostName]; rs != nil {
-		rs.State = e.state
-	}
-	for _, p := range s.Panes {
-		if p.Meta.Host == e.hostName && p.IsProxy() {
-			p.Meta.Remote = string(e.state)
-		}
-	}
-	s.broadcastLayoutNow()
-}
-
-type remoteLayoutEvent struct {
-	hostName string
-	layout   *proto.LayoutSnapshot
-}
-
-func (e remoteLayoutEvent) handle(_ context.Context, s *Session) {
-	rs := s.remoteSessions[e.hostName]
-	if rs == nil || e.layout == nil {
-		return
-	}
-	if err := rs.ApplyLayout(s, e.layout, false); err == nil {
-		s.broadcastLayoutNow()
-	} else {
-		s.logger.Warn("remote layout apply failed", "event", "remote_layout_apply", "host", e.hostName, "error", err)
-	}
-}
-
 type localPaneBuildResultEvent struct {
 	placeholder *mux.Pane
 	pane        *mux.Pane
@@ -337,22 +280,6 @@ func (s *Session) enqueueIdleTimeout(paneID uint32) {
 
 func (s *Session) enqueueVTIdleTimeout(paneID uint32, lastOutput time.Time) {
 	s.enqueueEvent(s.context(), vtIdleTimeoutEvent{paneID: paneID, lastOutput: lastOutput})
-}
-
-func (s *Session) enqueueTakeover(srv *Server, paneID uint32, req mux.TakeoverRequest) {
-	s.enqueueEvent(s.context(), takeoverEvent{srv: srv, paneID: paneID, req: req})
-}
-
-func (s *Session) enqueueRemotePaneExit(paneID uint32, reason string) {
-	s.enqueueEvent(s.context(), remotePaneExitEvent{paneID: paneID, reason: reason})
-}
-
-func (s *Session) enqueueRemoteStateChange(hostName string, state proto.ConnState) {
-	s.enqueueEvent(s.context(), remoteStateChangeEvent{hostName: hostName, state: state})
-}
-
-func (s *Session) enqueueRemoteLayout(hostName string, layout *proto.LayoutSnapshot) {
-	s.enqueueEvent(s.context(), remoteLayoutEvent{hostName: hostName, layout: layout})
 }
 
 // --- Pane output subscribe/unsubscribe through the event loop ---

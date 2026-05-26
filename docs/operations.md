@@ -100,8 +100,7 @@ old process ids or PTY file descriptors after the server process dies, so crash
 recovery starts fresh shells, restores pane metadata, retained history, and the
 last visible screen. If a pane had a foreground process at crash time, amux adds
 an `amux: previous process lost during crash recovery` notice and archives the
-pre-crash screen in history. Proxy panes are restored in reconnecting state so
-the remote transport can re-establish the connection.
+pre-crash screen in history.
 
 For a manual recovery check:
 

@@ -45,7 +45,6 @@ func TestIsPaneCrash(t *testing.T) {
 	}{
 		{name: "empty", reason: "", want: false},
 		{name: "exit zero", reason: "exit 0", want: false},
-		{name: "remote disconnect", reason: "remote disconnect", want: false},
 		{name: "non zero exit", reason: "exit 1", want: true},
 	}
 	for _, tt := range tests {
@@ -71,10 +70,9 @@ func TestPaneAuditFields(t *testing.T) {
 		ID: 7,
 		Meta: mux.PaneMeta{
 			Name: "pane-7",
-			Host: "remote-a",
 		},
 	}
-	want := []any{"pane_id", uint32(7), "pane_name", "pane-7", "host", "remote-a"}
+	want := []any{"pane_id", uint32(7), "pane_name", "pane-7"}
 	if got := paneAuditFields(pane); !reflect.DeepEqual(got, want) {
 		t.Fatalf("paneAuditFields() = %#v, want %#v", got, want)
 	}

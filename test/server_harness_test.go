@@ -517,7 +517,13 @@ func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) 
 	cmd.SysProcAttr.Setpgid = true
 	cmd.WaitDelay = harnessCommandWaitDelay
 	cmd.Cancel = func() error {
-		return killCmdProcessGroup(cmd)
+		if cmd.Process == nil {
+			return nil
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
 	}
 	return cmd
 }

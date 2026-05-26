@@ -20,12 +20,11 @@ func TestParseCreatePaneArgs(t *testing.T) {
 		{
 			name: "split keeps pane ref and direction",
 			mode: createPaneModeSplit,
-			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue"},
+			args: []string{"pane-1", "root", "--vertical", "--name", "worker", "--task", "build", "--color", "blue"},
 			want: createPaneArgs{
 				PaneRef:   "pane-1",
 				RootLevel: true,
 				Dir:       mux.SplitVertical,
-				HostName:  "dev",
 				Name:      "worker",
 				Task:      "build",
 				Color:     "blue",
@@ -111,12 +110,11 @@ func TestParseSplitArgs(t *testing.T) {
 		},
 		{
 			name: "pane ref with all flags",
-			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue", "--focus"},
+			args: []string{"pane-1", "root", "--vertical", "--name", "worker", "--task", "build", "--color", "blue", "--focus"},
 			want: SplitArgs{
 				PaneRef:   "pane-1",
 				RootLevel: true,
 				Dir:       mux.SplitVertical,
-				HostName:  "dev",
 				Name:      "worker",
 				Task:      "build",
 				Color:     "blue",
@@ -142,11 +140,6 @@ func TestParseSplitArgs(t *testing.T) {
 			name:    "rejects conflicting directions",
 			args:    []string{"--vertical", "--horizontal"},
 			wantErr: "conflicting split directions",
-		},
-		{
-			name:    "rejects missing host value",
-			args:    []string{"--host"},
-			wantErr: "missing value for --host",
 		},
 		{
 			name:    "rejects unknown arg",
@@ -188,28 +181,16 @@ func TestParseSpawnArgs(t *testing.T) {
 	}{
 		{
 			name: "parses all fields",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater", "--focus"},
+			args: []string{"--name", "worker-1", "--task", "build", "--color", "rosewater", "--focus"},
 			want: SpawnArgs{
-				Dir:          mux.SplitVertical,
-				HostExplicit: true,
+				Dir: mux.SplitVertical,
 				Meta: mux.PaneMeta{
 					Name:  "worker-1",
-					Host:  "dev",
+					Host:  mux.DefaultHost,
 					Task:  "build",
 					Color: "rosewater",
 				},
 				Focus: true,
-			},
-		},
-		{
-			name: "defaults host to local",
-			args: []string{"--name", "worker-1"},
-			want: SpawnArgs{
-				Dir: mux.SplitVertical,
-				Meta: mux.PaneMeta{
-					Name: "worker-1",
-					Host: mux.DefaultHost,
-				},
 			},
 		},
 		{

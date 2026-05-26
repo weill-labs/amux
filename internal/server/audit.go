@@ -18,7 +18,7 @@ func durationField(d time.Duration) string {
 
 func isPaneCrash(reason string) bool {
 	switch reason {
-	case "", "exit 0", "remote disconnect":
+	case "", "exit 0":
 		return false
 	default:
 		return true
@@ -32,7 +32,6 @@ func paneAuditFields(pane *mux.Pane) []any {
 	return []any{
 		"pane_id", pane.ID,
 		"pane_name", pane.Meta.Name,
-		"host", pane.Meta.Host,
 	}
 }
 
@@ -49,12 +48,6 @@ func (s *Server) SetLogger(logger *charmlog.Logger) {
 			continue
 		}
 		sess.logger = logger.With("session", sessionName)
-		if setter, ok := any(sess.RemoteManager).(interface{ SetLogger(*charmlog.Logger) }); ok {
-			setter.SetLogger(sess.logger.With("component", "ssh"))
-		}
-		if setter, ok := any(sess.remoteTakeover).(interface{ SetLogger(*charmlog.Logger) }); ok {
-			setter.SetLogger(sess.logger.With("component", "ssh"))
-		}
 	}
 }
 
@@ -89,7 +82,7 @@ func (s *Session) logPaneCreate(pane *mux.Pane, source string) {
 		return
 	}
 	fields := append([]any{"event", "pane_create"}, paneAuditFields(pane)...)
-	fields = append(fields, "source", source, "remote", pane.IsProxy())
+	fields = append(fields, "source", source)
 	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "pane created", fields...)
 }
 
