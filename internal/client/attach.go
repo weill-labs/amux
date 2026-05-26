@@ -59,6 +59,26 @@ func (s *sessionExitState) get() string {
 	return s.notice
 }
 
+type deferredTerminalRestore struct {
+	mu sync.Mutex
+	fn func()
+}
+
+func (r *deferredTerminalRestore) set(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fn = fn
+}
+
+func (r *deferredTerminalRestore) run() {
+	r.mu.Lock()
+	fn := r.fn
+	r.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
 func defaultRunSessionDeps() runSessionDeps {
 	return runSessionDeps{
 		stdin:             os.Stdin,
@@ -539,6 +559,13 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 		}
 	}
 	defer closeClientPprof()
+	var terminalRestore deferredTerminalRestore
+	restoreTerminal := terminalRestore.run
+	stopTerminationSignalHandler := installTerminationSignalHandler(func() {
+		closeClientPprof()
+		restoreTerminal()
+	}, os.Exit)
+	defer stopTerminationSignalHandler()
 	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
 	stdin := deps.stdin
@@ -613,19 +640,13 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	}
 	stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
 	var restoreTerminalOnce sync.Once
-	restoreTerminal := func() {
+	terminalRestore.set(func() {
 		restoreTerminalOnce.Do(func() {
 			stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
 			_ = term.Restore(fd, oldState)
 		})
-	}
+	})
 	defer restoreTerminal()
-
-	stopTerminationSignalHandler := installTerminationSignalHandler(func() {
-		closeClientPprof()
-		restoreTerminal()
-	}, os.Exit)
-	defer stopTerminationSignalHandler()
 
 	if initial := cr.Render(true); initial != "" {
 		if _, err := io.WriteString(stdout, wrapSynchronizedFrame(initial)); err != nil {
