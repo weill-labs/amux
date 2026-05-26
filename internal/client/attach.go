@@ -126,6 +126,10 @@ func installTerminationSignalHandler(cleanup func(), exit func(int)) func() {
 	}()
 	return func() {
 		signal.Stop(sigCh)
+		select {
+		case <-sigCh:
+		default:
+		}
 		close(done)
 	}
 }
