@@ -120,6 +120,8 @@ When a change adds a new test or modifies an existing test, run that targeted te
 
 **Changes to `main.go` CLI dispatch need direct unit coverage on the touched lines.** Keep the hermetic subprocess tests for end-to-end CLI behavior, but when a change touches the dispatch branches in `main.go`, add direct unit coverage (for example in `main_test.go`) for those specific lines too. Codecov patch coverage measures the changed `main.go` lines directly and may miss coverage that only arrives through subprocess tests.
 
+**Cover every branch of a new function before pushing.** The `pre-push` hook runs `scripts/check-diff-coverage.sh` and rejects the push when changed lines fall below the patch target (currently 70%). Write unit tests for the early returns too -- nil guards and error paths, not just the happy path -- so the function's branches are covered up front. To exercise a tty-ioctl error path on macOS, pass a regular file as the fd: it reliably yields `ENOTTY`, whereas a pipe fd does not.
+
 **Golden files** live in `test/testdata/`. Two types:
 
 - `.golden` -- structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.
