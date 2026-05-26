@@ -706,11 +706,11 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 
 	// Read server messages and dispatch to render loop
 	go func() {
-		defer stopRender()
 		for {
 			msg, err := attachReader.ReadMsg()
 			if err != nil {
 				exitState.set(disconnectNoticeForReadError(err))
+				stopRender()
 				return
 			}
 			switch msg.Type {
@@ -771,6 +771,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 				case triggerReload <- struct{}{}:
 				default:
 				}
+				stopRender()
 				return
 			}
 		}
