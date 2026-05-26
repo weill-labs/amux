@@ -92,6 +92,24 @@ func signalExitCode(sig os.Signal) int {
 	return 1
 }
 
+func installTerminationSignalHandler(cleanup func(), exit func(int)) func() {
+	sigCh := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		select {
+		case sig := <-sigCh:
+			cleanup()
+			exit(signalExitCode(sig))
+		case <-done:
+		}
+	}()
+	return func() {
+		signal.Stop(sigCh)
+		close(done)
+	}
+}
+
 func isConnectionLostError(err error) bool {
 	if err == nil {
 		return false
@@ -603,22 +621,11 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	}
 	defer restoreTerminal()
 
-	termSigCh := make(chan os.Signal, 1)
-	termSigDone := make(chan struct{})
-	signal.Notify(termSigCh, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
-	defer func() {
-		signal.Stop(termSigCh)
-		close(termSigDone)
-	}()
-	go func() {
-		select {
-		case sig := <-termSigCh:
-			closeClientPprof()
-			restoreTerminal()
-			os.Exit(signalExitCode(sig))
-		case <-termSigDone:
-		}
-	}()
+	stopTerminationSignalHandler := installTerminationSignalHandler(func() {
+		closeClientPprof()
+		restoreTerminal()
+	}, os.Exit)
+	defer stopTerminationSignalHandler()
 
 	if initial := cr.Render(true); initial != "" {
 		if _, err := io.WriteString(stdout, wrapSynchronizedFrame(initial)); err != nil {
