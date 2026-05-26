@@ -209,14 +209,18 @@ type eventSubscribeCmd struct {
 	reply       chan eventSubscribeResult
 }
 
-func (e eventSubscribeCmd) handle(_ context.Context, s *Session) {
+func (e eventSubscribeCmd) handle(ctx context.Context, s *Session) {
 	sub := eventloop.Subscribe(&s.eventSubs, e.filter)
 
 	result := eventSubscribeResult{sub: sub}
 	if e.sendInitial {
 		result.initialState = eventloop.MarshalMatching(s.currentStateEvents(), e.filter)
 	}
-	e.reply <- result
+	select {
+	case e.reply <- result:
+	case <-ctx.Done():
+		eventloop.Unsubscribe(&s.eventSubs, sub)
+	}
 }
 
 type uiWaitSubscribeCmd struct {
@@ -225,10 +229,13 @@ type uiWaitSubscribeCmd struct {
 	reply             chan uiWaitSubscribeResult
 }
 
-func (e uiWaitSubscribeCmd) handle(_ context.Context, s *Session) {
+func (e uiWaitSubscribeCmd) handle(ctx context.Context, s *Session) {
 	client, err := s.resolveUIClientSnapshot(e.requestedClientID, e.eventName)
 	if err != nil {
-		e.reply <- uiWaitSubscribeResult{err: err}
+		select {
+		case e.reply <- uiWaitSubscribeResult{err: err}:
+		case <-ctx.Done():
+		}
 		return
 	}
 
@@ -237,12 +244,17 @@ func (e uiWaitSubscribeCmd) handle(_ context.Context, s *Session) {
 		ClientID: client.clientID,
 	})
 
-	e.reply <- uiWaitSubscribeResult{subscription: uiWaitSubscription{
+	result := uiWaitSubscribeResult{subscription: uiWaitSubscription{
 		sub:          sub,
 		clientID:     client.clientID,
 		currentMatch: client.currentMatch,
 		currentGen:   client.currentGen,
 	}}
+	select {
+	case e.reply <- result:
+	case <-ctx.Done():
+		eventloop.Unsubscribe(&s.eventSubs, sub)
+	}
 }
 
 type eventUnsubscribeCmd struct {
@@ -292,7 +304,7 @@ func (e uiEventCmd) handle(_ context.Context, s *Session) {
 // --- Enqueue helpers ---
 
 func (s *Session) enqueueEventSubscribe(ctx context.Context, f eventFilter, sendInitial bool) eventSubscribeResult {
-	reply := make(chan eventSubscribeResult, 1)
+	reply := make(chan eventSubscribeResult)
 	if !s.enqueueEvent(ctx, eventSubscribeCmd{filter: f, sendInitial: sendInitial, reply: reply}) {
 		return eventSubscribeResult{}
 	}
@@ -313,7 +325,7 @@ func (s *Session) enqueueEventSubscribe(ctx context.Context, f eventFilter, send
 func (s *Session) enqueueUIWaitSubscribe(ctx context.Context, requestedClientID, eventName string) (uiWaitSubscription, error) {
 	var zero uiWaitSubscription
 
-	reply := make(chan uiWaitSubscribeResult, 1)
+	reply := make(chan uiWaitSubscribeResult)
 	if !s.enqueueEvent(ctx, uiWaitSubscribeCmd{
 		requestedClientID: requestedClientID,
 		eventName:         eventName,

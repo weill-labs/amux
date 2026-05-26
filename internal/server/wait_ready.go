@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -167,9 +168,12 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 	return opts, nil
 }
 
-func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef, opts waitReadyOptions) error {
-	outputCh := sess.enqueuePaneOutputSubscribe(sess.context(), paneRefData.paneID)
+func waitForPaneReady(ctx context.Context, sess *Session, paneRef string, paneRefData resolvedPaneRef, opts waitReadyOptions) error {
+	outputCh := sess.enqueuePaneOutputSubscribe(ctx, paneRefData.paneID)
 	if outputCh == nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return fmt.Errorf("session shutting down")
 	}
 	defer sess.enqueuePaneOutputUnsubscribe(paneRefData.paneID, outputCh)
@@ -184,7 +188,7 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 	settleActive := false
 
 	syncReady := func() (bool, error) {
-		state, err := queryPaneReadyState(sess, paneRefData.paneID)
+		state, err := queryPaneReadyState(ctx, sess, paneRefData.paneID)
 		if err != nil {
 			return false, fmt.Errorf("pane %q disappeared while waiting to become ready", paneRef)
 		}
@@ -234,6 +238,8 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 			settleActive = false
 		case <-timeoutTimer.C():
 			return fmt.Errorf("timeout waiting for %s to become ready", paneRef)
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 
 		ready, err := syncReady()
@@ -246,8 +252,8 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 	}
 }
 
-func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
-	state, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (paneReadyState, error) {
+func queryPaneReadyState(ctx context.Context, sess *Session, paneID uint32) (paneReadyState, error) {
+	state, err := enqueueSessionQueryOnState(ctx, sess, func(sess *Session) (paneReadyState, error) {
 		pane := sess.findPaneByID(paneID)
 		if pane == nil {
 			return paneReadyState{}, nil

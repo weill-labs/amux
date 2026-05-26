@@ -277,7 +277,7 @@ func TestWaitForPaneReadyReturnsSessionShuttingDown(t *testing.T) {
 	}
 	close(sess.sessionEventStop)
 
-	err := waitForPaneReady(sess, "pane-1", resolvedPaneRef{}, waitReadyOptions{timeout: time.Millisecond})
+	err := waitForPaneReady(sess.context(), sess, "pane-1", resolvedPaneRef{}, waitReadyOptions{timeout: time.Millisecond})
 	if err == nil || err.Error() != "session shutting down" {
 		t.Fatalf("waitForPaneReady session shutdown error = %v, want session shutting down", err)
 	}
@@ -317,6 +317,29 @@ func TestWaitReadyFailsWhenPaneDisappearsMidWait(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("wait-ready pane disappearance command did not return")
+	}
+}
+
+func TestCmdWaitReadyReturnsWhenContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
+	defer cleanup()
+
+	sess.Clock = clk
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
+	pane.SetCreatedAt(clk.Now())
+
+	_, cc, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
+	clk.AwaitTimers(3)
+
+	cc.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("wait-ready command did not return after context cancellation")
 	}
 }
 

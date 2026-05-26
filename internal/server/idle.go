@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -42,8 +43,8 @@ type idleWaitState struct {
 	exists        bool
 }
 
-func (s *Session) queryIdleWaitState(paneID uint32) (idleWaitState, error) {
-	return enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (idleWaitState, error) {
+func (s *Session) queryIdleWaitState(ctx context.Context, paneID uint32) (idleWaitState, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(sess *Session) (idleWaitState, error) {
 		pane := sess.findPaneByID(paneID)
 		if pane == nil {
 			return idleWaitState{}, nil
@@ -117,14 +118,17 @@ func stopTimer(timer Timer) {
 	}
 }
 
-func waitForPaneIdle(sess *Session, paneRef string, paneID uint32, opts waitIdleOptions) error {
-	outputCh := sess.enqueuePaneOutputSubscribe(sess.context(), paneID)
+func waitForPaneIdle(ctx context.Context, sess *Session, paneRef string, paneID uint32, opts waitIdleOptions) error {
+	outputCh := sess.enqueuePaneOutputSubscribe(ctx, paneID)
 	if outputCh == nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return fmt.Errorf("session shutting down")
 	}
 	defer sess.enqueuePaneOutputUnsubscribe(paneID, outputCh)
 
-	state, err := sess.queryIdleWaitState(paneID)
+	state, err := sess.queryIdleWaitState(ctx, paneID)
 	if err != nil {
 		return err
 	}
@@ -144,7 +148,7 @@ func waitForPaneIdle(sess *Session, paneRef string, paneID uint32, opts waitIdle
 		case <-outputCh:
 			resetTimer(settleTimer, opts.settle)
 		case <-settleTimer.C():
-			state, err := sess.queryIdleWaitState(paneID)
+			state, err := sess.queryIdleWaitState(ctx, paneID)
 			if err != nil {
 				return err
 			}
@@ -160,6 +164,8 @@ func waitForPaneIdle(sess *Session, paneRef string, paneID uint32, opts waitIdle
 			settleTimer.Reset(remaining)
 		case <-timeoutTimer.C():
 			return fmt.Errorf("timeout waiting for %s to become idle", paneRef)
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 }

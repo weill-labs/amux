@@ -188,6 +188,27 @@ func TestCmdWaitIdleTimeout(t *testing.T) {
 	}
 }
 
+func TestCmdWaitIdleReturnsWhenContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	srv, sess, pane, cleanup := setupWaitIdleTestPane(t)
+	defer cleanup()
+	sess.Clock = clk
+	pane.SetCreatedAt(clk.Now())
+
+	_, cc, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "200ms", "--timeout", "5s")
+	clk.AwaitTimers(2)
+
+	cc.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("wait-idle command did not return after context cancellation")
+	}
+}
+
 func TestCmdWaitIdleResetsSettleTimerOnOutput(t *testing.T) {
 	t.Parallel()
 
