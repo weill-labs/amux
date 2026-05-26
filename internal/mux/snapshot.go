@@ -176,13 +176,26 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 		})
 	}
 
+	// Derive the recorded size from the restored root cell so the window stays
+	// consistent with its panes. The passed width/height is one global layout
+	// size shared by every window; adopting it directly desyncs an inactive
+	// window whose snapshotted cells were sized for a different terminal -- the
+	// resize-on-activation guard (w.Width == cols && w.Height == layoutH) would
+	// then see a size that already "matches" the client and skip, stranding the
+	// pane at its stale grid. Fall back to the passed size only when the
+	// snapshot lacks cell dimensions (legacy/degenerate roots).
+	winW, winH := root.W, root.H
+	if winW <= 0 || winH <= 0 {
+		winW, winH = width, height
+	}
+
 	w := &Window{
 		ID:           ws.ID,
 		Name:         ws.Name,
 		Root:         root,
 		ActivePane:   activePane,
-		Width:        width,
-		Height:       height,
+		Width:        winW,
+		Height:       winH,
 		ZoomedPaneID: ws.ZoomedPaneID,
 		LeadPaneID:   ws.LeadPaneID,
 	}
