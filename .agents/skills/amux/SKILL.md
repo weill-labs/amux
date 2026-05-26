@@ -51,7 +51,7 @@ amux capture --ansi pane-1
 amux capture --history pane-1 | grep -v '^$' | tail -30
 ```
 
-The JSON capture is the primary interface for agents. It includes pane content lines, cursor position, active/minimized/zoomed state, host, task, color, cwd, git branch, and agent status.
+The JSON capture is the primary interface for agents. It includes pane content lines, cursor position, active/lead/zoomed state, host, task, color, cwd, git branch, and agent-status fields (`exited`, `idle`, `current_command`) as top-level keys on each pane.
 
 **Note:** JSON capture currently only returns the visible viewport. `--history` only works with plain text output. See LAB-527 for tracking JSON + history support.
 
@@ -358,7 +358,7 @@ The `--format json` output looks like:
 ```json
 {
   "session": "default",
-  "window": {"id": 1, "name": "main", "index": 0},
+  "window": {"id": 1, "name": "main", "index": 1, "zoomed": false},
   "width": 200,
   "height": 50,
   "panes": [
@@ -366,32 +366,34 @@ The `--format json` output looks like:
       "id": 1,
       "name": "pane-1",
       "active": true,
-      "minimized": false,
+      "lead": true,
       "zoomed": false,
       "host": "local",
       "task": "",
       "color": "rosewater",
+      "column_index": 0,
       "cwd": "/path/to/project",
       "git_branch": "main",
       "cursor": {"col": 0, "row": 24},
-      "content": ["line 1", "line 2", "..."],
       "position": {"x": 0, "y": 0, "width": 100, "height": 25},
-      "agent_status": {
-        "exited": false,
-        "idle": false,
-        "current_command": "go test ./...",
-        "child_pids": [12345]
-      }
+      "content": ["line 1", "line 2", "..."],
+      "exited": false,
+      "exited_since": "2026-05-26T19:00:00Z",
+      "current_command": "go test ./...",
+      "idle": false,
+      "last_output": "2026-05-26T19:05:00Z"
     }
   ]
 }
 ```
 
-Key fields for agent orchestration:
-- `agent_status.exited` — true when pane shell has no child processes. This corresponds to `wait exited`, not `wait idle`.
-- `agent_status.idle` — true when pane output is screen-quiet. This corresponds to `wait idle`.
-- `agent_status.current_command` — what's currently running
-- `agent_status.child_pids` — PIDs of child processes in the pane
+The agent-status fields are top-level keys on each pane (not nested under an `agent_status` object). Key fields for agent orchestration:
+- `exited` — true when no foreground command is running in the pane (shell sitting at its prompt). Corresponds to `wait exited`, not `wait idle`.
+- `exited_since` — RFC3339 timestamp of the last busy→exited transition; omitted while busy.
+- `current_command` — the foreground process name when busy, or the shell name (e.g. `bash`) when exited.
+- `idle` — true when pane output has been quiet for the settle window. Corresponds to `wait idle`.
+- `last_output` — RFC3339 timestamp of the most recent pane output edge.
+- `lead` — true for the window's lead pane. (There is no `minimized` field; minimized panes are simply absent from the visible layout.)
 - `content` — array of strings, one per visible line (viewport only, no scrollback)
 - `active` — whether this is the focused pane
 
