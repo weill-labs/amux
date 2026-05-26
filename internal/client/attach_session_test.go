@@ -1582,6 +1582,52 @@ func TestRunSessionPrintsDetachReasonWhenConnectionLost(t *testing.T) {
 	h.stderr.waitContains(t, "detached: connection lost")
 }
 
+func TestRunSessionIgnoresLateInputAfterReaderDisconnect(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout/os.Stderr.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	stopInput := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stopInput:
+				return
+			default:
+			}
+			_, _ = h.ptmx.Write([]byte{0x01, '?'})
+			_, _ = h.ptmx.Write([]byte("\x1b[<64;2;2M"))
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	h.output.waitContains(t, "q panes")
+
+	h.closeConn()
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+	h.stderr.waitContains(t, "detached: connection lost")
+	time.Sleep(50 * time.Millisecond)
+	close(stopInput)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("late input writes did not finish")
+	}
+}
+
 func TestRunSessionEnablesPprofEndpointWhenConfigured(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(configPath, []byte("[debug]\npprof = true\n"), 0644); err != nil {
