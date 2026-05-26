@@ -378,7 +378,6 @@ The `--format json` output looks like:
       "position": {"x": 0, "y": 0, "width": 100, "height": 25},
       "content": ["line 1", "line 2", "..."],
       "exited": false,
-      "exited_since": "2026-05-26T19:00:00Z",
       "current_command": "go test ./...",
       "idle": false,
       "last_output": "2026-05-26T19:05:00Z"
@@ -392,6 +391,7 @@ The agent-status fields are top-level keys on each pane (not nested under an `ag
 - `exited_since` — RFC3339 timestamp of the last busy→exited transition; omitted while busy.
 - `current_command` — the foreground process name when busy, or the shell name (e.g. `bash`) when exited.
 - `idle` — true when pane output has been quiet for the settle window. Corresponds to `wait idle`.
+- `idle_since` — RFC3339 timestamp when the pane most recently became screen-quiet; omitted while output is still active. (`exited_since` and `idle_since` are both omitted in the example above because the pane is busy.)
 - `last_output` — RFC3339 timestamp of the most recent pane output edge.
 - `lead` — true for the window's lead pane. (There is no `minimized` field; minimized panes are simply absent from the visible layout.)
 - `content` — array of strings, one per visible line (viewport only, no scrollback)
