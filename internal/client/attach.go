@@ -85,6 +85,13 @@ func waitForRunSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}) b
 	}
 }
 
+func signalExitCode(sig os.Signal) int {
+	if syscallSig, ok := sig.(syscall.Signal); ok {
+		return 128 + int(syscallSig)
+	}
+	return 1
+}
+
 func isConnectionLostError(err error) bool {
 	if err == nil {
 		return false
@@ -499,17 +506,21 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 		return fmt.Errorf("loading config: %w", err)
 	}
 	var clientPprof *pprofEndpoint
+	var closeClientPprofOnce sync.Once
+	closeClientPprof := func() {
+		closeClientPprofOnce.Do(func() {
+			if clientPprof != nil {
+				clientPprof.close()
+			}
+		})
+	}
 	if cfg.PprofEnabled() {
 		clientPprof, err = newPprofEndpoint(sessionName, os.Getpid())
 		if err != nil {
 			return fmt.Errorf("enabling client pprof debug endpoint failed: %w", err)
 		}
 	}
-	defer func() {
-		if clientPprof != nil {
-			clientPprof.close()
-		}
-	}()
+	defer closeClientPprof()
 	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
 	stdin := deps.stdin
@@ -583,16 +594,31 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 		return fmt.Errorf("raw mode: %w", err)
 	}
 	stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
-	terminalRestored := false
+	var restoreTerminalOnce sync.Once
 	restoreTerminal := func() {
-		if terminalRestored {
-			return
-		}
-		terminalRestored = true
-		stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
-		_ = term.Restore(fd, oldState)
+		restoreTerminalOnce.Do(func() {
+			stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
+			_ = term.Restore(fd, oldState)
+		})
 	}
 	defer restoreTerminal()
+
+	termSigCh := make(chan os.Signal, 1)
+	termSigDone := make(chan struct{})
+	signal.Notify(termSigCh, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+	defer func() {
+		signal.Stop(termSigCh)
+		close(termSigDone)
+	}()
+	go func() {
+		select {
+		case sig := <-termSigCh:
+			closeClientPprof()
+			restoreTerminal()
+			os.Exit(signalExitCode(sig))
+		case <-termSigDone:
+		}
+	}()
 
 	if initial := cr.Render(true); initial != "" {
 		if _, err := io.WriteString(stdout, wrapSynchronizedFrame(initial)); err != nil {
@@ -1360,10 +1386,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 		if exitState.get() == "" {
 			exitState.set("detached: server requested hot-reload")
 		}
-		if clientPprof != nil {
-			clientPprof.close()
-			clientPprof = nil
-		}
+		closeClientPprof()
 		if execPath != "" {
 			if err := deps.execSelf(execPath, sender, restoreTerminal); err != nil {
 				restoreTerminal()
