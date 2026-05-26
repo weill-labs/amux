@@ -339,3 +339,50 @@ func TestSnapshotLayoutIncludesColumnIndex(t *testing.T) {
 		}
 	})
 }
+
+func TestRebuildWindowFromSnapshotPreservesWindowSize(t *testing.T) {
+	t.Parallel()
+
+	// A window last sized for a 176x87 terminal -- e.g. an inactive window at
+	// checkpoint time. Its layout cells are sized 176x87.
+	p := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: DefaultHost, Color: "f5e0dc"}, emulator: NewVTEmulatorWithScrollback(176, 87, DefaultScrollbackLines)}
+	w := NewWindow(p, 176, 87)
+	w.ID = 7
+
+	ws := w.SnapshotWindow(0)
+
+	// Restore passing a DIFFERENT global layout size (the active client at
+	// checkpoint was 381x69). The rebuilt window must stay consistent with its
+	// restored cells rather than silently adopt the passed size: a mismatch
+	// makes the resize-on-activation guard (w.Width == cols && w.Height ==
+	// layoutH) skip, stranding the pane at its stale 176x87 grid.
+	rebuilt := RebuildWindowFromSnapshot(ws, 381, 69, map[uint32]*Pane{1: p})
+
+	if rebuilt.Width != rebuilt.Root.W || rebuilt.Height != rebuilt.Root.H {
+		t.Fatalf("rebuilt window size %dx%d desynced from restored root cell %dx%d",
+			rebuilt.Width, rebuilt.Height, rebuilt.Root.W, rebuilt.Root.H)
+	}
+	if rebuilt.Width != 176 || rebuilt.Height != 87 {
+		t.Fatalf("rebuilt window size = %dx%d, want 176x87 (its snapshotted size)", rebuilt.Width, rebuilt.Height)
+	}
+}
+
+func TestRebuildWindowFromSnapshotFallsBackWhenRootSizeMissing(t *testing.T) {
+	t.Parallel()
+
+	// A degenerate snapshot whose root cell carries no dimensions (W=0, H=0)
+	// must fall back to the passed layout size.
+	ws := proto.WindowSnapshot{
+		ID:           9,
+		Name:         "legacy",
+		ActivePaneID: 1,
+		Root:         proto.CellSnapshot{IsLeaf: true, PaneID: 1, Dir: -1},
+	}
+	p := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: DefaultHost}}
+
+	rebuilt := RebuildWindowFromSnapshot(ws, 120, 40, map[uint32]*Pane{1: p})
+
+	if rebuilt.Width != 120 || rebuilt.Height != 40 {
+		t.Fatalf("fallback window size = %dx%d, want passed 120x40", rebuilt.Width, rebuilt.Height)
+	}
+}
