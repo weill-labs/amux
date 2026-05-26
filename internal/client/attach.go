@@ -691,10 +691,19 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	// 60fps default while coalescing pane output inside each frame budget.
 	done := make(chan struct{})
 	msgCh := make(chan *RenderMsg, 256)
+	renderStop := make(chan struct{})
+	var stopRenderOnce sync.Once
+	stopRender := func() {
+		stopRenderOnce.Do(func() {
+			close(renderStop)
+		})
+	}
+	defer stopRender()
+	cr.renderStop = renderStop
 
 	// Read server messages and dispatch to render loop
 	go func() {
-		defer close(msgCh)
+		defer stopRender()
 		for {
 			msg, err := attachReader.ReadMsg()
 			if err != nil {
@@ -703,25 +712,37 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			}
 			switch msg.Type {
 			case proto.MsgTypeLayout:
-				msgCh <- &RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}
+				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}) {
+					return
+				}
 			case proto.MsgTypePaneHistory:
 				cr.HandlePaneHistoryMessage(msg.PaneID, msg.History, msg.StyledHistory)
 			case proto.MsgTypePaneOutput:
-				msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData, SourceEpoch: msg.SourceEpoch}
+				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData, SourceEpoch: msg.SourceEpoch}) {
+					return
+				}
 			case proto.MsgTypeCmdResult:
 				if msg.CmdErr != "" {
-					msgCh <- &RenderMsg{Typ: RenderMsgCmdError, Text: msg.CmdErr}
+					if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgCmdError, Text: msg.CmdErr}) {
+						return
+					}
 				}
 			case proto.MsgTypeCopyMode:
-				msgCh <- &RenderMsg{Typ: RenderMsgCopyMode, PaneID: msg.PaneID}
+				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgCopyMode, PaneID: msg.PaneID}) {
+					return
+				}
 			case proto.MsgTypeExit:
 				exitState.set(formatDetachNotice(msg.Text, "detached: session exited"))
-				msgCh <- &RenderMsg{Typ: RenderMsgExit}
+				_ = sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgExit})
 				return
 			case proto.MsgTypeBell:
-				msgCh <- &RenderMsg{Typ: RenderMsgBell}
+				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgBell}) {
+					return
+				}
 			case proto.MsgTypeClipboard:
-				msgCh <- &RenderMsg{Typ: RenderMsgClipboard, Data: msg.PaneData}
+				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgClipboard, Data: msg.PaneData}) {
+					return
+				}
 			case proto.MsgTypeCaptureRequest:
 				// Server is forwarding a capture request — render from
 				// client-side emulators and send the result back. Wait for the
@@ -771,8 +792,13 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	initCols, initRows := cols, rows
 	go func() {
 		lastCols, lastRows := initCols, initRows
-		for range sigCh {
-			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getTermSize, msgCh)
+		for {
+			select {
+			case <-renderStop:
+				return
+			case <-sigCh:
+				lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getTermSize, msgCh)
+			}
 		}
 	}()
 	// Recheck once after the handler is live so startup-time size changes
@@ -1056,12 +1082,20 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					ready, pending := splitTrailingIncompleteUTF8(cp)
 					pendingUTF8 = append(pendingUTF8[:0], pending...)
 					if len(ready) > 0 {
-						stdinCh <- ready
+						select {
+						case stdinCh <- ready:
+						case <-renderStop:
+							return
+						}
 					}
 				}
 				if err != nil {
 					if len(pendingUTF8) > 0 {
-						stdinCh <- append([]byte(nil), pendingUTF8...)
+						select {
+						case stdinCh <- append([]byte(nil), pendingUTF8...):
+						case <-renderStop:
+							return
+						}
 					}
 					return
 				}
@@ -1102,6 +1136,8 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					drag.ClickCount = 0
 				}
 				continue
+			case <-renderStop:
+				return
 			}
 
 			if localInput {

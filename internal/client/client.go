@@ -27,6 +27,7 @@ type ClientRenderer struct {
 	scrollbackLines int
 	OnUIEvent       func(string)
 	CopyToClipboard func(string) // called when copy mode copies text; nil uses default
+	renderStop      <-chan struct{}
 
 	// Render timing — configurable for tests. Zero values use defaults.
 	renderFrameInterval  time.Duration
@@ -800,6 +801,8 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 					return
 				}
 				msg = next
+			case <-cr.renderStop:
+				return
 			case <-state.renderC:
 				cr.renderNow(state, write)
 				continue

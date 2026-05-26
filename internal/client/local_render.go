@@ -21,12 +21,25 @@ func applyLocalRenderResultDirect(cr *ClientRenderer, result localRenderResult) 
 	_ = cr.executeRenderEffects(state, result.effects, func(string) {})
 }
 
+func sendRenderMsg(msgCh chan<- *RenderMsg, stop <-chan struct{}, msg *RenderMsg) bool {
+	if stop == nil {
+		msgCh <- msg
+		return true
+	}
+	select {
+	case msgCh <- msg:
+		return true
+	case <-stop:
+		return false
+	}
+}
+
 func runLocalRenderAction(cr *ClientRenderer, msgCh chan<- *RenderMsg, fn localRenderFunc) {
 	if msgCh == nil {
 		applyLocalRenderResultDirect(cr, fn(cr))
 		return
 	}
-	msgCh <- &RenderMsg{Typ: RenderMsgLocalAction, Local: fn}
+	_ = sendRenderMsg(msgCh, cr.renderStop, &RenderMsg{Typ: RenderMsgLocalAction, Local: fn})
 }
 
 func callLocalRenderAction[T any](cr *ClientRenderer, msgCh chan<- *RenderMsg, fn localRenderFunc) T {
@@ -40,12 +53,18 @@ func callLocalRenderAction[T any](cr *ClientRenderer, msgCh chan<- *RenderMsg, f
 		return result.value.(T)
 	}
 	reply := make(chan any, 1)
-	msgCh <- &RenderMsg{Typ: RenderMsgLocalAction, Local: fn, Reply: reply}
-	value := <-reply
-	if value == nil {
+	if !sendRenderMsg(msgCh, cr.renderStop, &RenderMsg{Typ: RenderMsgLocalAction, Local: fn, Reply: reply}) {
 		return zero
 	}
-	return value.(T)
+	select {
+	case value := <-reply:
+		if value == nil {
+			return zero
+		}
+		return value.(T)
+	case <-cr.renderStop:
+		return zero
+	}
 }
 
 func renderNowResult() localRenderResult {
