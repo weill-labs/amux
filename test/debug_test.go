@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -170,6 +171,39 @@ func TestDebugClientCommandsUseInteractiveClientPprofEndpoint(t *testing.T) {
 	pty.detach()
 	if !pty.waitExited(5 * time.Second) {
 		t.Fatal("interactive client did not exit after detach")
+	}
+}
+
+func TestDebugClientPprofSignalTerminationRemovesSocketAndAlias(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	writeDebugPprofConfig(t, h)
+
+	pty := newPTYClientHarness(t, h)
+	clientSocket := client.PprofProcessSocketPath(h.session, pty.cmd.Process.Pid)
+	aliasPath := client.PprofSocketPath(h.session)
+
+	if _, err := os.Stat(clientSocket); err != nil {
+		t.Fatalf("Stat(%q): %v", clientSocket, err)
+	}
+	if got, err := os.Readlink(aliasPath); err != nil {
+		t.Fatalf("Readlink(%q): %v", aliasPath, err)
+	} else if got != clientSocket {
+		t.Fatalf("client pprof alias = %q, want %q", got, clientSocket)
+	}
+
+	if err := pty.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("Signal(SIGTERM): %v", err)
+	}
+	if !pty.waitExited(5 * time.Second) {
+		t.Fatal("interactive client did not exit after SIGTERM")
+	}
+	if _, err := os.Lstat(clientSocket); !os.IsNotExist(err) {
+		t.Fatalf("client pprof socket should be removed after SIGTERM, stat err = %v", err)
+	}
+	if _, err := os.Lstat(aliasPath); !os.IsNotExist(err) {
+		t.Fatalf("client pprof alias should be removed after SIGTERM, stat err = %v", err)
 	}
 }
 
