@@ -302,6 +302,8 @@ func (e localPaneBuildResultEvent) handle(_ context.Context, s *Session) {
 		notify(err)
 		return
 	}
+	e.pane.Meta = clonePaneMetaForReplacement(current.Meta)
+	e.pane.SetMetaManualBranch(current.MetaManualBranch())
 	if err := s.replacePaneInstance(current, e.pane, w); err != nil {
 		e.pane.SuppressCallbacks()
 		s.closePaneAsync(e.pane)
