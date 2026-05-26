@@ -407,6 +407,14 @@ func effectiveRespawnDir(pane *mux.Pane) string {
 	return pane.Meta.Dir
 }
 
+func clonePaneMetaForReplacement(meta mux.PaneMeta) mux.PaneMeta {
+	next := meta
+	next.KV = mux.CloneMetaKV(meta.KV)
+	next.TrackedPRs = proto.CloneTrackedPRs(meta.TrackedPRs)
+	next.TrackedIssues = proto.CloneTrackedIssues(meta.TrackedIssues)
+	return next
+}
+
 func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window) error {
 	if oldPane == nil || newPane == nil {
 		return fmt.Errorf("missing pane")
