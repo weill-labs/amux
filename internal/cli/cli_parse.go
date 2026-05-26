@@ -30,15 +30,11 @@ type sessionCommandSpec struct {
 }
 
 var canonicalSessionCommands = map[string]sessionCommandSpec{
-	"_inject-proxy": {connectName: "_inject-proxy", argMode: sessionCommandForwardArgs},
 	"_layout-json":  {connectName: "_layout-json", argMode: sessionCommandNoArgs},
 	"capture":       {connectName: "capture", usage: captureUsage, argMode: sessionCommandForwardArgs},
-	"connect":       {connectName: "connect", minArgs: 1, usage: connectUsage, argMode: sessionCommandForwardArgs},
 	"copy-mode":     {connectName: "copy-mode", argMode: sessionCommandForwardArgs},
 	"cursor":        {connectName: "cursor", minArgs: 1, usage: cursorUsage, argMode: sessionCommandForwardArgs},
-	"disconnect":    {connectName: "disconnect", minArgs: 1, usage: disconnectUsage, argMode: sessionCommandFirstArg},
 	"focus":         {connectName: "focus", minArgs: 1, usage: focusUsage, argMode: sessionCommandFirstArg},
-	"hosts":         {connectName: "hosts", argMode: sessionCommandNoArgs},
 	"list":          {connectName: "list", usage: listUsage, argMode: sessionCommandForwardArgs},
 	"list-clients":  {connectName: "list-clients", usage: listClientsUsage, argMode: sessionCommandNoArgs},
 	"list-windows":  {connectName: "list-windows", usage: listWindowsUsage, argMode: sessionCommandNoArgs},
@@ -47,8 +43,6 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"prev-window":   {connectName: "prev-window", usage: prevWindowUsage, argMode: sessionCommandNoArgs},
 	"last-window":   {connectName: "last-window", usage: lastWindowUsage, argMode: sessionCommandNoArgs},
 	"rename":        {connectName: "rename", minArgs: 2, usage: renameUsage, argMode: sessionCommandForwardArgs},
-	"reconnect":     {connectName: "reconnect", minArgs: 1, usage: reconnectUsage, argMode: sessionCommandFirstArg},
-	"reload-server": {connectName: "reload-server", usage: reloadServerUsage, argMode: sessionCommandNoArgs},
 	"rename-window": {connectName: "rename-window", minArgs: 1, usage: renameWindowUsage, argMode: sessionCommandFirstArg},
 	"reset":         {connectName: "reset", minArgs: 1, usage: resetUsage, argMode: sessionCommandFirstArg},
 	"respawn":       {connectName: "respawn", minArgs: 1, usage: respawnUsage, argMode: sessionCommandFirstArg},
@@ -57,7 +51,6 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"select-window": {connectName: "select-window", minArgs: 1, usage: selectWindowUsage, argMode: sessionCommandFirstArg},
 	"status":        {connectName: "status", usage: statusUsage, argMode: sessionCommandNoArgs},
 	"undo":          {connectName: "undo", usage: undoUsage, argMode: sessionCommandNoArgs},
-	"unsplice":      {connectName: "unsplice", minArgs: 1, usage: unspliceUsage, argMode: sessionCommandFirstArg},
 	"wait":          {connectName: "wait", minArgs: 1, usage: waitUsage, argMode: sessionCommandForwardArgs},
 	"zoom":          {connectName: "zoom", usage: zoomUsage, argMode: sessionCommandForwardArgs},
 }
@@ -88,12 +81,6 @@ func ResolveInvocationSession(args []string) (string, []string) {
 func ResolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []string, handled bool, err error) {
 	if len(args) == 0 {
 		return "", nil, false, nil
-	}
-	if args[0] == "remote" {
-		if len(args) == 1 {
-			return "", nil, true, errors.New(remoteUsage)
-		}
-		return ResolveCanonicalSessionCommand(args[1:])
 	}
 
 	spec, ok := canonicalSessionCommands[args[0]]
@@ -223,7 +210,6 @@ type spawnCLIOptions struct {
 	root           bool
 	focus          bool
 	name           string
-	host           string
 	task           string
 	color          string
 }
@@ -274,12 +260,6 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 			}
 			opts.name = args[i+1]
 			i++
-		case "--host":
-			if i+1 >= len(args) {
-				return "", nil, errors.New(spawnUsage)
-			}
-			opts.host = args[i+1]
-			i++
 		case "--task":
 			if i+1 >= len(args) {
 				return "", nil, errors.New(spawnUsage)
@@ -316,9 +296,6 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 			cmdArgs = append(cmdArgs, "--focus")
 		}
 		cmdArgs = append(cmdArgs, "--auto")
-		if opts.host != "" {
-			cmdArgs = append(cmdArgs, "--host", opts.host)
-		}
 		if opts.name != "" {
 			cmdArgs = append(cmdArgs, "--name", opts.name)
 		}
@@ -353,9 +330,6 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 	}
 	if opts.name != "" {
 		cmdArgs = append(cmdArgs, "--name", opts.name)
-	}
-	if opts.host != "" {
-		cmdArgs = append(cmdArgs, "--host", opts.host)
 	}
 	if opts.task != "" {
 		cmdArgs = append(cmdArgs, "--task", opts.task)

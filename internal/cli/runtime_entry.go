@@ -71,7 +71,6 @@ func defaultRuntime(buildCommit string) Runtime {
 		AttachSession: func(sessionName string) error {
 			return client.RunSession(sessionName, term.GetSize)
 		},
-		RunSSHSession: client.RunSSHSession,
 		WriteVersionOutput: func(w io.Writer, args []string) error {
 			return writeVersionOutput(buildCommit, w, args)
 		},

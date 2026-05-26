@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"reflect"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
-	"github.com/weill-labs/amux/internal/transport"
 )
 
 func TestParseSpawnCommandArgs(t *testing.T) {
@@ -41,7 +39,6 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
 		{name: "missing window value", args: []string{"--window"}, wantErrText: spawnUsage},
 		{name: "missing name value", args: []string{"--name"}, wantErrText: spawnUsage},
-		{name: "missing host value", args: []string{"--host"}, wantErrText: spawnUsage},
 		{name: "missing task value", args: []string{"--task"}, wantErrText: spawnUsage},
 		{name: "missing color value", args: []string{"--color"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
@@ -885,61 +882,6 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 	}
 }
 
-func TestRemoteCLICommandGroupUsageAndErrors(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		args       []string
-		wantExit   int
-		wantStdout string
-		wantStderr string
-	}{
-		{
-			name:       "missing subcommand prints usage",
-			wantExit:   1,
-			wantStderr: remoteUsage + "\n",
-		},
-		{
-			name:       "group help prints usage",
-			args:       []string{"--help"},
-			wantExit:   0,
-			wantStdout: remoteUsage + "\n",
-		},
-		{
-			name:       "nested help prints subcommand usage",
-			args:       []string{"disconnect", "--help"},
-			wantExit:   0,
-			wantStdout: disconnectUsage + "\n",
-		},
-		{
-			name:       "unknown subcommand prints error",
-			args:       []string{"unknown"},
-			wantExit:   1,
-			wantStderr: "amux: unknown remote command \"unknown\"\n" + remoteUsage + "\n",
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newCLIRuntimeHarness()
-			exitCode := remoteCLICommandGroup()(invocation{runtime: h.runtime(), sessionName: resolvedSessionMarker}, tt.args)
-			if exitCode != tt.wantExit {
-				t.Fatalf("exit = %d, want %d", exitCode, tt.wantExit)
-			}
-			if got := h.stdout.String(); got != tt.wantStdout {
-				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
-			}
-			if got := h.stderr.String(); got != tt.wantStderr {
-				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
-			}
-		})
-	}
-}
-
 func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	t.Parallel()
 
@@ -982,18 +924,6 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantExit:   1,
 			wantStderr: sendKeysUsage + "\n",
 		},
-		{
-			name:       "ssh migration hint stays in dispatch layer",
-			args:       []string{"ssh", "builder"},
-			wantExit:   1,
-			wantStderr: "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder\" instead.\n",
-		},
-		{
-			name:       "connect usage error stays in dispatch layer",
-			args:       []string{"connect"},
-			wantExit:   1,
-			wantStderr: "usage: amux connect <host> [--session <name> | --session-per-client]\n",
-		},
 	}
 
 	for _, tt := range tests {
@@ -1015,30 +945,12 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	}
 }
 
-func TestRunMainSSHMigrationHintDoesNotCallRuntime(t *testing.T) {
-	t.Parallel()
-
-	h := newCLIRuntimeHarness()
-	h.runSSHSessionErr = errors.New("boom")
-
-	if exitCode := RunWithRuntime([]string{"ssh", "builder"}, h.runtime()); exitCode != 1 {
-		t.Fatalf("RunWithRuntime(%v) exit = %d, want 1", []string{"ssh", "builder"}, exitCode)
-	}
-	if got := h.stderr.String(); got != "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder\" instead.\n" {
-		t.Fatalf("stderr = %q, want migration hint", got)
-	}
-	if len(h.calls) != 0 {
-		t.Fatalf("calls = %#v, want no runtime calls", h.calls)
-	}
-}
-
 type cliCall struct {
 	kind    string
 	session string
 	cmd     string
 	args    []string
 	managed bool
-	target  *transport.Target
 }
 
 const resolvedSessionMarker = "__resolved_session__"
@@ -1049,7 +961,6 @@ type cliRuntimeHarness struct {
 	usageCalls        int
 	shouldTakeover    bool
 	tryTakeoverResult bool
-	runSSHSessionErr  error
 	calls             []cliCall
 }
 
@@ -1120,11 +1031,6 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 				session: sessionName,
 				args:    append([]string(nil), args...),
 			})
-		},
-		RunSSHSession: func(target transport.Target) error {
-			targetCopy := target
-			h.calls = append(h.calls, cliCall{kind: "ssh", target: &targetCopy})
-			return h.runSSHSessionErr
 		},
 		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
