@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,6 +68,78 @@ func TestHasOtherActiveTestRunRemovesStaleLocks(t *testing.T) {
 	}
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Fatalf("stale lock %s should be removed, stat err=%v", filepath.Base(lockPath), err)
+	}
+}
+
+func TestCleanupStaleTestTempDirsRemovesOnlyAmuxTestDirs(t *testing.T) {
+	t.Parallel()
+
+	tempRoot := t.TempDir()
+	staleTempDir := filepath.Join(tempRoot, "amux-test-stale")
+	otherDir := filepath.Join(tempRoot, "not-amux-test-stale")
+	matchingFile := filepath.Join(tempRoot, "amux-test-file")
+	for _, dir := range []string{staleTempDir, otherDir} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(staleTempDir, "amux"), nil, 0o644); err != nil {
+		t.Fatalf("write stale temp file: %v", err)
+	}
+	if err := os.WriteFile(matchingFile, nil, 0o644); err != nil {
+		t.Fatalf("write matching file: %v", err)
+	}
+
+	cleanupStaleTestTempDirsWithDeps(testTempDirCleanupDeps{
+		tempRoot:  tempRoot,
+		socketDir: t.TempDir(),
+		selfPID:   os.Getpid(),
+		readDir:   os.ReadDir,
+		removeAll: os.RemoveAll,
+		hasOtherActiveTestRun: func(string, int) bool {
+			return false
+		},
+	})
+
+	if _, err := os.Stat(staleTempDir); !os.IsNotExist(err) {
+		t.Fatalf("stale temp dir should be removed, stat err=%v", err)
+	}
+	for _, path := range []string{otherDir, matchingFile} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s should remain, stat err=%v", filepath.Base(path), err)
+		}
+	}
+}
+
+func TestCleanupStaleTestTempDirsSkipsWhenOtherRunActive(t *testing.T) {
+	t.Parallel()
+
+	tempRoot := t.TempDir()
+	staleTempDir := filepath.Join(tempRoot, "amux-test-stale")
+	if err := os.Mkdir(staleTempDir, 0o755); err != nil {
+		t.Fatalf("mkdir stale temp dir: %v", err)
+	}
+
+	var removeCalls []string
+	cleanupStaleTestTempDirsWithDeps(testTempDirCleanupDeps{
+		tempRoot:  tempRoot,
+		socketDir: t.TempDir(),
+		selfPID:   os.Getpid(),
+		readDir:   os.ReadDir,
+		removeAll: func(path string) error {
+			removeCalls = append(removeCalls, path)
+			return nil
+		},
+		hasOtherActiveTestRun: func(string, int) bool {
+			return true
+		},
+	})
+
+	if len(removeCalls) > 0 {
+		t.Fatalf("removeAll called despite active run: %s", strings.Join(removeCalls, ", "))
+	}
+	if _, err := os.Stat(staleTempDir); err != nil {
+		t.Fatalf("stale temp dir should remain while another run is active, stat err=%v", err)
 	}
 }
 
