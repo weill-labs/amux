@@ -113,7 +113,7 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("AMUX_SESSION")
 	_ = os.Unsetenv("TMUX")
 
-	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	socketDir := testSocketDir()
 	lockPath, err := writeTestRunLock(socketDir, os.Getpid())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "creating test-run lock: %v\n", err)
@@ -195,10 +195,14 @@ func newTestHome(tb testing.TB) string {
 	return home
 }
 
+func testSocketDir() string {
+	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+}
+
 // cleanupStaleTestTempDirs removes amux test build directories left behind
 // when previous test binaries exited before reaching their normal cleanup.
 func cleanupStaleTestTempDirs() {
-	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	socketDir := testSocketDir()
 	cleanupStaleTestTempDirsWithDeps(testTempDirCleanupDeps{
 		tempRoot:              os.TempDir(),
 		socketDir:             socketDir,
@@ -234,7 +238,7 @@ func cleanupStaleTestTempDirsWithDeps(deps testTempDirCleanupDeps) {
 // run owns a lock, any test server without a live test parent is stale even if
 // its socket still accepts connections.
 func cleanupStaleTestSessions() {
-	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	socketDir := testSocketDir()
 	if hasOtherActiveTestRun(socketDir, os.Getpid()) {
 		return
 	}
