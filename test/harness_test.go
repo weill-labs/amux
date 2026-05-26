@@ -30,6 +30,15 @@ var childGoCacheDir string
 
 const testRunLockPrefix = "test-run-"
 
+type testTempDirCleanupDeps struct {
+	tempRoot              string
+	socketDir             string
+	selfPID               int
+	readDir               func(string) ([]os.DirEntry, error)
+	removeAll             func(string) error
+	hasOtherActiveTestRun func(string, int) bool
+}
+
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
 // the binary is built with -cover so it writes coverage data on exit.
 // Set AMUX_TEST_RACE=1 to build with -race (enables race detection in
@@ -115,6 +124,7 @@ func TestMain(m *testing.M) {
 	// Clean up orphaned test sessions from previous runs that may have
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
 	cleanupStaleTestSessions()
+	cleanupStaleTestTempDirs()
 
 	// Use GOCOVERDIR if explicitly set (e.g. by CI). When set, the amux
 	// binary is built with -cover and writes coverage data on exit.
@@ -128,12 +138,12 @@ func TestMain(m *testing.M) {
 		removeTestRunLock()
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmp)
 
 	amuxBin = tmp + "/amux"
 	childGoCacheDir = filepath.Join(tmp, ".gocache")
 	if err := buildAmux(amuxBin); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
+		_ = os.RemoveAll(tmp)
 		removeTestRunLock()
 		os.Exit(1)
 	}
@@ -155,6 +165,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	_ = os.RemoveAll(tmp)
 	removeTestRunLock()
 	os.Exit(code)
 }
@@ -182,6 +193,37 @@ func newTestHome(tb testing.TB) string {
 		}
 	}
 	return home
+}
+
+// cleanupStaleTestTempDirs removes amux test build directories left behind
+// when previous test binaries exited before reaching their normal cleanup.
+func cleanupStaleTestTempDirs() {
+	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	cleanupStaleTestTempDirsWithDeps(testTempDirCleanupDeps{
+		tempRoot:              os.TempDir(),
+		socketDir:             socketDir,
+		selfPID:               os.Getpid(),
+		readDir:               os.ReadDir,
+		removeAll:             os.RemoveAll,
+		hasOtherActiveTestRun: hasOtherActiveTestRun,
+	})
+}
+
+func cleanupStaleTestTempDirsWithDeps(deps testTempDirCleanupDeps) {
+	if deps.hasOtherActiveTestRun(deps.socketDir, deps.selfPID) {
+		return
+	}
+
+	entries, err := deps.readDir(deps.tempRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "amux-test-") {
+			continue
+		}
+		_ = deps.removeAll(filepath.Join(deps.tempRoot, entry.Name()))
+	}
 }
 
 // cleanupStaleTestSessions removes orphaned amux server processes, sockets,
