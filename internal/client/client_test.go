@@ -443,7 +443,7 @@ func TestClientRendererCaptureJSONOmitsNerdIconGlyphs(t *testing.T) {
 	snap := singlePane20xN(23)
 	snap.Panes[0].Host = "gpu"
 	snap.Panes[0].Task = "build LAB-1650"
-	snap.Panes[0].ConnStatus = string(proto.Connected)
+	snap.Panes[0].ConnStatus = "connected"
 	snap.Panes[0].TrackedPRs = []proto.TrackedPR{{Number: 42}}
 	snap.Panes[0].TrackedIssues = []proto.TrackedIssue{{ID: "LAB-1650"}}
 	snap.Windows[0].Panes[0] = snap.Panes[0]

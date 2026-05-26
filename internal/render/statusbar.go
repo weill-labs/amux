@@ -243,11 +243,11 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 	if cs := pd.ConnStatus(); cs != "" {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 		switch cs {
-		case string(proto.Connected):
+		case "connected":
 			segments = appendPaneStatusSegment(segments, icons.Connected, paneStatusSegmentGreen)
-		case string(proto.Reconnecting):
+		case "reconnecting":
 			segments = appendPaneStatusSegment(segments, icons.Reconnecting, paneStatusSegmentYellow)
-		case string(proto.Disconnected):
+		case "disconnected":
 			segments = appendPaneStatusSegment(segments, icons.Disconnected, paneStatusSegmentRed)
 		}
 	}
@@ -712,11 +712,11 @@ func paneStatusStateIcon(isActive bool, pd PaneData, icons IconSet) string {
 func connStatusIcon(status string, icons IconSet) string {
 	icons = normalizeIconSet(icons)
 	switch status {
-	case string(proto.Connected):
+	case "connected":
 		return icons.Connected
-	case string(proto.Reconnecting):
+	case "reconnecting":
 		return icons.Reconnecting
-	case string(proto.Disconnected):
+	case "disconnected":
 		return icons.Disconnected
 	default:
 		return ""
