@@ -700,6 +700,9 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	}
 	defer stopRender()
 	cr.renderStop = renderStop
+	queueRender := func(msg *RenderMsg) bool {
+		return sendRenderMsg(msgCh, renderStop, msg)
+	}
 
 	// Read server messages and dispatch to render loop
 	go func() {
@@ -712,35 +715,35 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			}
 			switch msg.Type {
 			case proto.MsgTypeLayout:
-				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}) {
+				if !queueRender(&RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}) {
 					return
 				}
 			case proto.MsgTypePaneHistory:
 				cr.HandlePaneHistoryMessage(msg.PaneID, msg.History, msg.StyledHistory)
 			case proto.MsgTypePaneOutput:
-				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData, SourceEpoch: msg.SourceEpoch}) {
+				if !queueRender(&RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData, SourceEpoch: msg.SourceEpoch}) {
 					return
 				}
 			case proto.MsgTypeCmdResult:
 				if msg.CmdErr != "" {
-					if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgCmdError, Text: msg.CmdErr}) {
+					if !queueRender(&RenderMsg{Typ: RenderMsgCmdError, Text: msg.CmdErr}) {
 						return
 					}
 				}
 			case proto.MsgTypeCopyMode:
-				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgCopyMode, PaneID: msg.PaneID}) {
+				if !queueRender(&RenderMsg{Typ: RenderMsgCopyMode, PaneID: msg.PaneID}) {
 					return
 				}
 			case proto.MsgTypeExit:
 				exitState.set(formatDetachNotice(msg.Text, "detached: session exited"))
-				_ = sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgExit})
+				_ = queueRender(&RenderMsg{Typ: RenderMsgExit})
 				return
 			case proto.MsgTypeBell:
-				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgBell}) {
+				if !queueRender(&RenderMsg{Typ: RenderMsgBell}) {
 					return
 				}
 			case proto.MsgTypeClipboard:
-				if !sendRenderMsg(msgCh, renderStop, &RenderMsg{Typ: RenderMsgClipboard, Data: msg.PaneData}) {
+				if !queueRender(&RenderMsg{Typ: RenderMsgClipboard, Data: msg.PaneData}) {
 					return
 				}
 			case proto.MsgTypeCaptureRequest:

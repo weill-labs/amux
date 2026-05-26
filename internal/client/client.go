@@ -26,8 +26,8 @@ type ClientRenderer struct {
 	recentInputUnix atomic.Int64
 	scrollbackLines int
 	OnUIEvent       func(string)
-	CopyToClipboard func(string) // called when copy mode copies text; nil uses default
-	renderStop      <-chan struct{}
+	CopyToClipboard func(string)    // called when copy mode copies text; nil uses default
+	renderStop      <-chan struct{} // closed when attached-client teardown starts
 
 	// Render timing — configurable for tests. Zero values use defaults.
 	renderFrameInterval  time.Duration
