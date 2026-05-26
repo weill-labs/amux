@@ -55,14 +55,12 @@ const (
 )
 
 type createPaneRequest struct {
-	paneRef      string
-	windowRef    string
-	hostName     string
-	hostExplicit bool
-	name         string
-	task         string
-	color        string
-	dir          mux.SplitDir
+	paneRef   string
+	windowRef string
+	name      string
+	task      string
+	color     string
+	dir       mux.SplitDir
 }
 
 type createPaneSnapshot struct {
@@ -132,7 +130,7 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 		}
 		mctx.startPendingLocalPaneBuild(ctx.Srv, pane, prepared.build)
 		return commandMutationResult{
-			output:          createPaneOutput(command, req.dir, pane, ""),
+			output:          createPaneOutput(command, req.dir, pane),
 			broadcastLayout: true,
 		}
 	}))
@@ -293,17 +291,11 @@ func createPaneWindowError(command string) error {
 	return fmt.Errorf("no window")
 }
 
-func createPaneOutput(command string, dir mux.SplitDir, pane *mux.Pane, hostName string) string {
+func createPaneOutput(command string, dir mux.SplitDir, pane *mux.Pane) string {
 	switch command {
 	case "split":
-		if hostName != "" {
-			return fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(dir), pane.Meta.Name, hostName)
-		}
 		return fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name)
 	default:
-		if hostName != "" {
-			return fmt.Sprintf("Spawned %s in pane %d @%s\n", pane.Meta.Name, pane.ID, hostName)
-		}
 		return fmt.Sprintf("Spawned %s in pane %d\n", pane.Meta.Name, pane.ID)
 	}
 }
@@ -414,29 +406,22 @@ func (ctx layoutCommandContext) ToggleLead(actorPaneID uint32) commandpkg.Result
 
 func createPaneRequestFromSplitArgs(args layoutcmd.SplitArgs) createPaneRequest {
 	return createPaneRequest{
-		paneRef:  args.PaneRef,
-		hostName: args.HostName,
-		name:     args.Name,
-		task:     args.Task,
-		color:    args.Color,
-		dir:      args.Dir,
+		paneRef: args.PaneRef,
+		name:    args.Name,
+		task:    args.Task,
+		color:   args.Color,
+		dir:     args.Dir,
 	}
 }
 
 func createPaneRequestFromSpawnArgs(args layoutcmd.SpawnArgs) createPaneRequest {
-	hostName := args.Meta.Host
-	if hostName == mux.DefaultHost {
-		hostName = ""
-	}
 	return createPaneRequest{
-		paneRef:      args.PaneRef,
-		windowRef:    args.WindowRef,
-		hostName:     hostName,
-		hostExplicit: args.HostExplicit,
-		name:         args.Meta.Name,
-		task:         args.Meta.Task,
-		color:        args.Meta.Color,
-		dir:          args.Dir,
+		paneRef:   args.PaneRef,
+		windowRef: args.WindowRef,
+		name:      args.Meta.Name,
+		task:      args.Meta.Task,
+		color:     args.Meta.Color,
+		dir:       args.Dir,
 	}
 }
 
