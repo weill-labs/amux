@@ -32,6 +32,7 @@ type sessionCommandSpec struct {
 var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"_layout-json":  {connectName: "_layout-json", argMode: sessionCommandNoArgs},
 	"capture":       {connectName: "capture", usage: captureUsage, argMode: sessionCommandForwardArgs},
+	"reload-server": {connectName: "reload-server", usage: "usage: amux reload-server", argMode: sessionCommandForwardArgs},
 	"copy-mode":     {connectName: "copy-mode", argMode: sessionCommandForwardArgs},
 	"cursor":        {connectName: "cursor", minArgs: 1, usage: cursorUsage, argMode: sessionCommandForwardArgs},
 	"focus":         {connectName: "focus", minArgs: 1, usage: focusUsage, argMode: sessionCommandFirstArg},

@@ -10,9 +10,16 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/dialutil"
-	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/server"
 )
+
+func PrependReloadExecPathArg(resolve func() (string, error), args []string) []string {
+	execPath, err := resolve()
+	if err != nil {
+		return args
+	}
+	return append([]string{server.ReloadServerExecPathFlag, execPath}, args...)
+}
 
 type eventsClientOptions struct {
 	reconnect      bool
@@ -203,10 +210,6 @@ func runServerCommandWithIO(w io.Writer, sessionName, cmdName string, args []str
 	}
 	defer socket.conn.Close()
 
-	if cmdName == "reload-server" {
-		args = PrependReloadExecPathArg(reload.ResolveExecutable, args)
-	}
-
 	if err := socket.writer.WriteMsg(newCommandMessage(cmdName, args)); err != nil {
 		return err
 	}
@@ -231,14 +234,6 @@ func runServerCommandWithIO(w io.Writer, sessionName, cmdName string, args []str
 		_, err = io.WriteString(w, reply.CmdOutput)
 		return err
 	}
-}
-
-func PrependReloadExecPathArg(resolve func() (string, error), args []string) []string {
-	execPath, err := resolve()
-	if err != nil {
-		return args
-	}
-	return append([]string{server.ReloadServerExecPathFlag, execPath}, args...)
 }
 
 func newCommandMessage(cmdName string, args []string) *server.Message {

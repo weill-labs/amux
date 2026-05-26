@@ -28,13 +28,6 @@ func newHermeticAmuxCommandContext(tb testing.TB, ctx context.Context, args ...s
 	return newHermeticAmuxCommandWithBinContext(tb, ctx, amuxBin, args...)
 }
 
-func newHermeticAmuxCommandWithBin(tb testing.TB, binPath string, args ...string) *exec.Cmd {
-	if tb != nil {
-		tb.Helper()
-	}
-	return newHermeticAmuxCommandWithBinContext(tb, context.Background(), binPath, args...)
-}
-
 func newHermeticAmuxCommandWithBinContext(tb testing.TB, ctx context.Context, binPath string, args ...string) *exec.Cmd {
 	if tb != nil {
 		tb.Helper()

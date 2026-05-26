@@ -53,14 +53,6 @@ func (s *Session) closePaneAsync(pane *mux.Pane) {
 	go closePane(pane)
 }
 
-func cleanupFailedPreparedPaneMutationContext(ctx *MutationContext, pane *mux.Pane, err error) commandMutationResult {
-	if pane != nil && pane.IsProxy() && ctx.RemoteManager != nil {
-		ctx.RemoteManager.RemovePane(pane.ID)
-	}
-	ctx.ScheduleClose(pane)
-	return commandMutationResult{err: err}
-}
-
 func cleanupFailedPaneMutation(sess *Session, pane *mux.Pane, err error) commandMutationResult {
 	sess.removePane(pane.ID)
 	return commandMutationResult{
@@ -106,7 +98,6 @@ func (s *Session) configureLocalPane(pane *mux.Pane, srv *Server) *mux.Pane {
 	}
 	pane = s.ownPane(pane)
 	pane.SetOnClipboard(s.clipboardCallback())
-	pane.SetOnTakeover(s.takeoverCallback(srv))
 	pane.SetOnMetaUpdate(s.metaCallback())
 	return pane
 }
@@ -277,14 +268,10 @@ func (s *Session) removePane(id uint32) {
 	s.ensureUndoManager().removePane(id)
 	s.ensureInputRouter().removePane(id)
 	s.ensureWaiters().removePane(id)
-	delete(s.takenOverPanes, id)
 	delete(s.terminalEventState, id)
 	s.ensureIdleTracker().StopPane(id)
 	if pane == nil {
 		return
-	}
-	if pane.IsProxy() && s.RemoteManager != nil {
-		s.RemoteManager.RemovePane(id)
 	}
 	s.prunePaneEventSubs(pane.Meta.Name)
 }
@@ -359,7 +346,6 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	}
 	// Clean up subscriptions and tracking for the now-invisible pane.
 	s.ensureWaiters().removePane(paneID)
-	delete(s.takenOverPanes, paneID)
 	delete(s.terminalEventState, paneID)
 	s.ensureIdleTracker().StopPane(paneID)
 	s.prunePaneEventSubs(pane.Meta.Name)
@@ -437,7 +423,6 @@ func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window)
 		return err
 	}
 	s.Panes[index] = newPane
-	delete(s.takenOverPanes, oldPane.ID)
 	delete(s.terminalEventState, oldPane.ID)
 	s.ensureIdleTracker().StopPane(oldPane.ID)
 	return nil
@@ -500,40 +485,6 @@ func (s *Session) createPaneWithMetaForColorProfile(srv *Server, meta mux.PaneMe
 	s.Panes = append(s.Panes, pane)
 	s.appendPaneLog(paneLogEventCreate, pane, "")
 	s.logPaneCreate(pane, "local")
-	return pane, nil
-}
-
-// prepareRemotePane creates and connects a proxy pane that routes I/O to a
-// remote host, but does not register it in session state or any window.
-// Caller must run this outside the session event loop (the remote manager
-// needs to make SSH calls).
-func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane, error) {
-	if s.RemoteManager == nil {
-		return nil, fmt.Errorf("no remote hosts configured for host %q", hostName)
-	}
-
-	id := s.counter.Add(1)
-	meta := mux.PaneMeta{
-		Name:   fmt.Sprintf(mux.PaneNameFormat, id),
-		Host:   hostName,
-		Color:  s.remotePaneColor(hostName),
-		Remote: string(proto.Connected), // initial state
-	}
-
-	// Create the proxy pane with a writeOverride that routes to the remote manager
-	pane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLinesForHost(meta.Host),
-		s.paneOutputCallback(),
-		s.paneExitCallback(),
-		s.remoteWriteOverride(id),
-	))
-
-	// Create the corresponding pane on the remote server
-	_, err := s.RemoteManager.CreatePane(hostName, id, managedSessionName(s.Name))
-	if err != nil {
-		s.RemoteManager.RemovePane(id)
-		return nil, err
-	}
-
 	return pane, nil
 }
 

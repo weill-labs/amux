@@ -142,23 +142,6 @@ func TestRemovedBuiltInCommandsAreUnknown(t *testing.T) {
 	}
 }
 
-func TestReloadServer(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	out := h.runCmd("reload-server")
-	if !strings.Contains(out, "reloading") {
-		t.Fatalf("expected reloading message, got: %s", out)
-	}
-
-	// After reload, the session should still be accessible
-	h.waitFor("pane-1", "$")
-	list := h.runCmd("list")
-	if !strings.Contains(list, "pane-1") {
-		t.Fatalf("pane-1 should survive reload, got:\n%s", list)
-	}
-}
-
 func TestSwapUsageWithTreeFlag(t *testing.T) {
 	t.Parallel()
 

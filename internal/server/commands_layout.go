@@ -111,33 +111,6 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 		return commandpkg.Result{Err: err}
 	}
 
-	switch {
-	case req.hostName == "" && snapshot.inheritProxy && (command == "split" || (command == "spawn" && req.paneRef != "" && placement != createPanePlacementColumnFill)):
-		req.hostName = snapshot.inheritHost
-	}
-
-	if req.hostName != "" {
-		pane, err := ctx.Sess.prepareRemotePane(req.hostName, snapshot.windowWidth, mux.PaneContentHeight(snapshot.windowHeight))
-		if err != nil {
-			return commandpkg.Result{Err: err}
-		}
-		applyCreatePaneMeta(&pane.Meta, req)
-		return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-			w, err := resolveCreatePaneWindow(mctx, actorPaneID, placement, snapshot)
-			if err != nil {
-				return cleanupFailedPreparedPaneMutationContext(mctx, pane, err)
-			}
-			mctx.Panes = append(mctx.Panes, pane)
-			if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
-				return cleanupFailedPaneMutationContext(mctx, pane, err)
-			}
-			return commandMutationResult{
-				output:          createPaneOutput(command, req.dir, pane, req.hostName),
-				broadcastLayout: true,
-			}
-		}))
-	}
-
 	meta := mux.PaneMeta{
 		Name:  req.name,
 		Task:  req.task,
@@ -310,18 +283,6 @@ func placeCreatedPaneInWindow(w *mux.Window, placement createPanePlacement, snap
 		return nil
 	default:
 		return fmt.Errorf("unknown create-pane placement: %d", placement)
-	}
-}
-
-func applyCreatePaneMeta(meta *mux.PaneMeta, req createPaneRequest) {
-	if req.name != "" {
-		meta.Name = req.name
-	}
-	if req.task != "" {
-		meta.Task = req.task
-	}
-	if req.color != "" {
-		meta.Color = req.color
 	}
 }
 
@@ -724,40 +685,12 @@ func cmdReset(ctx *CommandContext) {
 }
 
 func runKill(ctx *CommandContext, actorPaneID uint32, opts killCommandArgs) commandpkg.Result {
-	if opts.paneRef != "" {
-		ref, err := ctx.Sess.queryPaneRefContext(ctx.context(), opts.paneRef)
-		if err != nil {
-			return commandpkg.Result{Err: err}
-		}
-		if ref.Host != "" {
-			args := make([]string, 0, 4)
-			if opts.cleanup {
-				args = append(args, "--cleanup", "--timeout", opts.timeout.String())
-			}
-			if ref.Pane != "" {
-				args = append(args, ref.Pane)
-			}
-			return remoteCommandResult(ctx.Sess, ref.Host, "kill", args)
-		}
-	}
-
 	target, err := ctx.Sess.queryKillTargetContext(ctx.context(), actorPaneID, opts.paneRef)
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
 	if target.paneID == 0 {
 		return commandpkg.Result{}
-	}
-
-	if target.proxy && ctx.Sess.RemoteManager != nil {
-		if err := ctx.Sess.RemoteManager.KillPane(target.paneID, opts.cleanup, opts.timeout); err != nil {
-			return commandpkg.Result{Err: err}
-		}
-		verb := "Killed"
-		if opts.cleanup {
-			verb = "Cleaning up"
-		}
-		return commandpkg.Result{Output: fmt.Sprintf("%s %s\n", verb, target.paneName)}
 	}
 
 	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {

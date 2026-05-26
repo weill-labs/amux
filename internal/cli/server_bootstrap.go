@@ -10,19 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/reload"
-	"github.com/weill-labs/amux/internal/remote"
 	"github.com/weill-labs/amux/internal/server"
 	"github.com/weill-labs/amux/internal/terminfo"
-	"golang.org/x/sys/unix"
 )
 
 func newBootstrapLogger() *charmlog.Logger {
@@ -161,9 +156,9 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 			"session", sessionName,
 			"error", cfgErr,
 		)
-		cfg = &config.Config{Hosts: make(map[string]config.Host)}
+		cfg = &config.Config{}
 	}
-	scrollback := server.NewScrollbackConfig(cfg.EffectiveScrollbackLines(), cfg.EffectiveHostScrollbackLines())
+	scrollback := server.NewScrollbackConfig(cfg.EffectiveScrollbackLines(), nil)
 
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
@@ -240,33 +235,6 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 		}
 	}
 
-	hasRemoteHosts := false
-	for _, host := range cfg.Hosts {
-		if host.Type != "local" {
-			hasRemoteHosts = true
-			break
-		}
-	}
-	newRemoteManager := func(hooks server.PaneTransportHooks) *remote.Manager {
-		return remote.NewManager(cfg, server.BuildVersion, remote.ManagerDeps{
-			NewHostConn:   remote.NewHostConn,
-			OnPaneOutput:  hooks.OnPaneOutput,
-			OnPaneExit:    hooks.OnPaneExit,
-			OnStateChange: hooks.OnStateChange,
-			OnLayout:      hooks.OnLayout,
-			Logger:        logger.With("component", "ssh"),
-		})
-	}
-	if hasRemoteHosts {
-		s.SetupPaneTransport(cfg.HostColor, func(hooks server.PaneTransportHooks) proto.PaneTransport {
-			return newRemoteManager(hooks)
-		})
-	} else {
-		s.SetupPaneTakeoverTransport(func(hooks server.PaneTransportHooks) server.PaneTakeoverTransport {
-			return newRemoteManager(hooks)
-		})
-	}
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
@@ -328,81 +296,6 @@ func ShouldAttemptTakeover() bool {
 	return os.Getenv("SSH_CONNECTION") != "" && os.Getenv("TERM") == "amux" && os.Getenv("AMUX_PANE") == ""
 }
 
-func TryTakeover(sessionName string, buildVersion string) bool {
-	hostname, _ := os.Hostname()
-
-	req := mux.TakeoverRequest{
-		Session: sessionName + "@" + hostname,
-		Host:    hostname,
-		UID:     fmt.Sprintf("%d", os.Getuid()),
-		Panes:   []mux.TakeoverPane{},
-	}
-
-	if sshConn := os.Getenv("SSH_CONNECTION"); sshConn != "" {
-		if parts := strings.Fields(sshConn); len(parts) >= 4 {
-			req.SSHAddress = parts[2] + ":" + parts[3]
-		}
-	}
-	if user := os.Getenv("USER"); user != "" {
-		req.SSHUser = user
-	}
-
-	os.Stdout.Write(mux.FormatTakeoverSequence(req))
-
-	session, ok := waitForTakeoverAck(os.Stdin, req.Session, 2*time.Second)
-	if !ok {
-		return false
-	}
-	newBootstrapLogger().Info("takeover acked, entering managed mode",
-		"event", "ssh_takeover_ack",
-		"session", session,
-	)
-	RunServer(session, true, buildVersion)
-	return true
-}
-
-func waitForTakeoverAck(stdin *os.File, fallbackSession string, timeout time.Duration) (string, bool) {
-	const maxTakeoverAckBuffer = 4 * 1024
-
-	fd := int32(stdin.Fd())
-	deadline := time.Now().Add(timeout)
-	buf := make([]byte, 0, 256)
-	tmp := make([]byte, 256)
-
-	for {
-		if session, ok := mux.FindTakeoverAck(buf, fallbackSession); ok {
-			return session, true
-		}
-
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return "", false
-		}
-
-		timeoutMS := int((remaining + time.Millisecond - 1) / time.Millisecond)
-		n, err := unix.Poll([]unix.PollFd{{Fd: fd, Events: unix.POLLIN}}, timeoutMS)
-		if err != nil {
-			if errors.Is(err, syscall.EINTR) {
-				continue
-			}
-			return "", false
-		}
-		if n == 0 {
-			return "", false
-		}
-
-		readN, readErr := stdin.Read(tmp)
-		if readN > 0 {
-			buf = append(buf, tmp[:readN]...)
-			if len(buf) > maxTakeoverAckBuffer {
-				buf = append(buf[:0], buf[len(buf)-maxTakeoverAckBuffer:]...)
-			}
-		}
-		if readErr != nil {
-			if session, ok := mux.FindTakeoverAck(buf, fallbackSession); ok {
-				return session, true
-			}
-			return "", false
-		}
-	}
+func TryTakeover(_ string, _ string) bool {
+	return false
 }

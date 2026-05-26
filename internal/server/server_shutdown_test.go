@@ -137,6 +137,11 @@ func (c *gatedConn) Write(p []byte) (int, error) {
 	return c.Conn.Write(p)
 }
 
+type trackingAddr string
+
+func (a trackingAddr) Network() string { return string(a) }
+func (a trackingAddr) String() string  { return string(a) }
+
 type notifyListener struct {
 	closed chan struct{}
 	once   sync.Once

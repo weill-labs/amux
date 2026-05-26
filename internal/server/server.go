@@ -88,19 +88,7 @@ type Session struct {
 	// Internal event-loop watchdog timing. Zero uses the default 30s timeout.
 	SessionEventWatchdogTimeout time.Duration
 
-	// Remote pane management — nil when no remote transport is configured.
-	RemoteManager   proto.PaneTransport
-	remoteTakeover  PaneTakeoverTransport
-	remoteHostColor func(string) string
-	remoteSessions  map[string]*RemoteSession
-
-	// SSH takeover tracking — pane IDs that have already been taken over.
-	// Prevents duplicate takeover if the remote emits the sequence twice.
-	// Only accessed from the session event loop.
-	takenOverPanes map[uint32]bool
-
 	// Session notice — server-owned transient message shown in the global bar.
-	// Used for async failures such as SSH takeover attach errors.
 	notice      string
 	noticeToken uint64
 
@@ -507,8 +495,6 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 		paneLog:            newPaneLog(defaultPaneLogSize),
 	}
 	sess.idle = NewIdleTracker(sess.clock)
-	sess.takenOverPanes = make(map[uint32]bool)
-	sess.remoteSessions = make(map[string]*RemoteSession)
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()
@@ -573,10 +559,6 @@ func NewServerWithScrollbackConfigLogger(sessionName string, scrollback Scrollba
 	return newServerWithScrollbackConfigLogger(sessionName, scrollback, logger)
 }
 
-func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener net.Listener, sockPath string, sessionLock *os.File, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
-	return newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName, listener, sockPath, sessionLock, cp, crashPath, NewScrollbackConfig(scrollbackLines, nil), logger)
-}
-
 func newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName string, listener net.Listener, sockPath string, sessionLock *os.File, cp *checkpoint.CrashCheckpoint, crashPath string, scrollback ScrollbackConfig, logger *charmlog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = auditlog.Discard()
@@ -607,18 +589,15 @@ func newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName 
 		onExit := sess.paneExitCallback()
 
 		if ps.IsProxy {
-			// Restore proxy pane with frozen content, mark as reconnecting.
-			// The remote manager will re-establish the SSH connection.
-			meta := ps.Meta
-			meta.Remote = string(proto.Reconnecting)
-			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLinesForHost(meta.Host),
+			// Restore proxy pane with frozen content. The remote backing is gone
+			// after the "remote" feature removal, so writes are dropped.
+			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, ps.Meta, ps.Cols, ps.Rows, sess.scrollbackLinesForHost(ps.Meta.Host),
 				onOutput, onExit,
-				sess.remoteWriteOverride(ps.ID),
+				func(data []byte) (int, error) { return len(data), nil },
 			))
 		} else {
-			// Spawn fresh shell with restored cwd
 			meta := ps.Meta
-			meta.Dir = ps.Cwd // set cwd for the new shell
+			meta.Dir = ps.Cwd
 			var newErr error
 			pane, newErr = mux.NewPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sessionName, sess.scrollbackLinesForHost(meta.Host),
 				onOutput, onExit,
@@ -689,10 +668,6 @@ func newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName 
 	sess.logCheckpointRestore("crash", crashPath, len(sess.Panes), len(sess.Windows), time.Since(restoreStarted))
 
 	return s, nil
-}
-
-func newServerFromCrashCheckpointWithListener(sessionName string, listener net.Listener, sockPath string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
-	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, nil, cp, crashPath, scrollbackLines, nil)
 }
 
 // NewServerFromCrashCheckpointWithScrollback restores a server from a crash
@@ -809,9 +784,6 @@ func (s *Server) shutdown() {
 		// The shutdown flag prevents any further writes.
 		sess.stopCrashCheckpointLoop()
 
-		if sess.RemoteManager != nil {
-			sess.RemoteManager.Shutdown()
-		}
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
 		paneCloseTimeout := s.shutdownPaneCloseWaitTimeout()

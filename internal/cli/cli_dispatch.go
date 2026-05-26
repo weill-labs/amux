@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/weill-labs/amux/internal/reload"
 )
 
 type Runtime struct {
@@ -42,6 +44,12 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, doctorCLICommands())
+	commands["reload-server"] = func(inv invocation, args []string) int {
+		return inv.runSessionCommand("reload-server", PrependReloadExecPathArg(reload.ResolveExecutable, args))
+	}
+	commands["_layout-json"] = func(inv invocation, args []string) int {
+		return inv.runSessionCommand("_layout-json", nil)
+	}
 	return commands
 }
 

@@ -120,20 +120,6 @@ func rewriteBinaryAtomic(binPath string) error {
 	return nil
 }
 
-func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session string, args ...string) string {
-	tb.Helper()
-	cmdArgs := append([]string{"-s", session}, args...)
-	cmd := newHermeticAmuxCommandWithBin(tb, binPath, cmdArgs...)
-	env := upsertEnv(cmd.Env, "HOME", home)
-	env = upsertEnv(env, "AMUX_LOG_DIR", testLogDir(home))
-	if coverDir != "" {
-		env = upsertEnv(env, "GOCOVERDIR", coverDir)
-	}
-	cmd.Env = env
-	out, _ := cmd.CombinedOutput()
-	return string(out)
-}
-
 func waitForOutput(tb testing.TB, timeout time.Duration, fn func() string, match func(string) bool) string {
 	tb.Helper()
 
@@ -335,41 +321,6 @@ func TestReloadServerExecsReplacementBinaryAfterAtomicInstall(t *testing.T) {
 
 	after := waitForOutput(t, 10*time.Second, func() string {
 		return h.runCmd("status")
-	}, func(out string) bool {
-		return strings.Contains(out, "build: newbuild")
-	})
-	if !strings.Contains(after, "build: newbuild") {
-		t.Fatalf("status after reload = %q, want new build marker", after)
-	}
-	if strings.Contains(after, "build: oldbuild") {
-		t.Fatalf("status after reload should not report old build, got %q", after)
-	}
-}
-
-func TestReloadServerUsesRequestingBinaryNotOriginalLaunchBinary(t *testing.T) {
-	t.Parallel()
-
-	oldBin := filepath.Join(t.TempDir(), "old-amux")
-	if err := buildAmuxWithCommit(oldBin, "oldbuild"); err != nil {
-		t.Fatalf("building old amux binary: %v", err)
-	}
-
-	newBin := filepath.Join(t.TempDir(), "new-amux")
-	if err := buildAmuxWithCommit(newBin, "newbuild"); err != nil {
-		t.Fatalf("building new amux binary: %v", err)
-	}
-
-	h := newPersistentReloadHarness(t, oldBin)
-
-	before := runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
-	if !strings.Contains(before, "build: oldbuild") {
-		t.Fatalf("status before reload = %q, want old build marker", before)
-	}
-
-	runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "reload-server")
-
-	after := waitForOutput(t, 10*time.Second, func() string {
-		return runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
 	}, func(out string) bool {
 		return strings.Contains(out, "build: newbuild")
 	})

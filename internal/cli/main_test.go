@@ -277,27 +277,6 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
-			name:        "remote disconnect unwraps to session command",
-			args:        []string{"remote", "disconnect", "host-a"},
-			wantCmd:     "disconnect",
-			wantArgs:    []string{"host-a"},
-			wantHandled: true,
-		},
-		{
-			name:        "connect forwards host and session flags",
-			args:        []string{"connect", "host-a", "--session", "work"},
-			wantCmd:     "connect",
-			wantArgs:    []string{"host-a", "--session", "work"},
-			wantHandled: true,
-		},
-		{
-			name:        "remote connect unwraps to session command with per-client flag",
-			args:        []string{"remote", "connect", "host-a", "--session-per-client"},
-			wantCmd:     "connect",
-			wantArgs:    []string{"host-a", "--session-per-client"},
-			wantHandled: true,
-		},
-		{
 			name:        "respawn narrows to pane arg",
 			args:        []string{"respawn", "pane-1", "ignored"},
 			wantCmd:     "respawn",
@@ -309,12 +288,6 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			args:        []string{"wait"},
 			wantHandled: true,
 			wantErrText: "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
-		},
-		{
-			name:        "unsplice needs a host",
-			args:        []string{"unsplice"},
-			wantHandled: true,
-			wantErrText: "usage: amux unsplice <host>",
 		},
 		{
 			name:        "rename needs pane and new name",
@@ -815,44 +788,6 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			wantCalls: []cliCall{
 				{kind: "diag", session: resolvedSessionMarker, args: []string{"dump"}},
 			},
-		},
-		{
-			name:     "remote command dispatches through server",
-			args:     []string{"disconnect", "host-a"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
-			},
-		},
-		{
-			name:     "connect forwards session override through server",
-			args:     []string{"connect", "host-a", "--session", "work"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "connect", args: []string{"host-a", "--session", "work"}},
-			},
-		},
-		{
-			name:     "remote connect forwards per-client flag through server",
-			args:     []string{"remote", "connect", "host-a", "--session-per-client"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "connect", args: []string{"host-a", "--session-per-client"}},
-			},
-		},
-		{
-			name:     "remote subcommand dispatches through server",
-			args:     []string{"remote", "disconnect", "host-a"},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
-			},
-		},
-		{
-			name:       "removed ssh command prints migration hint",
-			args:       []string{"ssh", "builder:work"},
-			wantExit:   1,
-			wantStderr: "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder:work\" instead.\n",
 		},
 	}
 
