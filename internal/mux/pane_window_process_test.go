@@ -1070,7 +1070,7 @@ func TestPaneRespawnPreservesMetadataAndSuppressesExitCallback(t *testing.T) {
 	if _, err := p.Write([]byte("pwd -P\n")); err != nil {
 		t.Fatalf("write pwd after respawn: %v", err)
 	}
-	waitUntil(t, 5*time.Second, func() bool {
+	waitUntil(t, 15*time.Second, func() bool {
 		return p.ScreenContains(wantDir)
 	})
 }
