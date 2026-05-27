@@ -52,34 +52,6 @@ func TestRunDiagCommandFetchesExpectedEndpoints(t *testing.T) {
 			wantFile:    "heap.pprof",
 			wantTimeout: 5 * time.Second,
 		},
-		{
-			name:        "profile defaults to ten seconds",
-			args:        []string{"profile"},
-			wantPath:    "/debug/pprof/profile?seconds=10",
-			wantOutput:  "profile-body",
-			wantTimeout: 15 * time.Second,
-		},
-		{
-			name:        "profile accepts seconds and output file",
-			args:        []string{"profile", "--seconds", "2", "--output", "cpu.pprof"},
-			wantPath:    "/debug/pprof/profile?seconds=2",
-			wantFile:    "cpu.pprof",
-			wantTimeout: 7 * time.Second,
-		},
-		{
-			name:        "generic pprof passes name through",
-			args:        []string{"pprof", "block"},
-			wantPath:    "/debug/pprof/block",
-			wantOutput:  "profile-body",
-			wantTimeout: 5 * time.Second,
-		},
-		{
-			name:        "generic trace passes name through",
-			args:        []string{"pprof", "trace", "--output", "trace.out"},
-			wantPath:    "/debug/pprof/trace",
-			wantFile:    "trace.out",
-			wantTimeout: 5 * time.Second,
-		},
 	}
 
 	for _, tt := range tests {
@@ -268,9 +240,11 @@ func TestRunDiagCommandRejectsInvalidArgs(t *testing.T) {
 
 	tests := [][]string{
 		{"heap", "--output"},
+		{"profile"},
 		{"profile", "--seconds", "0"},
 		{"profile", "--duration", "1s"},
 		{"pprof"},
+		{"pprof", "block"},
 		{"pprof", "../heap"},
 		{"info", "--output", "info.txt"},
 		{"unknown"},
