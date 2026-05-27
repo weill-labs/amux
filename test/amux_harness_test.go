@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,11 +115,8 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	var b [8]byte
 	mustRandRead(tb, b[:])
 	inner := fmt.Sprintf("t-%x", b)
-	innerSocketDir := tb.TempDir()
-	envVars = upsertEnv(envVars, proto.SocketDirEnv, innerSocketDir)
-
-	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, innerSocketDir: innerSocketDir, tb: tb, session: inner}
-	tb.Cleanup(h.cleanup)
+	h := newAmuxHarnessHandle(tb, outer, inner, binPath)
+	envVars = upsertEnv(envVars, proto.SocketDirEnv, h.innerSocketDir)
 
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(binPath, inner, launchDir, envVars), "Enter")
@@ -128,6 +126,20 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	// be accepting connections — no polling loop needed.
 	outer.waitForTimeout("pane-1", "[pane-", "30s")
 
+	return h
+}
+
+func newAmuxHarnessHandle(tb testing.TB, outer *ServerHarness, inner, binPath string) *AmuxHarness {
+	tb.Helper()
+	h := &AmuxHarness{
+		outer:          outer,
+		inner:          inner,
+		innerBin:       binPath,
+		innerSocketDir: tb.TempDir(),
+		tb:             tb,
+		session:        inner,
+	}
+	tb.Cleanup(h.cleanup)
 	return h
 }
 
@@ -181,7 +193,7 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 		return
 	}
 	for _, suffix := range []string{"", ".log"} {
-		_ = exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, h.inner, suffix)).Run()
+		_ = os.Remove(filepath.Join(socketDir, h.inner+suffix))
 	}
 	h.inner = ""
 	h.session = ""
@@ -215,7 +227,7 @@ func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
 
 func (h *AmuxHarness) innerSocketPath() string {
 	if h.innerSocketDir != "" {
-		return fmt.Sprintf("%s/%s", h.innerSocketDir, h.inner)
+		return filepath.Join(h.innerSocketDir, h.inner)
 	}
 	return server.SocketPath(h.inner)
 }

@@ -40,15 +40,12 @@ func newAmuxHarnessWithConfig(t *testing.T, configContent string) *AmuxHarness {
 	outer := newServerHarness(t)
 	configPath := writeTestConfigFile(t, configContent)
 	inner := randomTestSessionName(t)
-	innerSocketDir := t.TempDir()
-
-	h := &AmuxHarness{outer: outer, inner: inner, innerBin: amuxBin, innerSocketDir: innerSocketDir, tb: t, session: inner}
-	t.Cleanup(h.cleanup)
+	h := newAmuxHarnessHandle(t, outer, inner, amuxBin)
 
 	// Launch inner amux with AMUX_CONFIG set.
 	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(amuxBin, inner, "", []string{
 		"AMUX_CONFIG=" + configPath,
-		proto.SocketDirEnv + "=" + innerSocketDir,
+		proto.SocketDirEnv + "=" + h.innerSocketDir,
 	}), "Enter")
 	outer.waitForTimeout("pane-1", "[pane-", "30s")
 
