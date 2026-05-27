@@ -102,6 +102,22 @@ func (s *styledPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return s.cells[row][col]
 }
 
+type inPlacePaneData struct {
+	styledPaneData
+	valueReads int
+	writes     int
+}
+
+func (p *inPlacePaneData) CellAt(col, row int, active bool) ScreenCell {
+	p.valueReads++
+	return p.styledPaneData.CellAt(col, row, active)
+}
+
+func (p *inPlacePaneData) WriteCellAt(dst *ScreenCell, col, row int, active bool) {
+	p.writes++
+	*dst = p.styledPaneData.CellAt(col, row, active)
+}
+
 type countingPaneData struct {
 	base      *fakePaneData
 	cellReads *int
@@ -898,6 +914,36 @@ func TestBuildPaneContentCellsDoesNotAllocateRowBuffer(t *testing.T) {
 	})
 	if allocs > 0 {
 		t.Fatalf("buildPaneContentCells allocated %.2f times per row; want no per-row buffer allocation", allocs)
+	}
+}
+
+func TestBuildPaneContentCellsUsesInPlaceCellWriter(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width  = 12
+		height = 2
+	)
+	rows := benchScreenCellGrid(width, height, "x")
+	pane := &inPlacePaneData{
+		styledPaneData: styledPaneData{
+			fakePaneData: fakePaneData{id: 1, name: "pane-1"},
+			cells:        rows,
+		},
+	}
+	cell := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height+mux.StatusLineRows)
+	grid := NewScreenGrid(width, height+mux.StatusLineRows)
+
+	buildPaneContentCells(grid, cell, 0, true, pane, nil)
+
+	if pane.valueReads != 0 {
+		t.Fatalf("CellAt reads = %d, want 0 when WriteCellAt is available", pane.valueReads)
+	}
+	if pane.writes == 0 {
+		t.Fatal("WriteCellAt should be used for pane content")
+	}
+	if got := grid.Get(1, mux.StatusLineRows); got.Char != "x" {
+		t.Fatalf("grid cell = %q, want in-place writer content", got.Char)
 	}
 }
 

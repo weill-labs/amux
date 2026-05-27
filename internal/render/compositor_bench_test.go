@@ -221,6 +221,50 @@ func BenchmarkCompositorDirtyPaneRepresentative(b *testing.B) {
 	}
 }
 
+func BenchmarkBuildPaneContentCells(b *testing.B) {
+	const (
+		width  = 160
+		height = 40
+	)
+	rows := benchScreenCellGrid(width, height, "x")
+	cell := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height+mux.StatusLineRows)
+
+	tests := []struct {
+		name string
+		pane PaneData
+	}{
+		{
+			name: "value_fallback",
+			pane: &styledPaneData{
+				fakePaneData: fakePaneData{id: 1, name: "pane-1"},
+				cells:        rows,
+			},
+		},
+		{
+			name: "in_place_writer",
+			pane: &inPlacePaneData{
+				styledPaneData: styledPaneData{
+					fakePaneData: fakePaneData{id: 1, name: "pane-1"},
+					cells:        rows,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			grid := NewScreenGrid(width, height+mux.StatusLineRows)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				for row := 0; row < height; row++ {
+					buildPaneContentCells(grid, cell, row, true, tt.pane, nil)
+				}
+			}
+		})
+	}
+}
+
 func benchScreenCellGrid(w, h int, fill string) [][]ScreenCell {
 	rows := make([][]ScreenCell, h)
 	for row := range rows {
