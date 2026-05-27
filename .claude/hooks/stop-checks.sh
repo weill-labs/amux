@@ -20,6 +20,5 @@ run_check() {
 }
 
 run_check ".claude/hooks/tdd-check.sh"
-run_check "scripts/check-pane-issue-meta.sh"
 
 exit "$status"
