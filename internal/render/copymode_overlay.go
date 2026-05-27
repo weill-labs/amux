@@ -32,10 +32,16 @@ func ScreenCellFromCopyModeInto(dst *ScreenCell, cell proto.Cell) {
 	normalizeScreenCellInPlace(dst)
 }
 
-func normalizeScreenCell(cell ScreenCell) ScreenCell {
-	sc := cell
-	normalizeScreenCellInPlace(&sc)
-	return sc
+func ScreenCellFieldsFromCopyMode(cell proto.Cell) (string, uv.Link, uv.Style, int) {
+	char := cell.Char
+	if char == "" {
+		char = " "
+	}
+	width := cell.Width
+	if width < 0 {
+		width = 1
+	}
+	return char, uv.Link{}, cell.Style, width
 }
 
 func normalizeScreenCellInPlace(cell *ScreenCell) {

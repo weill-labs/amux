@@ -102,20 +102,21 @@ func (s *styledPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return s.cells[row][col]
 }
 
-type inPlacePaneData struct {
+type fieldReaderPaneData struct {
 	styledPaneData
 	valueReads int
-	writes     int
+	fieldReads int
 }
 
-func (p *inPlacePaneData) CellAt(col, row int, active bool) ScreenCell {
+func (p *fieldReaderPaneData) CellAt(col, row int, active bool) ScreenCell {
 	p.valueReads++
 	return p.styledPaneData.CellAt(col, row, active)
 }
 
-func (p *inPlacePaneData) WriteCellAt(dst *ScreenCell, col, row int, active bool) {
-	p.writes++
-	*dst = p.styledPaneData.CellAt(col, row, active)
+func (p *fieldReaderPaneData) CellFieldsAt(col, row int, active bool) (string, uv.Link, uv.Style, int) {
+	p.fieldReads++
+	cell := p.styledPaneData.CellAt(col, row, active)
+	return cell.Char, cell.Link, cell.Style, cell.Width
 }
 
 type countingPaneData struct {
@@ -917,7 +918,7 @@ func TestBuildPaneContentCellsDoesNotAllocateRowBuffer(t *testing.T) {
 	}
 }
 
-func TestBuildPaneContentCellsUsesInPlaceCellWriter(t *testing.T) {
+func TestBuildPaneContentCellsUsesFieldReaderFastPath(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -925,7 +926,7 @@ func TestBuildPaneContentCellsUsesInPlaceCellWriter(t *testing.T) {
 		height = 2
 	)
 	rows := benchScreenCellGrid(width, height, "x")
-	pane := &inPlacePaneData{
+	pane := &fieldReaderPaneData{
 		styledPaneData: styledPaneData{
 			fakePaneData: fakePaneData{id: 1, name: "pane-1"},
 			cells:        rows,
@@ -937,13 +938,13 @@ func TestBuildPaneContentCellsUsesInPlaceCellWriter(t *testing.T) {
 	buildPaneContentCells(grid, cell, 0, true, pane, nil)
 
 	if pane.valueReads != 0 {
-		t.Fatalf("CellAt reads = %d, want 0 when WriteCellAt is available", pane.valueReads)
+		t.Fatalf("CellAt reads = %d, want 0 when CellFieldsAt is available", pane.valueReads)
 	}
-	if pane.writes == 0 {
-		t.Fatal("WriteCellAt should be used for pane content")
+	if pane.fieldReads == 0 {
+		t.Fatal("CellFieldsAt should be used for pane content")
 	}
 	if got := grid.Get(1, mux.StatusLineRows); got.Char != "x" {
-		t.Fatalf("grid cell = %q, want in-place writer content", got.Char)
+		t.Fatalf("grid cell = %q, want field reader content", got.Char)
 	}
 }
 

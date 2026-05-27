@@ -50,6 +50,14 @@ func writeContinuationCell(dst, base *ScreenCell) {
 	dst.Width = 0
 }
 
+func writeScreenCellFields(dst *ScreenCell, char string, link uv.Link, style uv.Style, width int) {
+	dst.Char = char
+	dst.Link = link
+	dst.Style = style
+	dst.Width = width
+	normalizeScreenCellInPlace(dst)
+}
+
 // OOBWrite records a single out-of-bounds Set() call.
 type OOBWrite struct {
 	X, Y int
@@ -278,6 +286,17 @@ func CellFromUVInto(dst *ScreenCell, c *uv.Cell) {
 	cellFromUVValueInto(dst, c, true)
 }
 
+func CellFieldsFromUV(c *uv.Cell) (string, uv.Link, uv.Style, int) {
+	if c == nil {
+		return " ", uv.Link{}, uv.Style{}, 1
+	}
+	char := c.Content
+	if char == "" {
+		char = " "
+	}
+	return char, c.Link, c.Style, c.Width
+}
+
 // CellFromUVValue converts a VT library cell value to a ScreenCell.
 func CellFromUVValue(c uv.Cell, ok bool) ScreenCell {
 	var sc ScreenCell
@@ -491,8 +510,8 @@ func (c *Compositor) buildGridWithOverlayDirty(
 // rendered row collapses them into a single grapheme cluster. Re-pack the row
 // before diffing so RenderDiff matches the RenderFull path.
 func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) {
-	if writer, ok := pd.(PaneCellWriter); ok {
-		buildPaneContentCellsWithWriter(g, cell, row, active, writer, copyOverlay)
+	if reader, ok := pd.(PaneCellReader); ok {
+		buildPaneContentCellsWithReader(g, cell, row, active, reader, copyOverlay)
 		return
 	}
 
@@ -532,7 +551,7 @@ func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active 
 	}
 }
 
-func buildPaneContentCellsWithWriter(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay) {
+func buildPaneContentCellsWithReader(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, reader PaneCellReader, copyOverlay *proto.ViewportOverlay) {
 	y := cell.Y + mux.StatusLineRows + row
 	for col := 0; col < cell.W; col++ {
 		g.setBlank(cell.X+col, y)
@@ -540,20 +559,20 @@ func buildPaneContentCellsWithWriter(g *ScreenGrid, cell *mux.LayoutCell, row in
 
 	dstCol := 0
 	var lookahead paneContentLookahead
-	var base ScreenCell
+	var base, next ScreenCell
 	for srcCol := 0; srcCol < cell.W && dstCol < cell.W; {
-		paneContentCellAtWithLookaheadInto(&base, row, srcCol, active, writer, copyOverlay, &lookahead)
+		paneContentCellAtWithLookaheadInto(&base, row, srcCol, active, reader, copyOverlay, &lookahead)
 		if base.Width == 0 && base.Char == " " {
 			srcCol++
 			continue
 		}
 
 		dst := g.cellForWrite(cell.X+dstCol, y)
-		var scratch ScreenCell
+		var oobScratch ScreenCell
 		if dst == nil {
-			dst = &scratch
+			dst = &oobScratch
 		}
-		renderedWidth, nextSrc := compactRowCellInto(dst, cell.W, row, active, writer, copyOverlay, srcCol, &base, &lookahead)
+		renderedWidth, nextSrc := compactRowCellInto(dst, cell.W, row, active, reader, copyOverlay, srcCol, &base, &next, &lookahead)
 		if renderedWidth <= 0 {
 			renderedWidth = 1
 		}
@@ -597,8 +616,8 @@ func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *
 		blankScreenCell(&rowCells[i])
 	}
 
-	if writer, ok := pd.(PaneCellWriter); ok {
-		paneContentRowCellsWithWriter(rowCells, width, row, active, writer, copyOverlay)
+	if reader, ok := pd.(PaneCellReader); ok {
+		paneContentRowCellsWithReader(rowCells, width, row, active, reader, copyOverlay)
 		return rowCells
 	}
 
@@ -634,19 +653,19 @@ func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *
 	return rowCells
 }
 
-func paneContentRowCellsWithWriter(rowCells []ScreenCell, width, row int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay) {
+func paneContentRowCellsWithReader(rowCells []ScreenCell, width, row int, active bool, reader PaneCellReader, copyOverlay *proto.ViewportOverlay) {
 	dstCol := 0
 	var lookahead paneContentLookahead
-	var base ScreenCell
+	var base, next ScreenCell
 	for srcCol := 0; srcCol < width && dstCol < width; {
-		paneContentCellAtWithLookaheadInto(&base, row, srcCol, active, writer, copyOverlay, &lookahead)
+		paneContentCellAtWithLookaheadInto(&base, row, srcCol, active, reader, copyOverlay, &lookahead)
 		if base.Width == 0 && base.Char == " " {
 			srcCol++
 			continue
 		}
 
 		rendered := &rowCells[dstCol]
-		renderedWidth, nextSrc := compactRowCellInto(rendered, width, row, active, writer, copyOverlay, srcCol, &base, &lookahead)
+		renderedWidth, nextSrc := compactRowCellInto(rendered, width, row, active, reader, copyOverlay, srcCol, &base, &next, &lookahead)
 		if renderedWidth <= 0 {
 			renderedWidth = 1
 		}
@@ -668,8 +687,9 @@ func paneContentCellAt(row, col int, active bool, pd PaneData, copyOverlay *prot
 	return applyCopyModeOverlay(pd.CellAt(col, row, active), copyOverlay, col, row)
 }
 
-func paneContentCellAtInto(dst *ScreenCell, row, col int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay) {
-	writer.WriteCellAt(dst, col, row, active)
+func paneContentCellAtInto(dst *ScreenCell, row, col int, active bool, reader PaneCellReader, copyOverlay *proto.ViewportOverlay) {
+	char, link, style, width := reader.CellFieldsAt(col, row, active)
+	writeScreenCellFields(dst, char, link, style, width)
 	applyCopyModeOverlayInPlace(dst, copyOverlay, col, row)
 }
 
@@ -687,13 +707,13 @@ func paneContentCellAtWithLookahead(row, col int, active bool, pd PaneData, copy
 	return paneContentCellAt(row, col, active, pd, copyOverlay)
 }
 
-func paneContentCellAtWithLookaheadInto(dst *ScreenCell, row, col int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay, lookahead *paneContentLookahead) {
+func paneContentCellAtWithLookaheadInto(dst *ScreenCell, row, col int, active bool, reader PaneCellReader, copyOverlay *proto.ViewportOverlay, lookahead *paneContentLookahead) {
 	if lookahead != nil && lookahead.ok && lookahead.col == col {
 		lookahead.ok = false
 		copyScreenCell(dst, &lookahead.cell)
 		return
 	}
-	paneContentCellAtInto(dst, row, col, active, writer, copyOverlay)
+	paneContentCellAtInto(dst, row, col, active, reader, copyOverlay)
 }
 
 func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay, srcCol int, base ScreenCell, lookahead *paneContentLookahead) (ScreenCell, int, int) {
@@ -752,7 +772,7 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 	return merged, mergedWidth, nextSrc
 }
 
-func compactRowCellInto(dst *ScreenCell, width, row int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay, srcCol int, base *ScreenCell, lookahead *paneContentLookahead) (int, int) {
+func compactRowCellInto(dst *ScreenCell, width, row int, active bool, reader PaneCellReader, copyOverlay *proto.ViewportOverlay, srcCol int, base, next *ScreenCell, lookahead *paneContentLookahead) (int, int) {
 	baseWidth := base.Width
 	if baseWidth <= 0 {
 		baseWidth = 1
@@ -763,19 +783,18 @@ func compactRowCellInto(dst *ScreenCell, width, row int, active bool, writer Pan
 	nextSrc := srcCol + baseWidth
 	candidate := base.Char
 
-	var next ScreenCell
 	for nextSrc < width {
-		paneContentCellAtInto(&next, row, nextSrc, active, writer, copyOverlay)
+		paneContentCellAtInto(next, row, nextSrc, active, reader, copyOverlay)
 		if next.Width == 0 && next.Char == " " {
 			nextSrc++
 			continue
 		}
 		if next.Char == " " || !dst.Style.Equal(&next.Style) || !dst.Link.Equal(&next.Link) {
-			storePaneContentLookahead(lookahead, nextSrc, &next)
+			storePaneContentLookahead(lookahead, nextSrc, next)
 			break
 		}
 		if asciiCellsCannotMerge(candidate, next.Char) {
-			storePaneContentLookahead(lookahead, nextSrc, &next)
+			storePaneContentLookahead(lookahead, nextSrc, next)
 			break
 		}
 
@@ -788,7 +807,7 @@ func compactRowCellInto(dst *ScreenCell, width, row int, active bool, writer Pan
 			zwjConcat := candidate + "\u200d" + next.Char
 			cluster, clusterWidth = ansi.FirstGraphemeCluster(zwjConcat, ansi.GraphemeWidth)
 			if cluster != zwjConcat {
-				storePaneContentLookahead(lookahead, nextSrc, &next)
+				storePaneContentLookahead(lookahead, nextSrc, next)
 				break
 			}
 			concat = zwjConcat

@@ -1,6 +1,7 @@
 package render
 
 import (
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -40,8 +41,8 @@ type PaneData interface {
 	CopyModeSearch() string
 }
 
-// PaneCellWriter is an optional fast path for PaneData implementations that can
-// write a screen cell directly into compositor-owned storage.
-type PaneCellWriter interface {
-	WriteCellAt(dst *ScreenCell, col, row int, active bool)
+// PaneCellReader is an optional fast path for PaneData implementations that can
+// expose a cell without returning the full ScreenCell struct by value.
+type PaneCellReader interface {
+	CellFieldsAt(col, row int, active bool) (char string, link uv.Link, style uv.Style, width int)
 }

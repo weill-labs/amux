@@ -453,11 +453,6 @@ func predictionCellChanged(confirmed, predicted render.ScreenCell) bool {
 	return !predicted.Equal(confirmed)
 }
 
-func applyPredictionStyle(cell render.ScreenCell, style localEchoStyle) render.ScreenCell {
-	applyPredictionStyleInPlace(&cell, style)
-	return cell
-}
-
 func applyPredictionStyleInPlace(cell *render.ScreenCell, style localEchoStyle) {
 	switch style {
 	case localEchoStyleUnderline:

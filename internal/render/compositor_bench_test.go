@@ -241,8 +241,8 @@ func BenchmarkBuildPaneContentCells(b *testing.B) {
 			},
 		},
 		{
-			name: "in_place_writer",
-			pane: &inPlacePaneData{
+			name: "field_reader",
+			pane: &fieldReaderPaneData{
 				styledPaneData: styledPaneData{
 					fakePaneData: fakePaneData{id: 1, name: "pane-1"},
 					cells:        rows,

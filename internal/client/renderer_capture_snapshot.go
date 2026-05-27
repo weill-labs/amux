@@ -286,16 +286,16 @@ func (p *snapshotPaneData) RenderScreen(active bool) string {
 }
 
 func (p *snapshotPaneData) CellAt(col, row int, active bool) render.ScreenCell {
-	var cell render.ScreenCell
-	p.WriteCellAt(&cell, col, row, active)
-	return cell
+	char, link, style, width := p.CellFieldsAt(col, row, active)
+	return render.ScreenCell{Char: char, Link: link, Style: style, Width: width}
 }
 
-func (p *snapshotPaneData) WriteCellAt(dst *render.ScreenCell, col, row int, active bool) {
-	paneBufferLineCellInto(dst, p.pane.screen, row, col)
+func (p *snapshotPaneData) CellFieldsAt(col, row int, active bool) (string, uv.Link, uv.Style, int) {
+	cell := paneBufferLineCell(p.pane.screen, row, col)
 	if !active && p.pane.hasCursorBlock && col == p.pane.cursorBlockCol && row == p.pane.cursorBlockRow {
-		stripSnapshotCursorBlock(dst)
+		stripSnapshotCursorBlock(&cell)
 	}
+	return cell.Char, cell.Link, cell.Style, cell.Width
 }
 
 func stripSnapshotCursorBlock(cell *render.ScreenCell) {
