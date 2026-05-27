@@ -1,12 +1,193 @@
 package test
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/server"
 )
+
+// newServerHarnessPair starts two independent amux servers in the same test.
+// The "local" and "remote" labels are conventional; no protocol behavior is
+// attached to them.
+func newServerHarnessPair(tb testing.TB) (local, remote *ServerHarness) {
+	tb.Helper()
+
+	cleanup := &serverHarnessPairCleanup{}
+	tb.Cleanup(func() {
+		cleanup.verifyNoLeaks(tb)
+	})
+
+	local = newServerHarnessPairMember(tb, "local")
+	cleanup.add("local", local)
+	remote = newServerHarnessPairMember(tb, "remote")
+	cleanup.add("remote", remote)
+
+	tb.Cleanup(func() {
+		detachServerHarnessClients(local)
+		detachServerHarnessClients(remote)
+	})
+
+	return local, remote
+}
+
+func newServerHarnessPairMember(tb testing.TB, label string) *ServerHarness {
+	tb.Helper()
+	return newServerHarnessForSession(tb, newServerHarnessPairSession(tb, label), "", 80, 24, "", false, false)
+}
+
+func newServerHarnessPairSession(tb testing.TB, label string) string {
+	tb.Helper()
+
+	var entropy [8]byte
+	mustRandRead(tb, entropy[:])
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%x", tb.Name(), label, entropy)))
+	return fmt.Sprintf("t-%x", sum[:8])
+}
+
+func detachServerHarnessClients(h *ServerHarness) {
+	if h == nil {
+		return
+	}
+	if h.keepalive != nil {
+		h.keepalive.close()
+		h.keepalive = nil
+	}
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+}
+
+type serverHarnessPairCleanup struct {
+	entries []serverHarnessPairCleanupEntry
+}
+
+type serverHarnessPairCleanupEntry struct {
+	label      string
+	session    string
+	socketPath string
+	serverPID  int
+}
+
+func (c *serverHarnessPairCleanup) add(label string, h *ServerHarness) {
+	if h == nil {
+		return
+	}
+	entry := serverHarnessPairCleanupEntry{
+		label:      label,
+		session:    h.session,
+		socketPath: server.SocketPath(h.session),
+	}
+	if h.cmd != nil && h.cmd.Process != nil {
+		entry.serverPID = h.cmd.Process.Pid
+	}
+	c.entries = append(c.entries, entry)
+}
+
+func (c *serverHarnessPairCleanup) verifyNoLeaks(tb testing.TB) {
+	tb.Helper()
+	if tb.Failed() {
+		return
+	}
+	for _, entry := range c.entries {
+		waitForNoHarnessSocketFiles(tb, entry)
+		waitForNoHarnessProcessGroupMembers(tb, entry)
+	}
+}
+
+func waitForNoHarnessSocketFiles(tb testing.TB, entry serverHarnessPairCleanupEntry) {
+	tb.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		leaked := harnessSocketFiles(entry.session, entry.socketPath)
+		if len(leaked) == 0 {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			tb.Fatalf("%s harness leaked socket files after cleanup: %s", entry.label, strings.Join(leaked, ", "))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func harnessSocketFiles(session, socketPath string) []string {
+	var paths []string
+	for _, path := range []string{
+		socketPath,
+		filepath.Join(server.SocketDir(), session+".pprof"),
+		filepath.Join(server.SocketDir(), session+".client.pprof"),
+	} {
+		if isSocketFile(path) {
+			paths = append(paths, path)
+		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(server.SocketDir(), session+".client.*.pprof")); err == nil {
+		for _, path := range matches {
+			if isSocketFile(path) {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
+}
+
+func isSocketFile(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSocket != 0
+}
+
+func waitForNoHarnessProcessGroupMembers(tb testing.TB, entry serverHarnessPairCleanupEntry) {
+	tb.Helper()
+	if entry.serverPID <= 0 {
+		return
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		members := processGroupMembers(entry.serverPID)
+		if len(members) == 0 {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			tb.Fatalf("%s harness leaked process group members after cleanup: %v", entry.label, members)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func processGroupMembers(pgid int) []int {
+	if pgid <= 0 {
+		return nil
+	}
+	if _, err := exec.LookPath("pgrep"); err != nil {
+		return nil
+	}
+	out, err := exec.Command("pgrep", "-g", strconv.Itoa(pgid)).Output()
+	if err != nil {
+		return nil
+	}
+
+	var members []int
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err == nil {
+			members = append(members, pid)
+		}
+	}
+	return members
+}
 
 func TestServerHarnessPair_Independent(t *testing.T) {
 	t.Parallel()
