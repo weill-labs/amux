@@ -169,7 +169,7 @@ Usage:
   amux [-s session] debug client-profile [--duration 30s]
                                        Stream a CPU profile from the latest attached client pprof endpoint
   amux [-s session] debug client-heap  Print a live heap profile summary from the latest attached client pprof endpoint
-  amux doctor fonts                    Print icon and Powerline font diagnostics
+  amux doctor [check]                  Run health checks; amux doctor fonts prints font diagnostics
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture --client [pane]
                                        Capture the attached client's displayed screen

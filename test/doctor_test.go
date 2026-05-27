@@ -20,6 +20,7 @@ func TestDoctorHealthySessionExitsOK(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessWithConfig(t, 80, 24, "[debug]\npprof = true\n")
+	writeDebugPprofConfig(t, h)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -109,6 +110,7 @@ func TestDoctorJSONMatchesCheckedInSchema(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessWithConfig(t, 80, 24, "[debug]\npprof = true\n")
+	writeDebugPprofConfig(t, h)
 
 	schemaPath := repoPath(t, "test/testdata/doctor.schema.json")
 	schemaData, err := os.ReadFile(schemaPath)
