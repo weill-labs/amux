@@ -11,8 +11,8 @@ const (
 	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	captureUsage      = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
 	logUsage          = "usage: amux log <clients|panes>"
-	debugUsage        = "usage: amux debug <goroutines|profile|heap|socket|frames|client-goroutines|client-profile|client-heap> [--duration <duration-or-seconds>]"
-	diagUsage         = "usage: amux _diag [dump|goroutines|heap|profile|pprof|info] [--seconds N] [--output <path>]"
+	debugUsage        = "usage: amux debug <dump|goroutines|profile|heap|info|socket|frames|client-goroutines|client-profile|client-heap> [--summary] [--raw] [--output <path>] [--duration <duration-or-seconds>]"
+	diagUsage         = "usage: amux _diag [dump|goroutines|heap|info] [--output <path>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
@@ -153,9 +153,15 @@ Usage:
   amux [-s session] log clients        Show recent client attach/detach history
   amux [-s session] log panes          Show pane create/exit history with exit cwd/branch context
   amux [-s session] debug goroutines   Print a live goroutine dump from the server pprof endpoint
+  amux [-s session] debug goroutines --summary
+                                       Print a goroutine state histogram from the server pprof endpoint
+  amux [-s session] debug dump         Print a live goroutine dump from the server pprof endpoint
   amux [-s session] debug profile [--duration 30s]
                                        Stream a CPU profile from the server pprof endpoint
   amux [-s session] debug heap         Print a live heap profile summary from the server pprof endpoint
+  amux [-s session] debug heap --raw [--output heap.pprof]
+                                       Stream a raw heap profile from the server pprof endpoint
+  amux [-s session] debug info         Print server runtime info and recent watchdog log lines
   amux [-s session] debug socket       Print the Unix socket path for the server pprof endpoint
   amux [-s session] debug frames       Dump client render frame stats from the attached client
   amux [-s session] debug client-goroutines

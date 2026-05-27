@@ -10,20 +10,16 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/server"
 )
-
-const diagDefaultTimeout = 5 * time.Second
 
 type diagDeps struct {
 	loadConfig     debugConfigLoader
@@ -32,26 +28,11 @@ type diagDeps struct {
 	writeFile      func(string, []byte, fs.FileMode) error
 	readFile       func(string) ([]byte, error)
 	logPath        func(string) string
-}
-
-type diagCommandKind int
-
-const (
-	diagCommandDump diagCommandKind = iota
-	diagCommandGoroutines
-	diagCommandProfile
-	diagCommandInfo
-)
-
-type diagCommandRequest struct {
-	kind       diagCommandKind
-	path       string
-	timeout    time.Duration
-	outputPath string
+	stderr         io.Writer
 }
 
 func runDiagCommand(sessionName string, args []string) {
-	if err := runDiagCommandWithIO(context.Background(), os.Stdout, sessionName, args); err != nil {
+	if err := runDiagCommandWithDeps(context.Background(), os.Stdout, sessionName, args, diagDeps{stderr: os.Stderr}); err != nil {
 		fmt.Fprintf(os.Stderr, "amux _diag: %v\n", err)
 		os.Exit(1)
 	}
@@ -62,48 +43,25 @@ func runDiagCommandWithIO(ctx context.Context, w io.Writer, sessionName string, 
 }
 
 func runDiagCommandWithDeps(ctx context.Context, w io.Writer, sessionName string, args []string, deps diagDeps) error {
-	cmd, err := parseDiagCommand(args)
+	debugArgs, warning, err := parseDiagCompatCommand(args)
 	if err != nil {
 		return err
 	}
 	deps = fillDiagDeps(deps)
-
-	cfg, err := deps.loadConfig()
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-	sockPath, err := deps.discoverSocket(ctx, sessionName, cfg)
-	if err != nil {
-		var unavailable *diagUnavailableError
-		if errors.As(err, &unavailable) {
+	if warning != "" && deps.stderr != nil {
+		if _, err := fmt.Fprintln(deps.stderr, warning); err != nil {
 			return err
 		}
-		return diagPprofUnavailableError(sessionName, err)
 	}
-
-	body, err := deps.fetch(debugEndpointRequest{
-		sockPath:      sockPath,
-		path:          cmd.path,
-		timeout:       cmd.timeout,
-		configEnabled: true,
-		missingHint:   diagMissingSocketHint(sessionName),
+	return runDebugCommandWithFullDeps(ctx, w, sessionName, debugArgs, debugDeps{
+		loadConfig:     deps.loadConfig,
+		discoverSocket: deps.discoverSocket,
+		fetch:          deps.fetch,
+		writeFile:      deps.writeFile,
+		readFile:       deps.readFile,
+		logPath:        deps.logPath,
+		diagCompat:     true,
 	})
-	if err != nil {
-		return err
-	}
-
-	switch cmd.kind {
-	case diagCommandGoroutines:
-		return writeGoroutineSummary(w, body)
-	case diagCommandInfo:
-		return writeDiagInfo(w, sessionName, body, deps)
-	default:
-		if cmd.outputPath != "" {
-			return deps.writeFile(cmd.outputPath, body, 0600)
-		}
-		_, err = w.Write(body)
-		return err
-	}
 }
 
 func fillDiagDeps(deps diagDeps) diagDeps {
@@ -125,10 +83,13 @@ func fillDiagDeps(deps diagDeps) diagDeps {
 	if deps.logPath == nil {
 		deps.logPath = diagSessionLogPath
 	}
+	if deps.stderr == nil {
+		deps.stderr = io.Discard
+	}
 	return deps
 }
 
-func parseDiagCommand(args []string) (diagCommandRequest, error) {
+func parseDiagCompatCommand(args []string) ([]string, string, error) {
 	if len(args) == 0 {
 		args = []string{"dump"}
 	}
@@ -136,73 +97,31 @@ func parseDiagCommand(args []string) (diagCommandRequest, error) {
 	switch args[0] {
 	case "dump":
 		if len(args) != 1 {
-			return diagCommandRequest{}, errors.New(diagUsage)
+			return nil, "", errors.New(diagUsage)
 		}
-		return diagCommandRequest{
-			kind:    diagCommandDump,
-			path:    "/debug/pprof/goroutine?debug=2",
-			timeout: diagDefaultTimeout,
-		}, nil
+		return []string{"dump"}, `amux _diag dump is deprecated; use "amux debug dump"`, nil
 	case "goroutines":
 		if len(args) != 1 {
-			return diagCommandRequest{}, errors.New(diagUsage)
+			return nil, "", errors.New(diagUsage)
 		}
-		return diagCommandRequest{
-			kind:    diagCommandGoroutines,
-			path:    "/debug/pprof/goroutine?debug=2",
-			timeout: diagDefaultTimeout,
-		}, nil
+		return []string{"goroutines", "--summary"}, `amux _diag goroutines is deprecated; use "amux debug goroutines --summary"`, nil
 	case "heap":
 		outputPath, err := parseDiagOutputFlag(args[1:])
 		if err != nil {
-			return diagCommandRequest{}, err
+			return nil, "", err
 		}
-		return diagCommandRequest{
-			kind:       diagCommandProfile,
-			path:       "/debug/pprof/heap?gc=1",
-			timeout:    diagDefaultTimeout,
-			outputPath: outputPath,
-		}, nil
-	case "profile":
-		seconds, outputPath, err := parseDiagProfileFlags(args[1:])
-		if err != nil {
-			return diagCommandRequest{}, err
+		debugArgs := []string{"heap", "--raw"}
+		if outputPath != "" {
+			debugArgs = append(debugArgs, "--output", outputPath)
 		}
-		return diagCommandRequest{
-			kind:       diagCommandProfile,
-			path:       "/debug/pprof/profile?seconds=" + strconv.Itoa(seconds),
-			timeout:    time.Duration(seconds)*time.Second + 5*time.Second,
-			outputPath: outputPath,
-		}, nil
-	case "pprof":
-		if len(args) < 2 {
-			return diagCommandRequest{}, errors.New(diagUsage)
-		}
-		name := args[1]
-		if !validDiagPprofName(name) {
-			return diagCommandRequest{}, errors.New(diagUsage)
-		}
-		outputPath, err := parseDiagOutputFlag(args[2:])
-		if err != nil {
-			return diagCommandRequest{}, err
-		}
-		return diagCommandRequest{
-			kind:       diagCommandProfile,
-			path:       "/debug/pprof/" + url.PathEscape(name),
-			timeout:    diagDefaultTimeout,
-			outputPath: outputPath,
-		}, nil
+		return debugArgs, `amux _diag heap is deprecated; use "amux debug heap --raw"`, nil
 	case "info":
 		if len(args) != 1 {
-			return diagCommandRequest{}, errors.New(diagUsage)
+			return nil, "", errors.New(diagUsage)
 		}
-		return diagCommandRequest{
-			kind:    diagCommandInfo,
-			path:    "/debug/amux/info",
-			timeout: diagDefaultTimeout,
-		}, nil
+		return []string{"info"}, `amux _diag info is deprecated; use "amux debug info"`, nil
 	default:
-		return diagCommandRequest{}, errors.New(diagUsage)
+		return nil, "", errors.New(diagUsage)
 	}
 }
 
@@ -218,41 +137,6 @@ func parseDiagOutputFlag(args []string) (string, error) {
 	default:
 		return "", errors.New(diagUsage)
 	}
-}
-
-func parseDiagProfileFlags(args []string) (int, string, error) {
-	seconds := 10
-	outputPath := ""
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--seconds":
-			if i+1 >= len(args) {
-				return 0, "", errors.New(diagUsage)
-			}
-			n, err := strconv.Atoi(args[i+1])
-			if err != nil || n <= 0 {
-				return 0, "", errors.New(diagUsage)
-			}
-			seconds = n
-			i++
-		case "--output":
-			if i+1 >= len(args) || args[i+1] == "" {
-				return 0, "", errors.New(diagUsage)
-			}
-			outputPath = args[i+1]
-			i++
-		default:
-			return 0, "", errors.New(diagUsage)
-		}
-	}
-	return seconds, outputPath, nil
-}
-
-func validDiagPprofName(name string) bool {
-	if name == "" || strings.HasPrefix(name, "-") {
-		return false
-	}
-	return !strings.ContainsAny(name, `/\`)
 }
 
 func writeGoroutineSummary(w io.Writer, dump []byte) error {
