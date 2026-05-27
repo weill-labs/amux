@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/weill-labs/amux/internal/server"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestPrepareInnerAmuxEnvDefaultsToNoWatch(t *testing.T) {
@@ -132,7 +132,7 @@ func leakedInnerArtifactsInSharedSocketDir(t *testing.T, h *AmuxHarness) []strin
 		h.inner + ".lock",
 		h.inner + ".start.lock",
 	} {
-		path := filepath.Join(server.SocketDir(), name)
+		path := filepath.Join(proto.DefaultSocketDir(), name)
 		if _, err := os.Stat(path); err == nil {
 			leaked = append(leaked, path)
 		} else if !os.IsNotExist(err) {

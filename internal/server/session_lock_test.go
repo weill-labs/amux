@@ -137,15 +137,25 @@ func TestNewServerWithScrollbackRejectsDuplicateSessionLockWithoutTouchingLockFi
 }
 
 func TestNewServerWithScrollbackRecoversAfterCrashReleasesLock(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: this test sets AMUX_SOCKET_DIR so the parent server and
+	// helper subprocess share the same isolated socket directory.
+	socketDir, err := os.MkdirTemp("", "amux-lock-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(): %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(socketDir); err != nil {
+			t.Fatalf("RemoveAll(%q): %v", socketDir, err)
+		}
+	})
+	t.Setenv(proto.SocketDirEnv, socketDir)
 	session := fmt.Sprintf("session-lock-crash-%d", time.Now().UnixNano())
 	cmd, stderr := startSessionLockHelper(t, "hold", session)
 
 	if err := cmd.Process.Signal(syscall.SIGKILL); err != nil {
 		t.Fatalf("killing helper: %v", err)
 	}
-	err := cmd.Wait()
+	err = cmd.Wait()
 	if err == nil {
 		t.Fatal("helper exited cleanly, want SIGKILL")
 	}
@@ -214,6 +224,7 @@ func startSessionLockHelper(t *testing.T, mode, session string) (*exec.Cmd, *byt
 		sessionLockHelperModeEnv+"="+mode,
 		sessionLockHelperSessionEnv+"="+session,
 		sessionLockHelperTimeoutEnv+"=30s",
+		proto.SocketDirEnv+"="+SocketDir(),
 	)
 	t.Cleanup(func() {
 		cancel()
