@@ -23,6 +23,8 @@ func newServerHarnessPair(tb testing.TB) (local, remote *ServerHarness) {
 	tb.Helper()
 
 	cleanup := &serverHarnessPairCleanup{}
+	// Register first so LIFO cleanup runs leak verification after pair members
+	// have been added and after both per-harness server cleanups finish.
 	tb.Cleanup(func() {
 		cleanup.verifyNoLeaks(tb)
 	})
@@ -152,6 +154,10 @@ func waitForNoHarnessProcessGroupMembers(tb testing.TB, entry serverHarnessPairC
 	if entry.serverPID <= 0 {
 		return
 	}
+	if _, err := exec.LookPath("pgrep"); err != nil {
+		tb.Logf("pgrep not available; skipping process-group leak check for %s harness", entry.label)
+		return
+	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -168,9 +174,6 @@ func waitForNoHarnessProcessGroupMembers(tb testing.TB, entry serverHarnessPairC
 
 func processGroupMembers(pgid int) []int {
 	if pgid <= 0 {
-		return nil
-	}
-	if _, err := exec.LookPath("pgrep"); err != nil {
 		return nil
 	}
 	out, err := exec.Command("pgrep", "-g", strconv.Itoa(pgid)).Output()
@@ -250,6 +253,9 @@ func assertDistinctHarnessPath(t *testing.T, label, left, right string) {
 
 func assertHarnessEnvScrubbed(t *testing.T, label string, h *ServerHarness) {
 	t.Helper()
+	if h == nil || h.cmd == nil {
+		t.Fatalf("%s server harness command is nil", label)
+	}
 	for key := range harnessBlockedEnvKeys {
 		if value, ok := harnessEnvValue(h.cmd.Env, key); ok {
 			t.Fatalf("%s server env leaked %s=%q", label, key, value)
