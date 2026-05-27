@@ -29,16 +29,7 @@ func newAttachPaneProtocolHarness(t *testing.T) *attachPaneProtocolHarness {
 
 	sess := newSession(t.Name())
 	stopCrashCheckpointLoop(t, sess)
-	t.Cleanup(func() {
-		sess.shutdown.Store(true)
-		stopSessionBackgroundLoops(t, sess)
-		for _, pane := range append([]*mux.Pane(nil), sess.Panes...) {
-			if pane != nil {
-				_ = pane.Close()
-				_ = pane.WaitClosed()
-			}
-		}
-	})
+	cleanupAttachPaneProtocolSession(t, sess)
 
 	writes1 := make(chan []byte, 4)
 	writes2 := make(chan []byte, 4)
@@ -62,16 +53,7 @@ func newSingleAttachPaneProtocolHarness(t *testing.T) *attachPaneProtocolHarness
 
 	sess := newSession(t.Name())
 	stopCrashCheckpointLoop(t, sess)
-	t.Cleanup(func() {
-		sess.shutdown.Store(true)
-		stopSessionBackgroundLoops(t, sess)
-		for _, pane := range append([]*mux.Pane(nil), sess.Panes...) {
-			if pane != nil {
-				_ = pane.Close()
-				_ = pane.WaitClosed()
-			}
-		}
-	})
+	cleanupAttachPaneProtocolSession(t, sess)
 
 	writes := make(chan []byte, 4)
 	pane := newAttachPaneProtocolPane(sess, 1, writes)
@@ -84,6 +66,21 @@ func newSingleAttachPaneProtocolHarness(t *testing.T) *attachPaneProtocolHarness
 		pane1:   pane,
 		writes1: writes,
 	}
+}
+
+func cleanupAttachPaneProtocolSession(t *testing.T, sess *Session) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		sess.shutdown.Store(true)
+		stopSessionBackgroundLoops(t, sess)
+		for _, pane := range append([]*mux.Pane(nil), sess.Panes...) {
+			if pane != nil {
+				_ = pane.Close()
+				_ = pane.WaitClosed()
+			}
+		}
+	})
 }
 
 func newAttachPaneProtocolPane(sess *Session, id uint32, writes chan<- []byte) *mux.Pane {
