@@ -60,11 +60,8 @@ func lookupInnerAmuxEnv(envVars []string, key string) (string, bool) {
 	return "", false
 }
 
-func needsNestedHarnessStartupLock(binPath string, envVars []string) bool {
-	if binPath != amuxBin {
-		return false
-	}
-	return true
+func needsNestedHarnessStartupLock(binPath string, _ []string) bool {
+	return binPath == amuxBin
 }
 
 func buildInnerAmuxLaunchCommand(binPath, session, launchDir string, envVars []string) string {
