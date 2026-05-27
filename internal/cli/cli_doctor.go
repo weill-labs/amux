@@ -7,7 +7,7 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-const doctorUsage = "usage: amux doctor fonts"
+const doctorUsage = "usage: amux doctor [--json] [--all-sessions] [--quiet|-q] [--verbose|-v] [check]"
 
 func doctorCLICommands() map[string]commandHandler {
 	return map[string]commandHandler{
@@ -16,12 +16,7 @@ func doctorCLICommands() map[string]commandHandler {
 				fmt.Fprintln(inv.runtime.Stdout, doctorUsage)
 				return 0
 			}
-			if len(args) != 1 || args[0] != "fonts" {
-				fmt.Fprintln(inv.runtime.Stderr, doctorUsage)
-				return 1
-			}
-			writeFontDiagnostics(inv.runtime.Stdout)
-			return 0
+			return runDoctorCommand(inv, args)
 		},
 	}
 }
