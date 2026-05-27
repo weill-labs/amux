@@ -38,10 +38,6 @@ func runDiagCommand(sessionName string, args []string) {
 	}
 }
 
-func runDiagCommandWithIO(ctx context.Context, w io.Writer, sessionName string, args []string) error {
-	return runDiagCommandWithDeps(ctx, w, sessionName, args, diagDeps{})
-}
-
 func runDiagCommandWithDeps(ctx context.Context, w io.Writer, sessionName string, args []string, deps diagDeps) error {
 	debugArgs, warning, err := parseDiagCompatCommand(args)
 	if err != nil {
