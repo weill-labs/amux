@@ -52,11 +52,29 @@ func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reas
 	}
 	if removed.sendExit {
 		s.broadcastNow(&Message{Type: MsgTypeExit, Text: "session exited"})
+		s.closeScopedPaneClients(paneID, nil)
 		s.wantShutdown = true
 		return
 	}
+	s.closeScopedPaneClients(paneID, &Message{Type: MsgTypeExit, Text: "pane exited"})
 	if removed.broadcastLayout {
 		s.broadcastLayoutNow()
+	}
+}
+
+func (s *Session) closeScopedPaneClients(paneID uint32, exitMsg *Message) {
+	for _, cc := range s.ensureClientManager().snapshotClients() {
+		if !cc.isScopedToPane(paneID) {
+			continue
+		}
+		cc.markDisconnectReason("pane exited")
+		go func(cc *clientConn) {
+			if exitMsg != nil {
+				_ = cc.Send(exitMsg)
+			}
+			_ = cc.Flush()
+			cc.Close()
+		}(cc)
 	}
 }
 

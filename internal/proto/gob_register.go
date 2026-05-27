@@ -14,4 +14,8 @@ func init() {
 	gob.Register(ansi.IndexedColor(0))
 	gob.Register(ansi.RGBColor{})
 	gob.Register(color.RGBA{})
+	gob.Register(LayoutSnapshot{})
+	gob.Register(WindowSnapshot{})
+	gob.Register(PaneSnapshot{})
+	gob.Register(CellSnapshot{})
 }

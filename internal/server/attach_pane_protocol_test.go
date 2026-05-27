@@ -32,7 +32,7 @@ func newAttachPaneProtocolHarness(t *testing.T) *attachPaneProtocolHarness {
 	t.Cleanup(func() {
 		sess.shutdown.Store(true)
 		stopSessionBackgroundLoops(t, sess)
-		for _, pane := range []*mux.Pane{sess.findPaneByID(1), sess.findPaneByID(2)} {
+		for _, pane := range append([]*mux.Pane(nil), sess.Panes...) {
 			if pane != nil {
 				_ = pane.Close()
 				_ = pane.WaitClosed()
@@ -54,6 +54,35 @@ func newAttachPaneProtocolHarness(t *testing.T) *attachPaneProtocolHarness {
 		pane2:   pane2,
 		writes1: writes1,
 		writes2: writes2,
+	}
+}
+
+func newSingleAttachPaneProtocolHarness(t *testing.T) *attachPaneProtocolHarness {
+	t.Helper()
+
+	sess := newSession(t.Name())
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		sess.shutdown.Store(true)
+		stopSessionBackgroundLoops(t, sess)
+		for _, pane := range append([]*mux.Pane(nil), sess.Panes...) {
+			if pane != nil {
+				_ = pane.Close()
+				_ = pane.WaitClosed()
+			}
+		}
+	})
+
+	writes := make(chan []byte, 4)
+	pane := newAttachPaneProtocolPane(sess, 1, writes)
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	return &attachPaneProtocolHarness{
+		srv:     &Server{sessions: map[string]*Session{sess.Name: sess}},
+		sess:    sess,
+		pane1:   pane,
+		writes1: writes,
 	}
 }
 
@@ -95,13 +124,34 @@ func startAttachPaneProtocolConn(t *testing.T, h *attachPaneProtocolHarness, pan
 	}); err != nil {
 		t.Fatalf("write attach pane: %v", err)
 	}
+	waitForScopedClient(t, h.sess, paneID)
 	return clientConn
+}
+
+func waitForScopedClient(t *testing.T, sess *Session, paneID uint32) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if mustSessionQuery(t, sess, func(sess *Session) bool {
+			for _, cc := range sess.ensureClientManager().snapshotClients() {
+				if cc.isScopedToPane(paneID) {
+					return true
+				}
+			}
+			return false
+		}) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for scoped client on pane %d", paneID)
 }
 
 func expectProtocolError(t *testing.T, conn net.Conn, contains string) {
 	t.Helper()
 
-	msg := readMsgWithTimeout(t, conn)
+	msg := readAttachPaneMsgWithTimeout(t, conn)
 	if msg.Type != MsgTypeCmdResult {
 		t.Fatalf("message type = %v, want CmdResult", msg.Type)
 	}
@@ -110,13 +160,39 @@ func expectProtocolError(t *testing.T, conn net.Conn, contains string) {
 	}
 }
 
-func expectConnectionClosed(t *testing.T, conn net.Conn) {
+func readAttachPaneMsgWithTimeout(t *testing.T, conn net.Conn) *Message {
 	t.Helper()
 
 	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	defer mustSetReadDeadline(t, conn, time.Time{})
+	defer func() {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil && !strings.Contains(err.Error(), "closed") {
+			t.Fatalf("reset read deadline: %v", err)
+		}
+	}()
+
+	msg, err := readMsgOnConn(conn)
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+	return msg
+}
+
+func expectConnectionClosed(t *testing.T, conn net.Conn) {
+	t.Helper()
+
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		if strings.Contains(err.Error(), "closed") {
+			return
+		}
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	defer func() {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil && !strings.Contains(err.Error(), "closed") {
+			t.Fatalf("reset read deadline: %v", err)
+		}
+	}()
 
 	msg, err := readMsgOnConn(conn)
 	if err == nil {
@@ -152,7 +228,7 @@ func TestMsgTypeListPanesReturnsLeafPaneSnapshot(t *testing.T) {
 	if err := writeMsgOnConn(clientConn, &Message{Type: MsgTypeListPanes, Session: h.sess.Name}); err != nil {
 		t.Fatalf("write list panes: %v", err)
 	}
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readAttachPaneMsgWithTimeout(t, clientConn)
 	if msg.Type != MsgTypeLayout {
 		t.Fatalf("message type = %v, want Layout", msg.Type)
 	}
@@ -173,6 +249,78 @@ func TestMsgTypeListPanesReturnsLeafPaneSnapshot(t *testing.T) {
 	}
 }
 
+func TestScopedPaneProtocolRejectsMissingSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		msg  *Message
+	}{
+		{name: "list panes", msg: &Message{Type: MsgTypeListPanes, Session: "missing"}},
+		{name: "attach pane", msg: &Message{Type: MsgTypeAttachPane, Session: "missing", PaneID: 1}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := &Server{sessions: map[string]*Session{}}
+			serverConn, clientConn := net.Pipe()
+			t.Cleanup(func() { clientConn.Close() })
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				srv.handleConn(serverConn)
+			}()
+
+			if err := writeMsgOnConn(clientConn, tt.msg); err != nil {
+				t.Fatalf("write message: %v", err)
+			}
+			expectProtocolError(t, clientConn, "no session")
+			expectConnectionClosed(t, clientConn)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("missing session connection did not close")
+			}
+		})
+	}
+}
+
+func TestMsgTypeListPanesRejectsSessionWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession(t.Name())
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		sess.shutdown.Store(true)
+		stopSessionBackgroundLoops(t, sess)
+	})
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { clientConn.Close() })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleConn(serverConn)
+	}()
+
+	if err := writeMsgOnConn(clientConn, &Message{Type: MsgTypeListPanes, Session: sess.Name}); err != nil {
+		t.Fatalf("write list panes: %v", err)
+	}
+	expectProtocolError(t, clientConn, "no layout")
+	expectConnectionClosed(t, clientConn)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("no-layout connection did not close")
+	}
+}
+
 func TestMsgTypeAttachPaneScopesOutputAndInput(t *testing.T) {
 	t.Parallel()
 
@@ -181,7 +329,7 @@ func TestMsgTypeAttachPaneScopesOutputAndInput(t *testing.T) {
 
 	h.pane1.FeedOutput([]byte("pane-1-leak"))
 	h.pane2.FeedOutput([]byte("pane-2-visible"))
-	msg := readMsgWithTimeout(t, conn)
+	msg := readAttachPaneMsgWithTimeout(t, conn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("message type = %v, want PaneOutput", msg.Type)
 	}
@@ -258,7 +406,7 @@ func TestMsgTypeAttachPaneRejectsOtherPaneInputWithoutClosing(t *testing.T) {
 	default:
 	}
 	h.pane2.FeedOutput([]byte("still-live"))
-	msg := readMsgWithTimeout(t, conn)
+	msg := readAttachPaneMsgWithTimeout(t, conn)
 	if msg.Type != MsgTypePaneOutput || msg.PaneID != h.pane2.ID || string(msg.PaneData) != "still-live" {
 		t.Fatalf("message after nonfatal reject = %+v, want pane 2 output", msg)
 	}
@@ -271,7 +419,21 @@ func TestMsgTypeAttachPanePaneExitSendsExitAndCloses(t *testing.T) {
 	conn := startAttachPaneProtocolConn(t, h, h.pane2.ID)
 
 	h.sess.enqueuePaneExit(h.pane2.ID, "exit 0")
-	msg := readMsgWithTimeout(t, conn)
+	msg := readAttachPaneMsgWithTimeout(t, conn)
+	if msg.Type != MsgTypeExit {
+		t.Fatalf("message type = %v, want Exit", msg.Type)
+	}
+	expectConnectionClosed(t, conn)
+}
+
+func TestMsgTypeAttachPaneLastPaneExitSendsExitAndCloses(t *testing.T) {
+	t.Parallel()
+
+	h := newSingleAttachPaneProtocolHarness(t)
+	conn := startAttachPaneProtocolConn(t, h, h.pane1.ID)
+
+	h.sess.enqueuePaneExit(h.pane1.ID, "exit 0")
+	msg := readAttachPaneMsgWithTimeout(t, conn)
 	if msg.Type != MsgTypeExit {
 		t.Fatalf("message type = %v, want Exit", msg.Type)
 	}

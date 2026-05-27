@@ -94,6 +94,9 @@ func (s *Session) captureClientSnapshotForActor(req caputil.Request, actorPaneID
 	return enqueueSessionQueryOnState(s.context(), s, func(s *Session) (captureClientSnapshot, error) {
 		snap := captureClientSnapshot{}
 		for _, cc := range s.ensureClientManager().snapshotClients() {
+			if cc.isPaneScoped() {
+				continue
+			}
 			if cc.isBootstrapping() {
 				continue
 			}
