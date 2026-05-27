@@ -80,7 +80,6 @@ type doctorDeps struct {
 	lstat            func(string) (os.FileInfo, error)
 	stat             func(string) (os.FileInfo, error)
 	userHomeDir      func() (string, error)
-	executable       func() (string, error)
 	socketDir        func() string
 	socketPath       func(string) string
 	pprofSocketPath  func(string) string
@@ -232,9 +231,6 @@ func fillDoctorDeps(deps doctorDeps) doctorDeps {
 	}
 	if deps.userHomeDir == nil {
 		deps.userHomeDir = os.UserHomeDir
-	}
-	if deps.executable == nil {
-		deps.executable = os.Executable
 	}
 	if deps.socketDir == nil {
 		deps.socketDir = server.SocketDir

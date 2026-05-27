@@ -69,6 +69,50 @@ func TestRunDoctorWithInjectedHealthyDeps(t *testing.T) {
 	requireDoctorCheckStatus(t, report.Checks, "goroutines", doctorStatusOK)
 }
 
+func TestRunDoctorAllSessionsDiscoversSocketEntries(t *testing.T) {
+	t.Parallel()
+
+	deps := newHealthyDoctorDeps(t, "alpha")
+	betaSocket := filepath.Join(deps.socketDir(), "beta")
+	ln := listenDoctorSockets(t, betaSocket)[0]
+	t.Cleanup(func() { _ = ln.Close() })
+
+	report := runDoctor(context.Background(), "alpha", doctorOptions{allSessions: true, checkName: "server-reachable"}, deps)
+	if report.Overall != doctorStatusOK {
+		t.Fatalf("overall = %s, want ok\n%+v", report.Overall, report.Checks)
+	}
+	if len(report.Checks) != 2 {
+		t.Fatalf("checks = %d, want one per discovered session: %+v", len(report.Checks), report.Checks)
+	}
+	if report.Checks[0].Session != "alpha" || report.Checks[1].Session != "beta" {
+		t.Fatalf("sessions = %q, %q; want alpha, beta", report.Checks[0].Session, report.Checks[1].Session)
+	}
+}
+
+func TestWriteDoctorReportQuietAndVerbose(t *testing.T) {
+	t.Parallel()
+
+	report := doctorReport{
+		Overall: doctorStatusWarn,
+		Session: "unit",
+		Checks: []doctorCheckResult{
+			{Name: "ok-check", Status: doctorStatusOK, Summary: "fine"},
+			{Name: "warn-check", Status: doctorStatusWarn, Summary: "soft", Hint: "fix it", Detail: "line 1\nline 2"},
+		},
+	}
+	var out strings.Builder
+	writeDoctorReport(&out, report, doctorOptions{quiet: true, verbose: true})
+	got := out.String()
+	if strings.Contains(got, "ok-check") {
+		t.Fatalf("quiet output included ok check:\n%s", got)
+	}
+	for _, want := range []string{"overall: warn", "[warn] warn-check: soft", "hint: fix it", "line 1", "line 2"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRunDoctorNamedChecksReportExpectedSeverities(t *testing.T) {
 	t.Parallel()
 
