@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weill-labs.local/amux/doctor.schema.json",
+  "title": "amux doctor report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "overall", "exit_code", "session", "generated_at", "checks"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "overall": { "enum": ["ok", "warn", "fail"] },
+    "exit_code": { "enum": [0, 1, 2] },
+    "session": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "scope", "status", "summary"],
+        "properties": {
+          "name": { "type": "string" },
+          "scope": { "enum": ["global", "session"] },
+          "session": { "type": "string" },
+          "status": { "enum": ["ok", "warn", "fail"] },
+          "summary": { "type": "string" },
+          "hint": { "type": "string" }
+        }
+      }
+    }
+  }
+}
