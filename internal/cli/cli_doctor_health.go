@@ -104,7 +104,6 @@ type doctorRunState struct {
 	deps         doctorDeps
 	opts         doctorOptions
 	configLoaded bool
-	configPath   string
 	config       *config.Config
 	configErr    error
 	diagInfo     map[string]doctorDiagInfoResult
@@ -325,8 +324,7 @@ func checkFail(name, scope, session, summary, hint string) doctorCheckResult {
 func (s *doctorRunState) loadConfig() (*config.Config, error) {
 	if !s.configLoaded {
 		s.configLoaded = true
-		s.configPath = s.deps.configPath()
-		s.config, s.configErr = s.deps.loadConfig(s.configPath)
+		s.config, s.configErr = s.deps.loadConfig(s.deps.configPath())
 	}
 	return s.config, s.configErr
 }
