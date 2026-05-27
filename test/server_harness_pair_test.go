@@ -16,7 +16,9 @@ import (
 
 // newServerHarnessPair starts two independent amux servers in the same test.
 // The "local" and "remote" labels are conventional; no protocol behavior is
-// attached to them.
+// attached to them. A separate persistent pair helper is intentionally omitted:
+// this constructor already uses exitUnattached=false, matching the current
+// persistent harness lifetime semantics.
 func newServerHarnessPair(tb testing.TB) (local, remote *ServerHarness) {
 	tb.Helper()
 
