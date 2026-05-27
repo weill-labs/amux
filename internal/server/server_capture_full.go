@@ -124,12 +124,21 @@ func (p *serverPaneData) RenderScreen(active bool) string {
 }
 
 func (p *serverPaneData) CellAt(col, row int, active bool) render.ScreenCell {
-	cell, ok := p.pane.render.CellAt(col, row)
-	sc := render.CellFromUVValue(cell, ok)
-	if !active && p.pane.render.HasCursorBlock && col == p.pane.render.CursorBlockCol && row == p.pane.render.CursorBlockRow {
-		stripServerSnapshotCursorBlock(&sc)
-	}
+	var sc render.ScreenCell
+	p.WriteCellAt(&sc, col, row, active)
 	return sc
+}
+
+func (p *serverPaneData) WriteCellAt(dst *render.ScreenCell, col, row int, active bool) {
+	cell, ok := p.pane.render.CellPtrAt(col, row)
+	if ok {
+		render.CellFromUVInto(dst, cell)
+	} else {
+		render.CellFromUVInto(dst, nil)
+	}
+	if !active && p.pane.render.HasCursorBlock && col == p.pane.render.CursorBlockCol && row == p.pane.render.CursorBlockRow {
+		stripServerSnapshotCursorBlock(dst)
+	}
 }
 
 func stripServerSnapshotCursorBlock(cell *render.ScreenCell) {

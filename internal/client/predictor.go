@@ -454,15 +454,19 @@ func predictionCellChanged(confirmed, predicted render.ScreenCell) bool {
 }
 
 func applyPredictionStyle(cell render.ScreenCell, style localEchoStyle) render.ScreenCell {
+	applyPredictionStyleInPlace(&cell, style)
+	return cell
+}
+
+func applyPredictionStyleInPlace(cell *render.ScreenCell, style localEchoStyle) {
 	switch style {
 	case localEchoStyleUnderline:
 		if cell.Style.Underline == uv.UnderlineNone {
 			cell.Style.Underline = uv.UnderlineSingle
 		}
 	case localEchoStyleNone:
-		return cell
+		return
 	default:
 		cell.Style.Attrs |= uv.AttrFaint
 	}
-	return cell
 }

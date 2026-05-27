@@ -1113,22 +1113,29 @@ func (c *clientPaneData) RenderScreen(active bool) string {
 }
 
 func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {
+	var sc render.ScreenCell
+	c.WriteCellAt(&sc, col, row, active)
+	return sc
+}
+
+func (c *clientPaneData) WriteCellAt(dst *render.ScreenCell, col, row int, active bool) {
 	if c.cm != nil {
-		return render.ScreenCellFromCopyMode(c.cm.ViewportCellAt(col, row))
+		render.ScreenCellFromCopyModeInto(dst, c.cm.ViewportCellAt(col, row))
+		return
 	}
 	emu := c.displayEmulator()
 	cell := emu.CellAt(col, row)
-	sc := render.CellFromUV(cell)
+	render.CellFromUVInto(dst, cell)
 	if c.suppressCursor(active) {
-		stripCursorBlock(&sc, emu, col, row)
+		stripCursorBlock(dst, emu, col, row)
 	}
 	if c.prediction != nil {
-		confirmed := render.CellFromUV(c.emu.CellAt(col, row))
-		if predictionCellChanged(confirmed, sc) {
-			sc = applyPredictionStyle(sc, c.predictionStyle)
+		var confirmed render.ScreenCell
+		render.CellFromUVInto(&confirmed, c.emu.CellAt(col, row))
+		if predictionCellChanged(confirmed, *dst) {
+			applyPredictionStyleInPlace(dst, c.predictionStyle)
 		}
 	}
-	return sc
 }
 
 func (c *clientPaneData) CursorPos() (col, row int) {

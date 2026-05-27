@@ -29,6 +29,27 @@ func (c ScreenCell) Equal(o ScreenCell) bool {
 	return c.Char == o.Char && c.Width == o.Width && c.Style.Equal(&o.Style) && c.Link.Equal(&o.Link)
 }
 
+func blankScreenCell(dst *ScreenCell) {
+	dst.Char = " "
+	dst.Link = uv.Link{}
+	dst.Style = uv.Style{}
+	dst.Width = 1
+}
+
+func copyScreenCell(dst, src *ScreenCell) {
+	dst.Char = src.Char
+	dst.Link = src.Link
+	dst.Style = src.Style
+	dst.Width = src.Width
+}
+
+func writeContinuationCell(dst, base *ScreenCell) {
+	dst.Char = ""
+	dst.Link = base.Link
+	dst.Style = base.Style
+	dst.Width = 0
+}
+
 // OOBWrite records a single out-of-bounds Set() call.
 type OOBWrite struct {
 	X, Y int
@@ -46,7 +67,7 @@ type ScreenGrid struct {
 func NewScreenGrid(width, height int) *ScreenGrid {
 	cells := make([]ScreenCell, width*height)
 	for i := range cells {
-		cells[i] = ScreenCell{Char: " ", Width: 1}
+		blankScreenCell(&cells[i])
 	}
 	return &ScreenGrid{Width: width, Height: height, Cells: cells}
 }
@@ -69,13 +90,30 @@ func (g *ScreenGrid) Clone() *ScreenGrid {
 // Set writes a cell at (x, y). Out-of-bounds writes are silently ignored.
 // When Debug is true, OOB writes are also recorded for later inspection.
 func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
-	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
-		g.Cells[y*g.Width+x] = cell
+	if dst := g.cellForWrite(x, y); dst != nil {
+		copyScreenCell(dst, &cell)
 		return
 	}
 	if g.Debug {
 		g.oobWrites = append(g.oobWrites, OOBWrite{X: x, Y: y})
 	}
+}
+
+func (g *ScreenGrid) setBlank(x, y int) {
+	if dst := g.cellForWrite(x, y); dst != nil {
+		blankScreenCell(dst)
+		return
+	}
+	if g.Debug {
+		g.oobWrites = append(g.oobWrites, OOBWrite{X: x, Y: y})
+	}
+}
+
+func (g *ScreenGrid) cellForWrite(x, y int) *ScreenCell {
+	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
+		return &g.Cells[y*g.Width+x]
+	}
+	return nil
 }
 
 // Get reads the cell at (x, y). Out-of-bounds returns a space cell.
@@ -226,22 +264,45 @@ func emitDiffWithProfileState(changes []CellChange, profile termenv.Profile, sta
 
 // CellFromUV converts a VT library cell to a ScreenCell.
 func CellFromUV(c *uv.Cell) ScreenCell {
+	var sc ScreenCell
+	CellFromUVInto(&sc, c)
+	return sc
+}
+
+// CellFromUVInto converts a VT library cell into dst.
+func CellFromUVInto(dst *ScreenCell, c *uv.Cell) {
 	if c == nil {
-		return ScreenCell{Char: " ", Width: 1}
+		blankScreenCell(dst)
+		return
 	}
-	return CellFromUVValue(*c, true)
+	cellFromUVValueInto(dst, c, true)
 }
 
 // CellFromUVValue converts a VT library cell value to a ScreenCell.
 func CellFromUVValue(c uv.Cell, ok bool) ScreenCell {
-	if !ok {
-		return ScreenCell{Char: " ", Width: 1}
+	var sc ScreenCell
+	CellFromUVValueInto(&sc, c, ok)
+	return sc
+}
+
+// CellFromUVValueInto converts a VT library cell value into dst.
+func CellFromUVValueInto(dst *ScreenCell, c uv.Cell, ok bool) {
+	cellFromUVValueInto(dst, &c, ok)
+}
+
+func cellFromUVValueInto(dst *ScreenCell, c *uv.Cell, ok bool) {
+	if !ok || c == nil {
+		blankScreenCell(dst)
+		return
 	}
 	char := c.Content
 	if char == "" {
 		char = " "
 	}
-	return ScreenCell{Char: char, Link: c.Link, Style: c.Style, Width: c.Width}
+	dst.Char = char
+	dst.Link = c.Link
+	dst.Style = c.Style
+	dst.Width = c.Width
 }
 
 func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) (*ScreenGrid, int) {
@@ -430,9 +491,14 @@ func (c *Compositor) buildGridWithOverlayDirty(
 // rendered row collapses them into a single grapheme cluster. Re-pack the row
 // before diffing so RenderDiff matches the RenderFull path.
 func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) {
+	if writer, ok := pd.(PaneCellWriter); ok {
+		buildPaneContentCellsWithWriter(g, cell, row, active, writer, copyOverlay)
+		return
+	}
+
 	y := cell.Y + mux.StatusLineRows + row
 	for col := 0; col < cell.W; col++ {
-		g.Set(cell.X+col, y, ScreenCell{Char: " ", Width: 1})
+		g.setBlank(cell.X+col, y)
 	}
 
 	dstCol := 0
@@ -466,6 +532,47 @@ func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active 
 	}
 }
 
+func buildPaneContentCellsWithWriter(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay) {
+	y := cell.Y + mux.StatusLineRows + row
+	for col := 0; col < cell.W; col++ {
+		g.setBlank(cell.X+col, y)
+	}
+
+	dstCol := 0
+	var lookahead paneContentLookahead
+	var base ScreenCell
+	for srcCol := 0; srcCol < cell.W && dstCol < cell.W; {
+		paneContentCellAtWithLookaheadInto(&base, row, srcCol, active, writer, copyOverlay, &lookahead)
+		if base.Width == 0 && base.Char == " " {
+			srcCol++
+			continue
+		}
+
+		dst := g.cellForWrite(cell.X+dstCol, y)
+		var scratch ScreenCell
+		if dst == nil {
+			dst = &scratch
+		}
+		renderedWidth, nextSrc := compactRowCellInto(dst, cell.W, row, active, writer, copyOverlay, srcCol, &base, &lookahead)
+		if renderedWidth <= 0 {
+			renderedWidth = 1
+		}
+		if renderedWidth > cell.W-dstCol {
+			blankScreenCell(dst)
+			break
+		}
+
+		for i := 1; i < renderedWidth && dstCol+i < cell.W; i++ {
+			if cont := g.cellForWrite(cell.X+dstCol+i, y); cont != nil {
+				writeContinuationCell(cont, dst)
+			}
+		}
+
+		dstCol += renderedWidth
+		srcCol = nextSrc
+	}
+}
+
 // clearPaneContentRows blanks rows in the cloned dirty grid that are no longer
 // visible for this pane so clipped panes cannot retain stale content from the
 // previous frame.
@@ -479,7 +586,7 @@ func clearPaneContentRows(g *ScreenGrid, cell *mux.LayoutCell, startRow, endRow 
 			continue
 		}
 		for col := 0; col < cell.W; col++ {
-			g.Set(cell.X+col, y, ScreenCell{Char: " ", Width: 1})
+			g.setBlank(cell.X+col, y)
 		}
 	}
 }
@@ -487,7 +594,12 @@ func clearPaneContentRows(g *ScreenGrid, cell *mux.LayoutCell, startRow, endRow 
 func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) []ScreenCell {
 	rowCells := make([]ScreenCell, width)
 	for i := range rowCells {
-		rowCells[i] = ScreenCell{Char: " ", Width: 1}
+		blankScreenCell(&rowCells[i])
+	}
+
+	if writer, ok := pd.(PaneCellWriter); ok {
+		paneContentRowCellsWithWriter(rowCells, width, row, active, writer, copyOverlay)
+		return rowCells
 	}
 
 	dstCol := 0
@@ -522,8 +634,43 @@ func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *
 	return rowCells
 }
 
+func paneContentRowCellsWithWriter(rowCells []ScreenCell, width, row int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay) {
+	dstCol := 0
+	var lookahead paneContentLookahead
+	var base ScreenCell
+	for srcCol := 0; srcCol < width && dstCol < width; {
+		paneContentCellAtWithLookaheadInto(&base, row, srcCol, active, writer, copyOverlay, &lookahead)
+		if base.Width == 0 && base.Char == " " {
+			srcCol++
+			continue
+		}
+
+		rendered := &rowCells[dstCol]
+		renderedWidth, nextSrc := compactRowCellInto(rendered, width, row, active, writer, copyOverlay, srcCol, &base, &lookahead)
+		if renderedWidth <= 0 {
+			renderedWidth = 1
+		}
+		if renderedWidth > width-dstCol {
+			blankScreenCell(rendered)
+			break
+		}
+
+		for i := 1; i < renderedWidth && dstCol+i < width; i++ {
+			writeContinuationCell(&rowCells[dstCol+i], rendered)
+		}
+
+		dstCol += renderedWidth
+		srcCol = nextSrc
+	}
+}
+
 func paneContentCellAt(row, col int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) ScreenCell {
 	return applyCopyModeOverlay(pd.CellAt(col, row, active), copyOverlay, col, row)
+}
+
+func paneContentCellAtInto(dst *ScreenCell, row, col int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay) {
+	writer.WriteCellAt(dst, col, row, active)
+	applyCopyModeOverlayInPlace(dst, copyOverlay, col, row)
 }
 
 type paneContentLookahead struct {
@@ -538,6 +685,15 @@ func paneContentCellAtWithLookahead(row, col int, active bool, pd PaneData, copy
 		return lookahead.cell
 	}
 	return paneContentCellAt(row, col, active, pd, copyOverlay)
+}
+
+func paneContentCellAtWithLookaheadInto(dst *ScreenCell, row, col int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay, lookahead *paneContentLookahead) {
+	if lookahead != nil && lookahead.ok && lookahead.col == col {
+		lookahead.ok = false
+		copyScreenCell(dst, &lookahead.cell)
+		return
+	}
+	paneContentCellAtInto(dst, row, col, active, writer, copyOverlay)
 }
 
 func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay, srcCol int, base ScreenCell, lookahead *paneContentLookahead) (ScreenCell, int, int) {
@@ -558,11 +714,11 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 			continue
 		}
 		if next.Char == " " || !merged.Style.Equal(&next.Style) || !merged.Link.Equal(&next.Link) {
-			storePaneContentLookahead(lookahead, nextSrc, next)
+			storePaneContentLookahead(lookahead, nextSrc, &next)
 			break
 		}
 		if asciiCellsCannotMerge(candidate, next.Char) {
-			storePaneContentLookahead(lookahead, nextSrc, next)
+			storePaneContentLookahead(lookahead, nextSrc, &next)
 			break
 		}
 
@@ -575,7 +731,7 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 			zwjConcat := candidate + "\u200d" + next.Char
 			cluster, clusterWidth = ansi.FirstGraphemeCluster(zwjConcat, ansi.GraphemeWidth)
 			if cluster != zwjConcat {
-				storePaneContentLookahead(lookahead, nextSrc, next)
+				storePaneContentLookahead(lookahead, nextSrc, &next)
 				break
 			}
 			concat = zwjConcat
@@ -596,12 +752,69 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 	return merged, mergedWidth, nextSrc
 }
 
-func storePaneContentLookahead(lookahead *paneContentLookahead, col int, cell ScreenCell) {
+func compactRowCellInto(dst *ScreenCell, width, row int, active bool, writer PaneCellWriter, copyOverlay *proto.ViewportOverlay, srcCol int, base *ScreenCell, lookahead *paneContentLookahead) (int, int) {
+	baseWidth := base.Width
+	if baseWidth <= 0 {
+		baseWidth = 1
+	}
+
+	copyScreenCell(dst, base)
+	mergedWidth := baseWidth
+	nextSrc := srcCol + baseWidth
+	candidate := base.Char
+
+	var next ScreenCell
+	for nextSrc < width {
+		paneContentCellAtInto(&next, row, nextSrc, active, writer, copyOverlay)
+		if next.Width == 0 && next.Char == " " {
+			nextSrc++
+			continue
+		}
+		if next.Char == " " || !dst.Style.Equal(&next.Style) || !dst.Link.Equal(&next.Link) {
+			storePaneContentLookahead(lookahead, nextSrc, &next)
+			break
+		}
+		if asciiCellsCannotMerge(candidate, next.Char) {
+			storePaneContentLookahead(lookahead, nextSrc, &next)
+			break
+		}
+
+		concat := candidate + next.Char
+		cluster, clusterWidth := ansi.FirstGraphemeCluster(concat, ansi.GraphemeWidth)
+		if cluster != concat {
+			// Some cursor-assembled emoji suffixes depend on an implicit ZWJ that
+			// never occupied its own source cell. Reinsert it when that produces
+			// the visible grapheme cluster the terminal rendered.
+			zwjConcat := candidate + "\u200d" + next.Char
+			cluster, clusterWidth = ansi.FirstGraphemeCluster(zwjConcat, ansi.GraphemeWidth)
+			if cluster != zwjConcat {
+				storePaneContentLookahead(lookahead, nextSrc, &next)
+				break
+			}
+			concat = zwjConcat
+		}
+
+		candidate = concat
+		dst.Char = candidate
+		dst.Width = clusterWidth
+		mergedWidth = clusterWidth
+
+		nextWidth := next.Width
+		if nextWidth <= 0 {
+			nextWidth = 1
+		}
+		nextSrc += nextWidth
+	}
+
+	return mergedWidth, nextSrc
+}
+
+func storePaneContentLookahead(lookahead *paneContentLookahead, col int, cell *ScreenCell) {
 	if lookahead == nil {
 		return
 	}
 	lookahead.col = col
-	lookahead.cell = cell
+	copyScreenCell(&lookahead.cell, cell)
 	lookahead.ok = true
 }
 

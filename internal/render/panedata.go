@@ -39,3 +39,9 @@ type PaneData interface {
 	// when the user is actively typing a search in copy mode. Empty otherwise.
 	CopyModeSearch() string
 }
+
+// PaneCellWriter is an optional fast path for PaneData implementations that can
+// write a screen cell directly into compositor-owned storage.
+type PaneCellWriter interface {
+	WriteCellAt(dst *ScreenCell, col, row int, active bool)
+}
