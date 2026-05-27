@@ -57,7 +57,6 @@ type Filter struct {
 	Types    []string
 	PaneID   uint32
 	PaneName string
-	Host     string
 	ClientID string
 }
 
@@ -70,9 +69,6 @@ func (f Filter) Matches(ev Event) bool {
 		return false
 	}
 	if f.PaneName != "" && ev.PaneName != f.PaneName {
-		return false
-	}
-	if f.Host != "" && ev.Host != f.Host {
 		return false
 	}
 	if f.ClientID != "" && ev.ClientID != f.ClientID {

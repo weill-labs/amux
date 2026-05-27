@@ -119,11 +119,9 @@ type Pane struct {
 	onOutput             func(paneID uint32, data []byte, seq uint64)
 	onExit               func(paneID uint32, reason string)
 	onClipboard          func(paneID uint32, data []byte)
-	onTakeover           func(paneID uint32, req TakeoverRequest)
 	onMetaUpdate         func(paneID uint32, update MetaUpdate)
 	onCloseWarning       func(pane *Pane, message string, fields ...any)
 	osc52Scanner         OSC52Scanner
-	controlScanner       AmuxControlScanner
 	metaScanner          AmuxMetaScanner
 	suppressCallbacks    atomic.Bool
 	closeReadLoopTimeout time.Duration
@@ -547,12 +545,6 @@ func (p *Pane) SetOnClipboard(fn func(paneID uint32, data []byte)) {
 	p.onClipboard = fn
 }
 
-// SetOnTakeover sets the callback invoked when a nested amux emits a
-// takeover sequence through the PTY. Must be called before Start().
-func (p *Pane) SetOnTakeover(fn func(paneID uint32, req TakeoverRequest)) {
-	p.onTakeover = fn
-}
-
 // SetOnMetaUpdate sets the callback invoked when an amux-meta escape
 // sequence is detected in pane output. Must be called before Start().
 func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
@@ -586,12 +578,6 @@ func (p *Pane) readLoop(ptmx *os.File, done chan struct{}) {
 			if p.onClipboard != nil {
 				for _, seq := range p.osc52Scanner.Scan(data) {
 					p.onClipboard(p.ID, seq)
-				}
-			}
-
-			if p.onTakeover != nil {
-				for _, req := range p.controlScanner.Scan(data) {
-					p.onTakeover(p.ID, req)
 				}
 			}
 
@@ -908,7 +894,6 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 		p.baseHistory.Store(&paneBaseHistory{})
 		p.clearScrollbackWidths()
 		p.osc52Scanner = OSC52Scanner{}
-		p.controlScanner = AmuxControlScanner{}
 		p.metaScanner = AmuxMetaScanner{}
 		p.createdAt = time.Now()
 		storeUnixTime(&p.lastBusySeenUnix, time.Time{})

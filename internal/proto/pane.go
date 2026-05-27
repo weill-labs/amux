@@ -61,7 +61,6 @@ type PaneMeta struct {
 	Host          string            `json:"host"`
 	Task          string            `json:"task,omitempty"`
 	KV            map[string]string `json:"kv,omitempty"`
-	Remote        string            `json:"remote,omitempty"`
 	Color         string            `json:"color"`
 	Dormant       bool              `json:"dormant,omitempty"`    // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
 	Dir           string            `json:"dir,omitempty"`        // working directory override for new shell

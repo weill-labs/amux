@@ -86,7 +86,6 @@ func (s serverFullSessionCapture) buildJSON(req caputil.Request, agentStatus map
 			Task:          pane.info.Task,
 			Color:         pane.info.Color,
 			ColumnIndex:   pane.info.ColumnIndex,
-			ConnStatus:    pane.info.ConnStatus,
 			GitBranch:     pane.info.GitBranch,
 			PR:            pane.info.PR,
 			KV:            pane.info.KV,
@@ -170,7 +169,6 @@ func (p *serverPaneData) Task() string           { return p.pane.info.Task }
 func (p *serverPaneData) Color() string          { return p.pane.info.Color }
 func (p *serverPaneData) Idle() bool             { return p.pane.info.Idle }
 func (p *serverPaneData) IsLead() bool           { return p.pane.info.Lead }
-func (p *serverPaneData) ConnStatus() string     { return p.pane.info.ConnStatus }
 func (p *serverPaneData) InCopyMode() bool       { return false }
 func (p *serverPaneData) CopyModeSearch() string { return "" }
 

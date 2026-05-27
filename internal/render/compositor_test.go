@@ -83,7 +83,6 @@ func (f *fakePaneData) Color() string {
 }
 func (f *fakePaneData) Idle() bool             { return true }
 func (f *fakePaneData) IsLead() bool           { return false }
-func (f *fakePaneData) ConnStatus() string     { return "" }
 func (f *fakePaneData) InCopyMode() bool       { return false }
 func (f *fakePaneData) CopyModeSearch() string { return "" }
 func (f *fakePaneData) HasCursorBlock() bool   { return false }
@@ -121,7 +120,6 @@ func (c *countingPaneData) Task() string                            { return c.b
 func (c *countingPaneData) Color() string                           { return c.base.Color() }
 func (c *countingPaneData) Idle() bool                              { return c.base.Idle() }
 func (c *countingPaneData) IsLead() bool                            { return c.base.IsLead() }
-func (c *countingPaneData) ConnStatus() string                      { return c.base.ConnStatus() }
 func (c *countingPaneData) InCopyMode() bool                        { return c.base.InCopyMode() }
 func (c *countingPaneData) CopyModeSearch() string                  { return c.base.CopyModeSearch() }
 func (c *countingPaneData) HasCursorBlock() bool                    { return c.base.HasCursorBlock() }
@@ -713,7 +711,6 @@ func (e *cursorPaneData) Task() string                        { return "" }
 func (e *cursorPaneData) Color() string                       { return e.color }
 func (e *cursorPaneData) Idle() bool                          { return true }
 func (e *cursorPaneData) IsLead() bool                        { return false }
-func (e *cursorPaneData) ConnStatus() string                  { return "" }
 func (e *cursorPaneData) InCopyMode() bool                    { return false }
 func (e *cursorPaneData) CopyModeSearch() string              { return "" }
 func (e *cursorPaneData) CopyModeOverlay() *proto.ViewportOverlay {

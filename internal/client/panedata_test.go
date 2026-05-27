@@ -143,7 +143,6 @@ func TestPaneDataAccessors(t *testing.T) {
 			Task:          "tail -f",
 			Color:         "89dceb",
 			Idle:          true,
-			ConnStatus:    "connected",
 		},
 	}
 
@@ -170,9 +169,6 @@ func TestPaneDataAccessors(t *testing.T) {
 	}
 	if !pane.Idle() {
 		t.Fatal("Idle() = false, want true")
-	}
-	if got := pane.ConnStatus(); got != "connected" {
-		t.Fatalf("ConnStatus() = %q, want connected", got)
 	}
 	if pane.InCopyMode() {
 		t.Fatal("InCopyMode() = true, want false")

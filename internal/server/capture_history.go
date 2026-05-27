@@ -86,7 +86,6 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		Task:          target.pane.Meta.Task,
 		Color:         target.pane.Meta.Color,
 		ColumnIndex:   target.columnIndex,
-		ConnStatus:    target.pane.Meta.Remote,
 		Cwd:           captureCwd,
 		GitBranch:     target.pane.Meta.GitBranch,
 		PR:            target.pane.Meta.PR,

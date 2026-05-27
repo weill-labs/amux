@@ -56,7 +56,6 @@ type PaneSnapshot struct {
 	Color         string            `json:"color"`
 	ColumnIndex   int               `json:"column_index"`
 	Idle          bool              `json:"idle"`
-	ConnStatus    string            `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
 	KV            map[string]string `json:"kv,omitempty"`
 	GitBranch     string            `json:"git_branch,omitempty"`
 	PR            string            `json:"pr,omitempty"`
@@ -128,10 +127,6 @@ type CapturePane struct {
 	Content     []string         `json:"content"`
 	History     []string         `json:"history,omitempty"`
 	CopyMode    bool             `json:"copy_mode,omitempty"`
-
-	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".
-	// Empty for local panes.
-	ConnStatus string `json:"conn_status,omitempty"`
 
 	// CWD/branch metadata.
 	Cwd       string `json:"cwd,omitempty"`

@@ -60,18 +60,6 @@ func TestEventFilterMatchesPane(t *testing.T) {
 	}
 }
 
-func TestEventFilterMatchesHost(t *testing.T) {
-	t.Parallel()
-	f := eventFilter{Host: "gpu-box"}
-
-	if !f.Matches(Event{Type: EventOutput, Host: "gpu-box"}) {
-		t.Error("should match gpu-box")
-	}
-	if f.Matches(Event{Type: EventOutput, Host: "local"}) {
-		t.Error("should not match local")
-	}
-}
-
 func TestEventFilterCombined(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{Types: []string{EventIdle}, PaneName: "pane-1"}
@@ -521,10 +509,9 @@ func TestParseEventsArgs(t *testing.T) {
 		{"client_lifecycle_filter", []string{"--filter", EventClientConnect + "," + EventClientDisconnect},
 			eventFilter{Types: []string{EventClientConnect, EventClientDisconnect}}, DefaultEventThrottle},
 		{"pane", []string{"--pane", "pane-1"}, eventFilter{PaneName: "pane-1"}, DefaultEventThrottle},
-		{"host", []string{"--host", "gpu-box"}, eventFilter{Host: "gpu-box"}, DefaultEventThrottle},
 		{"client", []string{"--client", "client-2"}, eventFilter{ClientID: "client-2"}, DefaultEventThrottle},
-		{"combined", []string{"--filter", "idle", "--pane", "pane-1", "--host", "local", "--client", "client-2"},
-			eventFilter{Types: []string{"idle"}, PaneName: "pane-1", Host: "local", ClientID: "client-2"}, DefaultEventThrottle},
+		{"combined", []string{"--filter", "idle", "--pane", "pane-1", "--client", "client-2"},
+			eventFilter{Types: []string{"idle"}, PaneName: "pane-1", ClientID: "client-2"}, DefaultEventThrottle},
 		{"throttle_custom", []string{"--throttle", "100ms"}, eventFilter{}, 100 * time.Millisecond},
 		{"throttle_disabled", []string{"--throttle", "0s"}, eventFilter{}, 0},
 		{"throttle_invalid", []string{"--throttle", "bogus"}, eventFilter{}, DefaultEventThrottle},
@@ -545,9 +532,6 @@ func TestParseEventsArgs(t *testing.T) {
 			}
 			if got.filter.PaneName != tt.wantFilter.PaneName {
 				t.Errorf("PaneName: got %q, want %q", got.filter.PaneName, tt.wantFilter.PaneName)
-			}
-			if got.filter.Host != tt.wantFilter.Host {
-				t.Errorf("Host: got %q, want %q", got.filter.Host, tt.wantFilter.Host)
 			}
 			if got.filter.ClientID != tt.wantFilter.ClientID {
 				t.Errorf("ClientID: got %q, want %q", got.filter.ClientID, tt.wantFilter.ClientID)

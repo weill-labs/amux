@@ -388,7 +388,6 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 
 	snap := twoPane80x23()
 	snap.Panes[1].Host = "test-remote"
-	snap.Panes[1].ConnStatus = "connected"
 	snap.Windows[0].Panes[1] = snap.Panes[1]
 	cr.HandleLayout(snap)
 
@@ -411,9 +410,6 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	for _, p := range capture.Panes {
 		if p.Name == "pane-2" {
 			foundRemote = true
-			if p.ConnStatus != "connected" {
-				t.Fatalf("pane-2 conn_status = %q, want connected", p.ConnStatus)
-			}
 		}
 	}
 	if !foundRemote {
@@ -443,7 +439,6 @@ func TestClientRendererCaptureJSONOmitsNerdIconGlyphs(t *testing.T) {
 	snap := singlePane20xN(23)
 	snap.Panes[0].Host = "gpu"
 	snap.Panes[0].Task = "build LAB-1650"
-	snap.Panes[0].ConnStatus = "connected"
 	snap.Panes[0].TrackedPRs = []proto.TrackedPR{{Number: 42}}
 	snap.Panes[0].TrackedIssues = []proto.TrackedIssue{{ID: "LAB-1650"}}
 	snap.Windows[0].Panes[0] = snap.Panes[0]
@@ -461,7 +456,7 @@ func TestClientRendererCaptureJSONOmitsNerdIconGlyphs(t *testing.T) {
 			t.Fatalf("JSON capture contains Nerd glyph %q:\n%s", glyph, jsonOut)
 		}
 	}
-	for _, want := range []string{`"task": "build LAB-1650"`, `"tracked_prs"`, `"tracked_issues"`, `"conn_status": "connected"`} {
+	for _, want := range []string{`"task": "build LAB-1650"`, `"tracked_prs"`, `"tracked_issues"`} {
 		if !strings.Contains(jsonOut, want) {
 			t.Fatalf("JSON capture missing semantic field %q:\n%s", want, jsonOut)
 		}
@@ -550,9 +545,6 @@ func nerdIconGlyphs(icons render.IconSet) []string {
 		icons.Issue,
 		icons.Task,
 		icons.CopyMode,
-		icons.Connected,
-		icons.Reconnecting,
-		icons.Disconnected,
 	}
 }
 

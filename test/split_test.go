@@ -768,7 +768,6 @@ func (p *mutationGoldenPaneData) Task() string                            { retu
 func (p *mutationGoldenPaneData) Color() string                           { return p.color }
 func (p *mutationGoldenPaneData) Idle() bool                              { return true }
 func (p *mutationGoldenPaneData) IsLead() bool                            { return p.lead }
-func (p *mutationGoldenPaneData) ConnStatus() string                      { return "" }
 func (p *mutationGoldenPaneData) InCopyMode() bool                        { return false }
 func (p *mutationGoldenPaneData) CopyModeSearch() string                  { return "" }
 

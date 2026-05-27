@@ -973,9 +973,6 @@ func summarizeDiagnosticCaptureJSON(raw string) string {
 		}
 		fmt.Fprintf(&b, "\n- %s id=%d pos=%s cursor=%d,%d idle=%t cmd=%q%s",
 			pane.Name, pane.ID, pos, pane.Cursor.Col, pane.Cursor.Row, pane.Idle, pane.CurrentCommand, flagText)
-		if pane.ConnStatus != "" {
-			fmt.Fprintf(&b, " conn=%s", pane.ConnStatus)
-		}
 		if firstLine != "" {
 			fmt.Fprintf(&b, " first=%q", firstLine)
 		}
@@ -1681,7 +1678,6 @@ func TestSummarizeDiagnosticCaptureJSONIncludesPaneState(t *testing.T) {
 				Position:       &proto.CapturePos{X: 0, Y: 0, Width: 40, Height: 10},
 				Cursor:         proto.CaptureCursor{Col: 0, Row: 0},
 				Content:        []string{"REMOTE"},
-				ConnStatus:     "reconnecting",
 				CurrentCommand: "ssh",
 			},
 		},
@@ -1694,7 +1690,7 @@ func TestSummarizeDiagnosticCaptureJSONIncludesPaneState(t *testing.T) {
 	for _, want := range []string{
 		`window=1:main index=1 size=80x24 panes=2 notice=""`,
 		`- pane-1 id=1 pos=0,0 80x23 cursor=7,0 idle=true cmd="bash" flags=active first="PROMPT$"`,
-		`- pane-2 id=2 pos=0,0 40x10 cursor=0,0 idle=false cmd="ssh" conn=reconnecting first="REMOTE"`,
+		`- pane-2 id=2 pos=0,0 40x10 cursor=0,0 idle=false cmd="ssh" first="REMOTE"`,
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("capture summary missing %q\nsummary:\n%s", want, summary)
