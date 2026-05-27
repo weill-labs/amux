@@ -456,14 +456,22 @@ debug wrappers use.
 Useful wrappers:
 
 ```bash
+amux debug dump
 amux debug goroutines
+amux debug goroutines --summary
 amux debug heap
+amux debug heap --raw > heap.pprof
 amux debug profile --duration 30s > cpu.pprof.gz
+amux debug info
 amux debug socket
 amux debug client-goroutines
 amux debug client-heap
 amux debug client-profile --duration 30s > client-cpu.pprof.gz
 ```
+
+The old `amux _diag` entrypoint is deprecated. `amux _diag dump` and
+`amux _diag heap` remain as compatibility aliases during the deprecation window;
+new scripts should use `amux debug dump` and `amux debug heap --raw`.
 
 ## AI Agent Support
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"net"
 	"net/http"
@@ -22,6 +23,24 @@ const debugDisabledHint = "pprof debug endpoint is disabled; set [debug].pprof =
 type debugConfigLoader func() (*config.Config, error)
 type debugServerCommandRunner func(io.Writer, string, string, []string) error
 
+type debugResponseKind int
+
+const (
+	debugResponseGoroutineSummary debugResponseKind = iota + 1
+	debugResponseInfo
+)
+
+type debugDeps struct {
+	loadConfig       debugConfigLoader
+	runServerCommand debugServerCommandRunner
+	discoverSocket   func(context.Context, string, *config.Config) (string, error)
+	fetch            func(debugEndpointRequest) ([]byte, error)
+	writeFile        func(string, []byte, fs.FileMode) error
+	readFile         func(string) ([]byte, error)
+	logPath          func(string) string
+	diagCompat       bool
+}
+
 func runDebugCommand(sessionName string, args []string) {
 	if err := runDebugCommandWithIO(os.Stdout, sessionName, args); err != nil {
 		fmt.Fprintf(os.Stderr, "amux debug: %v\n", err)
@@ -38,12 +57,36 @@ func runDebugCommandWithConfigLoader(w io.Writer, sessionName string, args []str
 }
 
 func runDebugCommandWithDeps(w io.Writer, sessionName string, args []string, loadConfig debugConfigLoader, runServerCommand debugServerCommandRunner) error {
-	endpoint, err := parseDebugCommandWithConfigLoader(sessionName, args, loadConfig)
+	return runDebugCommandWithFullDeps(context.Background(), w, sessionName, args, debugDeps{
+		loadConfig:       loadConfig,
+		runServerCommand: runServerCommand,
+	})
+}
+
+func runDebugCommandWithFullDeps(ctx context.Context, w io.Writer, sessionName string, args []string, deps debugDeps) error {
+	deps = fillDebugDeps(deps)
+	endpoint, err := parseDebugCommandWithConfigLoader(sessionName, args, deps.loadConfig)
 	if err != nil {
 		return err
 	}
 	if endpoint.serverCommand != "" {
-		return runServerCommand(w, sessionName, endpoint.serverCommand, nil)
+		return deps.runServerCommand(w, sessionName, endpoint.serverCommand, nil)
+	}
+	if endpoint.discoverSocket {
+		if !deps.diagCompat && !endpoint.configEnabled {
+			if err := ensureDebugSocketAvailable(endpoint); err != nil {
+				return err
+			}
+		}
+		sockPath, err := deps.discoverSocket(ctx, sessionName, endpoint.config)
+		if err != nil {
+			var unavailable *diagUnavailableError
+			if errors.As(err, &unavailable) {
+				return err
+			}
+			return diagPprofUnavailableError(sessionName, err)
+		}
+		endpoint.sockPath = sockPath
 	}
 	if endpoint.path == "" {
 		if err := ensureDebugSocketAvailable(endpoint); err != nil {
@@ -53,21 +96,62 @@ func runDebugCommandWithDeps(w io.Writer, sessionName string, args []string, loa
 		return err
 	}
 
-	body, err := fetchDebugEndpoint(endpoint)
+	body, err := deps.fetch(endpoint)
 	if err != nil {
 		return err
+	}
+	switch endpoint.responseKind {
+	case debugResponseGoroutineSummary:
+		return writeGoroutineSummary(w, body)
+	case debugResponseInfo:
+		return writeDiagInfo(w, sessionName, body, diagDeps{
+			readFile: deps.readFile,
+			logPath:  deps.logPath,
+		})
+	}
+	if endpoint.outputPath != "" {
+		return deps.writeFile(endpoint.outputPath, body, 0600)
 	}
 	_, err = w.Write(body)
 	return err
 }
 
+func fillDebugDeps(deps debugDeps) debugDeps {
+	if deps.loadConfig == nil {
+		deps.loadConfig = loadDebugConfig
+	}
+	if deps.runServerCommand == nil {
+		deps.runServerCommand = runServerCommandWithIO
+	}
+	if deps.discoverSocket == nil {
+		deps.discoverSocket = discoverDiagPprofSocket
+	}
+	if deps.fetch == nil {
+		deps.fetch = fetchDebugEndpoint
+	}
+	if deps.writeFile == nil {
+		deps.writeFile = os.WriteFile
+	}
+	if deps.readFile == nil {
+		deps.readFile = os.ReadFile
+	}
+	if deps.logPath == nil {
+		deps.logPath = diagSessionLogPath
+	}
+	return deps
+}
+
 type debugEndpointRequest struct {
-	sockPath      string
-	path          string
-	serverCommand string
-	timeout       time.Duration
-	configEnabled bool
-	missingHint   string
+	sockPath       string
+	path           string
+	serverCommand  string
+	timeout        time.Duration
+	configEnabled  bool
+	missingHint    string
+	discoverSocket bool
+	config         *config.Config
+	responseKind   debugResponseKind
+	outputPath     string
 }
 
 func loadDebugConfig() (*config.Config, error) {
@@ -95,23 +179,46 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 		return debugEndpointRequest{}, fmt.Errorf("loading config: %w", err)
 	}
 	req := debugEndpointRequest{
-		sockPath:      server.PprofSocketPath(sessionName),
-		timeout:       5 * time.Second,
-		configEnabled: cfg.PprofEnabled(),
-		missingHint:   "pprof debug socket %s is not available; restart the server after enabling [debug].pprof",
+		sockPath:       server.PprofSocketPath(sessionName),
+		timeout:        5 * time.Second,
+		configEnabled:  cfg.PprofEnabled(),
+		missingHint:    "pprof debug socket %s is not available; restart the server after enabling [debug].pprof",
+		discoverSocket: true,
+		config:         cfg,
 	}
 
 	switch args[0] {
-	case "goroutines":
+	case "dump":
 		if len(args) != 1 {
 			return debugEndpointRequest{}, errors.New(debugUsage)
 		}
 		req.path = "/debug/pprof/goroutine?debug=2"
+	case "goroutines":
+		summary, err := parseDebugGoroutinesArgs(args[1:])
+		if err != nil {
+			return debugEndpointRequest{}, errors.New(debugUsage)
+		}
+		req.path = "/debug/pprof/goroutine?debug=2"
+		if summary {
+			req.responseKind = debugResponseGoroutineSummary
+		}
 	case "heap":
+		raw, outputPath, err := parseDebugHeapArgs(args[1:])
+		if err != nil {
+			return debugEndpointRequest{}, errors.New(debugUsage)
+		}
+		if raw {
+			req.path = "/debug/pprof/heap?gc=1"
+			req.outputPath = outputPath
+		} else {
+			req.path = "/debug/pprof/heap?debug=1"
+		}
+	case "info":
 		if len(args) != 1 {
 			return debugEndpointRequest{}, errors.New(debugUsage)
 		}
-		req.path = "/debug/pprof/heap?debug=1"
+		req.path = "/debug/amux/info"
+		req.responseKind = debugResponseInfo
 	case "client-goroutines":
 		if len(args) != 1 {
 			return debugEndpointRequest{}, errors.New(debugUsage)
@@ -119,6 +226,7 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 		req.sockPath = client.PprofSocketPath(sessionName)
 		req.path = "/debug/pprof/goroutine?debug=2"
 		req.missingHint = "pprof debug socket %s is not available; attach or restart a client after enabling [debug].pprof"
+		req.discoverSocket = false
 	case "client-heap":
 		if len(args) != 1 {
 			return debugEndpointRequest{}, errors.New(debugUsage)
@@ -126,10 +234,12 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 		req.sockPath = client.PprofSocketPath(sessionName)
 		req.path = "/debug/pprof/heap?debug=1"
 		req.missingHint = "pprof debug socket %s is not available; attach or restart a client after enabling [debug].pprof"
+		req.discoverSocket = false
 	case "socket":
 		if len(args) != 1 {
 			return debugEndpointRequest{}, errors.New(debugUsage)
 		}
+		req.discoverSocket = false
 	case "profile":
 		duration, parseErr := parseDebugProfileDuration(args[1:])
 		if parseErr != nil {
@@ -154,11 +264,38 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 		req.timeout = duration + 5*time.Second
 		req.path = "/debug/pprof/profile?seconds=" + strconv.Itoa(seconds)
 		req.missingHint = "pprof debug socket %s is not available; attach or restart a client after enabling [debug].pprof"
+		req.discoverSocket = false
 	default:
 		return debugEndpointRequest{}, errors.New(debugUsage)
 	}
 
 	return req, nil
+}
+
+func parseDebugGoroutinesArgs(args []string) (bool, error) {
+	switch len(args) {
+	case 0:
+		return false, nil
+	case 1:
+		if args[0] == "--summary" {
+			return true, nil
+		}
+	}
+	return false, errors.New(debugUsage)
+}
+
+func parseDebugHeapArgs(args []string) (bool, string, error) {
+	if len(args) == 0 {
+		return false, "", nil
+	}
+	if args[0] != "--raw" {
+		return false, "", errors.New(debugUsage)
+	}
+	outputPath, err := parseDiagOutputFlag(args[1:])
+	if err != nil {
+		return false, "", err
+	}
+	return true, outputPath, nil
 }
 
 func parseDebugProfileDuration(args []string) (time.Duration, error) {

@@ -196,7 +196,7 @@ func TestMainDebugHelp(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0\noutput:\n%s", exitCode, output)
 	}
-	if !strings.Contains(output, "usage: amux debug <goroutines|profile|heap|socket|frames|client-goroutines|client-profile|client-heap>") {
+	if !strings.Contains(output, "usage: amux debug <dump|goroutines|profile|heap|info|socket|frames|client-goroutines|client-profile|client-heap>") {
 		t.Fatalf("output = %q, want debug usage", output)
 	}
 }
@@ -208,7 +208,7 @@ func TestMainDiagHelp(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0\noutput:\n%s", exitCode, output)
 	}
-	if !strings.Contains(output, "usage: amux _diag [dump|goroutines|heap|profile|pprof|info]") {
+	if !strings.Contains(output, "usage: amux _diag [dump|goroutines|heap|info]") {
 		t.Fatalf("output = %q, want diag usage", output)
 	}
 }
