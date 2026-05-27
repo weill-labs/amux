@@ -1,6 +1,12 @@
 package test
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/weill-labs/amux/internal/server"
+)
 
 func TestPrepareInnerAmuxEnvDefaultsToNoWatch(t *testing.T) {
 	t.Parallel()
@@ -89,5 +95,29 @@ func TestBuildInnerAmuxLaunchCommand(t *testing.T) {
 	want := `cd "/tmp/work tree" && AMUX_NO_WATCH=1 AMUX_REPEAT_TIMEOUT=30s "/tmp/amux" -s t-1234`
 	if got != want {
 		t.Fatalf("buildInnerAmuxLaunchCommand() = %q, want %q", got, want)
+	}
+}
+
+func TestNewAmuxHarnessDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
+	h := newAmuxHarness(t)
+
+	var leaked []string
+	for _, name := range []string{
+		h.inner,
+		h.inner + ".log",
+		h.inner + ".lock",
+		h.inner + ".start.lock",
+	} {
+		path := filepath.Join(server.SocketDir(), name)
+		if _, err := os.Stat(path); err == nil {
+			leaked = append(leaked, path)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+	}
+
+	shutdownAmuxHarness(t, h)
+	if len(leaked) > 0 {
+		t.Fatalf("inner harness leaked artifacts to shared socket dir: %v", leaked)
 	}
 }

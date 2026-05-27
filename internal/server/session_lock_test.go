@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ import (
 const (
 	sessionLockHelperModeEnv    = "AMUX_SESSION_LOCK_HELPER_MODE"
 	sessionLockHelperSessionEnv = "AMUX_SESSION_LOCK_HELPER_SESSION"
+	sessionLockHelperTimeoutEnv = "AMUX_SESSION_LOCK_HELPER_TIMEOUT"
 )
 
 func TestSessionLockSubprocessHelper(t *testing.T) {
@@ -43,6 +45,35 @@ func TestSessionLockSubprocessHelper(t *testing.T) {
 		srv.Shutdown()
 		fmt.Fprintf(os.Stderr, "unknown helper mode %q", mode)
 		os.Exit(2)
+	}
+}
+
+func TestSessionLockSubprocessHelperHoldModeExitsWithinTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	session := fmt.Sprintf("session-lock-helper-timeout-%d", time.Now().UnixNano())
+	cmd := testenv.NewCommandContext(ctx, os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
+	cmd.Env = append(testenv.HermeticAmuxEnv(),
+		sessionLockHelperModeEnv+"=hold",
+		sessionLockHelperSessionEnv+"="+session,
+		sessionLockHelperTimeoutEnv+"=100ms",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("helper did not exit within bounded time\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if err != nil {
+		t.Fatalf("helper exited with error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ready") {
+		t.Fatalf("helper stdout = %q, want ready line", stdout.String())
 	}
 }
 
