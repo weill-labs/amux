@@ -15,7 +15,7 @@ import (
 func TestSessionLockSurvivesHotReload(t *testing.T) {
 	t.Parallel()
 
-	h := newPersistentReloadHarness(t, privateAmuxBin(t))
+	h := newAmuxHarnessWithBin(t, privateAmuxBin(t), "AMUX_EXIT_UNATTACHED=0")
 
 	reloadGen := h.generation()
 	h.runCmd("reload-server")

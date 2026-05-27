@@ -62,10 +62,10 @@ func TestNeedsNestedHarnessStartupLock(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "shared binary defaults to no watch",
+			name:    "shared binary uses startup lock without watch",
 			binPath: amuxBin,
 			envVars: nil,
-			want:    false,
+			want:    true,
 		},
 		{
 			name:    "private watched binary does not need shared lock",

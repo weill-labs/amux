@@ -36,9 +36,10 @@ type AmuxHarness struct {
 	initialLeadHandled bool
 }
 
-// Nested harnesses only need startup serialization when an inner session is
-// explicitly watching the shared package-level test binary. Most integration
-// tests do not exercise auto-reload, so they disable watch by default.
+// Nested harnesses that launch the shared package-level test binary serialize
+// startup. The launch path runs an interactive client inside an outer PTY;
+// under high parallelism, overlapping shared-binary startups can corrupt the
+// initial client protocol stream before the harness has a stable inner client.
 var nestedHarnessStartupMu sync.Mutex
 
 func prepareInnerAmuxEnv(envVars []string) []string {
@@ -63,8 +64,7 @@ func needsNestedHarnessStartupLock(binPath string, envVars []string) bool {
 	if binPath != amuxBin {
 		return false
 	}
-	noWatch, ok := lookupInnerAmuxEnv(envVars, "AMUX_NO_WATCH")
-	return ok && noWatch != "1"
+	return true
 }
 
 func buildInnerAmuxLaunchCommand(binPath, session, launchDir string, envVars []string) string {
