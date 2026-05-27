@@ -59,7 +59,7 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 	if out := h.runCmd("wait", "idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected inner pane to go idle before unsupported-key feedback test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
-	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	scanner, closer := eventStreamForSocket(t, h.innerSocketPath(), "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
 	defer closer()
 	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
 		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
@@ -82,7 +82,7 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 	if out := h.runCmd("wait", "idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected inner pane to go idle before unsupported-key clear test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
-	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	scanner, closer := eventStreamForSocket(t, h.innerSocketPath(), "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
 	defer closer()
 	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
 		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)

@@ -99,6 +99,8 @@ func TestBuildInnerAmuxLaunchCommand(t *testing.T) {
 }
 
 func TestNewAmuxHarnessDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
+	t.Parallel()
+
 	h := newAmuxHarness(t)
 
 	leaked := leakedInnerArtifactsInSharedSocketDir(t, h)
@@ -109,6 +111,8 @@ func TestNewAmuxHarnessDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T)
 }
 
 func TestNewAmuxHarnessWithConfigDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
+	t.Parallel()
+
 	h := newAmuxHarnessWithConfig(t, "")
 
 	leaked := leakedInnerArtifactsInSharedSocketDir(t, h)

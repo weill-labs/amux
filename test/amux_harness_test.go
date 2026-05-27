@@ -177,10 +177,7 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 		}
 	}
 
-	socketDir := h.innerSocketDir
-	if socketDir == "" {
-		socketDir = server.SocketDir()
-	}
+	socketDir := h.innerSocketDirOrDefault()
 	if tb != nil && tb.Failed() {
 		logPath := fmt.Sprintf("%s/%s.log", socketDir, h.inner)
 		if data, err := os.ReadFile(logPath); err == nil {
@@ -226,10 +223,14 @@ func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
 }
 
 func (h *AmuxHarness) innerSocketPath() string {
+	return filepath.Join(h.innerSocketDirOrDefault(), h.inner)
+}
+
+func (h *AmuxHarness) innerSocketDirOrDefault() string {
 	if h.innerSocketDir != "" {
-		return filepath.Join(h.innerSocketDir, h.inner)
+		return h.innerSocketDir
 	}
-	return server.SocketPath(h.inner)
+	return server.SocketDir()
 }
 
 // ---------------------------------------------------------------------------

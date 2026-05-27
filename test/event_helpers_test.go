@@ -31,7 +31,12 @@ type eventJSON struct {
 // that reads one JSON event per line, plus a close function.
 func eventStream(t *testing.T, session string, args ...string) (*bufio.Scanner, func()) {
 	t.Helper()
-	sockPath := server.SocketPath(session)
+	return eventStreamForSocket(t, server.SocketPath(session), args...)
+}
+
+func eventStreamForSocket(t testing.TB, sockPath string, args ...string) (*bufio.Scanner, func()) {
+	t.Helper()
+
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
