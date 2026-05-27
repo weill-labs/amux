@@ -360,6 +360,7 @@ func TestMsgTypeAttachPaneRejectsRestrictedMessages(t *testing.T) {
 		msg  *Message
 	}{
 		{name: "attach", msg: &Message{Type: MsgTypeAttach}},
+		{name: "detach", msg: &Message{Type: MsgTypeDetach}},
 		{name: "attach pane again", msg: &Message{Type: MsgTypeAttachPane, PaneID: 2}},
 		{name: "command", msg: &Message{Type: MsgTypeCommand, CmdName: "split"}},
 		{name: "resize", msg: &Message{Type: MsgTypeResize, Cols: 120, Rows: 40}},
@@ -435,6 +436,58 @@ func TestMsgTypeAttachPaneLastPaneExitSendsExitAndCloses(t *testing.T) {
 		t.Fatalf("message type = %v, want Exit", msg.Type)
 	}
 	expectConnectionClosed(t, conn)
+}
+
+func TestMsgTypeAttachPaneSessionExitClosesAllScopedClients(t *testing.T) {
+	t.Parallel()
+
+	h := newSingleAttachPaneProtocolHarness(t)
+
+	serverConn1, clientConn1 := net.Pipe()
+	t.Cleanup(func() { clientConn1.Close() })
+	scopedPane1 := newClientConn(serverConn1)
+	scopedPane1.ID = "scoped-pane-1"
+	scopedPane1.restrictToPane(h.pane1.ID)
+	t.Cleanup(scopedPane1.Close)
+
+	serverConn2, clientConn2 := net.Pipe()
+	t.Cleanup(func() { clientConn2.Close() })
+	scopedPane2 := newClientConn(serverConn2)
+	scopedPane2.ID = "scoped-pane-2"
+	scopedPane2.restrictToPane(2)
+	t.Cleanup(scopedPane2.Close)
+
+	mustSessionMutation(t, h.sess, func(sess *Session) {
+		sess.ensureClientManager().setClientsForTest(scopedPane1, scopedPane2)
+	})
+
+	h.sess.enqueuePaneExit(h.pane1.ID, "exit 0")
+	for _, conn := range []net.Conn{clientConn1, clientConn2} {
+		msg := readAttachPaneMsgWithTimeout(t, conn)
+		if msg.Type != MsgTypeExit {
+			t.Fatalf("message type = %v, want Exit", msg.Type)
+		}
+		expectConnectionClosed(t, conn)
+	}
+}
+
+func TestCloseScopedPaneClientsDoesNotCloseUnscopedClientForZeroPaneID(t *testing.T) {
+	t.Parallel()
+
+	h := newSingleAttachPaneProtocolHarness(t)
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { clientConn.Close() })
+	unscoped := newClientConn(serverConn)
+	unscoped.ID = "interactive"
+	t.Cleanup(unscoped.Close)
+
+	mustSessionMutation(t, h.sess, func(sess *Session) {
+		sess.ensureClientManager().setClientsForTest(unscoped)
+		sess.closeScopedPaneClients(0, &Message{Type: MsgTypeExit, Text: "pane exited"})
+	})
+
+	assertNoClientMessage(t, clientConn)
 }
 
 func TestMsgTypeAttachPaneRejectsMissingPane(t *testing.T) {
