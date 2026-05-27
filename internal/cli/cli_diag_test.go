@@ -109,6 +109,36 @@ func TestRunDiagCommandFetchesExpectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestRunDiagCompatibilityAliasWarnsOnStderr(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := runDiagCommandWithDeps(context.Background(), &stdout, "diag-session", []string{"dump"}, diagDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil
+		},
+		discoverSocket: func(context.Context, string, *config.Config) (string, error) {
+			return "/tmp/live.pprof", nil
+		},
+		fetch: func(req debugEndpointRequest) ([]byte, error) {
+			return []byte("goroutine dump"), nil
+		},
+		stderr: &stderr,
+	})
+	if err != nil {
+		t.Fatalf("runDiagCommandWithDeps(dump): %v", err)
+	}
+	if got := stdout.String(); got != "goroutine dump" {
+		t.Fatalf("stdout = %q, want raw dump only", got)
+	}
+	for _, want := range []string{"amux _diag dump is deprecated", "amux debug dump"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want substring %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestRunDiagGoroutinesSummarizesStateHistogram(t *testing.T) {
 	t.Parallel()
 

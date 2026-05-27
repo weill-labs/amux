@@ -241,10 +241,6 @@ func diagSessionLogPath(sessionName string) string {
 	return filepath.Join(logDir, sessionName+".log")
 }
 
-func diagMissingSocketHint(sessionName string) string {
-	return fmt.Sprintf("pprof diagnostics socket %%s is not available for session %q; enable [debug] pprof = true in ~/.config/amux/config.toml and restart amux", sessionName)
-}
-
 type diagUnavailableError struct {
 	sessionName string
 	cause       error
