@@ -355,7 +355,7 @@ func (s *doctorRunState) diagInfoForSession(ctx context.Context, session string)
 		path:          "/debug/amux/info",
 		timeout:       doctorDefaultTimeout,
 		configEnabled: true,
-		missingHint:   diagMissingSocketHint(session),
+		missingHint:   doctorDiagMissingSocketHint(session),
 	})
 	if err != nil {
 		res := doctorDiagInfoResult{err: err}
@@ -500,7 +500,7 @@ func doctorCheckServerReachable(ctx context.Context, state *doctorRunState, sess
 			"session",
 			session,
 			"Server unresponsive: "+err.Error(),
-			"Server unresponsive — see `amux _diag dump` for goroutine state.",
+			"Server unresponsive; see `amux _diag dump` for goroutine state.",
 		)
 	}
 	return checkOK("server-reachable", "session", session, "server responded to bounded `amux list`")
@@ -615,7 +615,7 @@ func doctorGoroutineHistogram(ctx context.Context, state *doctorRunState, sessio
 		path:          "/debug/pprof/goroutine?debug=2",
 		timeout:       doctorDefaultTimeout,
 		configEnabled: true,
-		missingHint:   diagMissingSocketHint(session),
+		missingHint:   doctorDiagMissingSocketHint(session),
 	})
 	if err != nil {
 		return nil, err
@@ -633,6 +633,10 @@ func largestGoroutineState(states map[string]int) (string, int) {
 		}
 	}
 	return name, count
+}
+
+func doctorDiagMissingSocketHint(session string) string {
+	return fmt.Sprintf("pprof diagnostics socket %%s is not available for session %q; enable [debug] pprof = true in ~/.config/amux/config.toml and restart amux", session)
 }
 
 func doctorCheckClientsLog(ctx context.Context, state *doctorRunState, session string) doctorCheckResult {
@@ -665,7 +669,7 @@ func doctorCheckPanesLog(ctx context.Context, state *doctorRunState, session str
 	if count == 0 {
 		return checkOK("panes-log", "session", session, "no recent abnormal pane exits")
 	}
-	return checkWarn("panes-log", "session", session, fmt.Sprintf("%d panes exited abnormally in the last 5 minutes", count), fmt.Sprintf("%d panes exited with non-zero status in the last 5 min — see `amux log panes`.", count))
+	return checkWarn("panes-log", "session", session, fmt.Sprintf("%d panes exited abnormally in the last 5 minutes", count), fmt.Sprintf("%d panes exited with non-zero status in the last 5 min; see `amux log panes`.", count))
 }
 
 func doctorCheckWatchdog(_ context.Context, state *doctorRunState, session string) doctorCheckResult {
