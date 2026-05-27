@@ -14,6 +14,7 @@ var blockedEnvKeys = []string{
 	"AMUX_MAIN_HELPER",
 	"AMUX_PANE",
 	"AMUX_SESSION",
+	"AMUX_SOCKET_DIR",
 	"CLICOLOR",
 	"CLICOLOR_FORCE",
 	"COLORTERM",

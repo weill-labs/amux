@@ -12,8 +12,13 @@ const (
 	DefaultTermRows = 24
 )
 
+const SocketDirEnv = "AMUX_SOCKET_DIR"
+
 // SocketDir returns the directory for amux Unix sockets.
 func SocketDir() string {
+	if dir := os.Getenv(SocketDirEnv); dir != "" {
+		return dir
+	}
 	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 }
 

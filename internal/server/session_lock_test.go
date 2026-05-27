@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/testenv"
 )
 
@@ -39,13 +40,32 @@ func TestSessionLockSubprocessHelper(t *testing.T) {
 
 	switch mode {
 	case "hold":
+		timeout, err := sessionLockHelperTimeout()
+		if err != nil {
+			srv.Shutdown()
+			fmt.Fprint(os.Stderr, err.Error())
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stdout, "ready")
-		select {}
+		<-time.After(timeout)
+		srv.Shutdown()
 	default:
 		srv.Shutdown()
 		fmt.Fprintf(os.Stderr, "unknown helper mode %q", mode)
 		os.Exit(2)
 	}
+}
+
+func sessionLockHelperTimeout() (time.Duration, error) {
+	raw := os.Getenv(sessionLockHelperTimeoutEnv)
+	if raw == "" {
+		return 30 * time.Second, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("invalid %s %q", sessionLockHelperTimeoutEnv, raw)
+	}
+	return timeout, nil
 }
 
 func TestSessionLockSubprocessHelperHoldModeExitsWithinTimeout(t *testing.T) {
@@ -54,12 +74,13 @@ func TestSessionLockSubprocessHelperHoldModeExitsWithinTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	session := fmt.Sprintf("session-lock-helper-timeout-%d", time.Now().UnixNano())
+	session := "s"
 	cmd := testenv.NewCommandContext(ctx, os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
 	cmd.Env = append(testenv.HermeticAmuxEnv(),
 		sessionLockHelperModeEnv+"=hold",
 		sessionLockHelperSessionEnv+"="+session,
 		sessionLockHelperTimeoutEnv+"=100ms",
+		proto.SocketDirEnv+"="+t.TempDir(),
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -187,11 +208,20 @@ func TestNewServerWithScrollbackConcurrentStartsYieldSingleWinner(t *testing.T) 
 func startSessionLockHelper(t *testing.T, mode, session string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 
-	cmd := testenv.NewCommand(os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	cmd := testenv.NewCommandContext(ctx, os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
 	cmd.Env = append(testenv.HermeticAmuxEnv(),
 		sessionLockHelperModeEnv+"="+mode,
 		sessionLockHelperSessionEnv+"="+session,
+		sessionLockHelperTimeoutEnv+"=30s",
 	)
+	t.Cleanup(func() {
+		cancel()
+		if cmd.Process != nil && cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("StdoutPipe(): %v", err)

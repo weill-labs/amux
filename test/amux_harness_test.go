@@ -29,6 +29,7 @@ type AmuxHarness struct {
 	outer              *ServerHarness
 	inner              string // inner session name
 	innerBin           string
+	innerSocketDir     string
 	tb                 testing.TB
 	session            string // alias for inner, used by extractFrame
 	initialLeadHandled bool
@@ -113,8 +114,11 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	var b [8]byte
 	mustRandRead(tb, b[:])
 	inner := fmt.Sprintf("t-%x", b)
+	innerSocketDir := tb.TempDir()
+	envVars = upsertEnv(envVars, proto.SocketDirEnv, innerSocketDir)
 
-	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, tb: tb, session: inner}
+	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, innerSocketDir: innerSocketDir, tb: tb, session: inner}
+	tb.Cleanup(h.cleanup)
 
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(binPath, inner, launchDir, envVars), "Enter")
@@ -124,7 +128,6 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	// be accepting connections — no polling loop needed.
 	outer.waitForTimeout("pane-1", "[pane-", "30s")
 
-	tb.Cleanup(h.cleanup)
 	return h
 }
 
@@ -162,7 +165,10 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 		}
 	}
 
-	socketDir := server.SocketDir()
+	socketDir := h.innerSocketDir
+	if socketDir == "" {
+		socketDir = server.SocketDir()
+	}
 	if tb != nil && tb.Failed() {
 		logPath := fmt.Sprintf("%s/%s.log", socketDir, h.inner)
 		if data, err := os.ReadFile(logPath); err == nil {
@@ -194,7 +200,7 @@ func (h *AmuxHarness) innerServerPIDs() []string {
 
 func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
-	socketPath := server.SocketPath(h.inner)
+	socketPath := h.innerSocketPath()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for time.Now().Before(deadline) {
@@ -205,6 +211,13 @@ func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
 		}
 		<-ticker.C
 	}
+}
+
+func (h *AmuxHarness) innerSocketPath() string {
+	if h.innerSocketDir != "" {
+		return fmt.Sprintf("%s/%s", h.innerSocketDir, h.inner)
+	}
+	return server.SocketPath(h.inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +690,9 @@ func (h *AmuxHarness) runCmd(args ...string) string {
 	cmdArgs := append([]string{"-s", h.inner}, args...)
 	cmd := exec.CommandContext(ctx, h.innerBin, cmdArgs...)
 	env := upsertEnv(os.Environ(), "HOME", h.outer.home)
+	if h.innerSocketDir != "" {
+		env = upsertEnv(env, proto.SocketDirEnv, h.innerSocketDir)
+	}
 	if h.outer.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
 	}

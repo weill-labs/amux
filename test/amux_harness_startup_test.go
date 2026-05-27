@@ -101,6 +101,26 @@ func TestBuildInnerAmuxLaunchCommand(t *testing.T) {
 func TestNewAmuxHarnessDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
 	h := newAmuxHarness(t)
 
+	leaked := leakedInnerArtifactsInSharedSocketDir(t, h)
+	shutdownAmuxHarness(t, h)
+	if len(leaked) > 0 {
+		t.Fatalf("inner harness leaked artifacts to shared socket dir: %v", leaked)
+	}
+}
+
+func TestNewAmuxHarnessWithConfigDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
+	h := newAmuxHarnessWithConfig(t, "")
+
+	leaked := leakedInnerArtifactsInSharedSocketDir(t, h)
+	shutdownAmuxHarness(t, h)
+	if len(leaked) > 0 {
+		t.Fatalf("inner harness with config leaked artifacts to shared socket dir: %v", leaked)
+	}
+}
+
+func leakedInnerArtifactsInSharedSocketDir(t *testing.T, h *AmuxHarness) []string {
+	t.Helper()
+
 	var leaked []string
 	for _, name := range []string{
 		h.inner,
@@ -115,9 +135,5 @@ func TestNewAmuxHarnessDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T)
 			t.Fatalf("stat %s: %v", path, err)
 		}
 	}
-
-	shutdownAmuxHarness(t, h)
-	if len(leaked) > 0 {
-		t.Fatalf("inner harness leaked artifacts to shared socket dir: %v", leaked)
-	}
+	return leaked
 }
