@@ -94,7 +94,7 @@ scripts/sync-pane-pr-meta.sh
 scripts/sync-pane-pr-meta.sh 123
 ```
 
-Claude's stop hook still checks for missing pane issue metadata before the session ends. Other agents can run `scripts/check-pane-issue-meta.sh` manually if needed.
+Any agent can run `scripts/check-pane-issue-meta.sh` manually to check whether the current pane is tagged with a Linear issue.
 
 When a worker pushes fixes for Claude review findings, `scripts/check-claude-review.sh` reports whether the latest Claude verdict is `lgtm` or `findings`. Add `--watch` to wait for the next Claude review comment after the push before deciding whether more fixes are needed.
 
