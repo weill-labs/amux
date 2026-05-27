@@ -227,6 +227,35 @@ For cursor bugs in TUIs that may draw their own cursor (for example, Claude Code
 
 Trigger patterns for compositor bugs: long or truncated lines near pane boundaries, status bar overlays adjacent to wrapped content, and high-frequency output (for example, `htop` or progress bars).
 
+### Debugging Client Performance
+
+When the user reports cross-pane lag (typing in one pane stalls others, scrollback feels slow under load), the bottleneck is almost always the client renderer actor — a single goroutine that drains PTY output, publishes captures, and serves snapshot queries for every pane. Server pprof will not show it; capture the client.
+
+Enable pprof first in `~/.config/amux/config.toml`: `[debug]\npprof = true`, then restart.
+
+Prefer the built-in `amux debug` commands — they target the latest attached client pprof endpoint directly, so you skip hand-probing for a live socket (the `main.client.pprof` symlink can be stale):
+
+```bash
+amux -s <session> debug frames                         # render frame stats: p50/p95/p99 frame time, cells diffed
+amux -s <session> debug client-profile --duration 20s  # client CPU profile while the user reproduces the lag
+amux -s <session> debug client-goroutines              # live client goroutine dump
+amux -s <session> debug client-heap                    # client heap summary
+```
+
+`debug frames` is the fastest triage: high p95/p99 frame times point straight at the renderer actor. For a CPU profile, run `debug client-profile` while the user reproduces the lag, then analyze with `go tool pprof -top -cum <file>` — look for cumulative time under `actorLoop` and per-line cost in `capturePaneRenderSnapshot`, `publishPaneCapture`, or `withRendererActorValue` call sites.
+
+If the `amux debug client-*` commands cannot reach the client (none attached, or you need the raw socket), fall back to probing by hand — probe by PID since the symlink may be stale:
+
+```bash
+for s in /tmp/amux-$UID/<session>.client.*.pprof; do
+  curl -s --max-time 2 --unix-socket "$s" http://amux/debug/pprof/ -o /dev/null -w "$s: %{http_code}\n"
+done
+curl -s --max-time 30 --unix-socket "$LIVE_SOCKET" \
+  "http://amux/debug/pprof/profile?seconds=20" -o /tmp/amux-client.pprof
+```
+
+Before forming a code-analysis hypothesis on a capture-path regression, read the full commit-message bodies of the adjacent PRs in that area (LAB-1634, LAB-1663, LAB-1731, LAB-1833 as of 2026-05). Each one documents a deliberate trade-off (what was kept on the actor vs moved off, what was left as a follow-up) that is invisible from the diff alone. Skipping this step has produced wrong-function hypotheses that pprof later corrected.
+
 ### Hot-Reload
 
 Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make install` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
