@@ -14,7 +14,6 @@ import (
 type Filter struct {
 	Types    []string
 	PaneName string
-	Host     string
 	ClientID string
 }
 
@@ -47,11 +46,6 @@ func ParseArgs(args []string, defaultThrottle time.Duration) Args {
 			if i+1 < len(args) {
 				i++
 				parsed.Filter.PaneName = args[i]
-			}
-		case "--host":
-			if i+1 < len(args) {
-				i++
-				parsed.Filter.Host = args[i]
 			}
 		case "--client":
 			if i+1 < len(args) {

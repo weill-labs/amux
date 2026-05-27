@@ -38,7 +38,6 @@ func (p *statusStylePaneData) Task() string                            { return 
 func (p *statusStylePaneData) Color() string                           { return p.color }
 func (p *statusStylePaneData) Idle() bool                              { return false }
 func (p *statusStylePaneData) IsLead() bool                            { return false }
-func (p *statusStylePaneData) ConnStatus() string                      { return "" }
 func (p *statusStylePaneData) InCopyMode() bool                        { return false }
 func (p *statusStylePaneData) CopyModeSearch() string                  { return "" }
 

@@ -27,9 +27,6 @@ func TestStatusGlyphLiteralsAreCentralizedInIconSet(t *testing.T) {
 		'◯': {},
 		'◆': {},
 		'◈': {},
-		'⚡': {},
-		'⟳': {},
-		'✕': {},
 	}
 
 	files, err := filepath.Glob("*.go")
@@ -90,9 +87,6 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 		Issue:         "J",
 		Task:          "T",
 		CopyMode:      "C",
-		Connected:     "Z",
-		Reconnecting:  "Y",
-		Disconnected:  "X",
 	}
 	root := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 80, 2)
 	pane := &statusPaneData{
@@ -103,7 +97,6 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 		host:          "gpu",
 		task:          "task",
 		color:         config.TextColorHex,
-		connStatus:    "connected",
 		copyMode:      true,
 		copySearch:    "/query",
 	}
@@ -121,12 +114,12 @@ func TestCompositorUsesConfiguredIconSetForPaneStatus(t *testing.T) {
 func assertStatusUsesSentinelIcons(t *testing.T, rendered string) {
 	t.Helper()
 
-	for _, want := range []string{"A", "{pane-1}", "C /query", "P42", "JLAB-1647", "Rgpu", "Z", "T task"} {
+	for _, want := range []string{"A", "{pane-1}", "C /query", "P42", "JLAB-1647", "Rgpu", "T task"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
 	}
-	for _, old := range []string{"●", "[pane-1]", "[copy]", "#42", "@gpu", "⚡", "Z task"} {
+	for _, old := range []string{"●", "[pane-1]", "[copy]", "#42", "@gpu"} {
 		if strings.Contains(rendered, old) {
 			t.Fatalf("rendered status still contains old glyph %q:\n%s", old, rendered)
 		}
@@ -145,14 +138,11 @@ func TestNerdFontIconSetUsesPublishedGlyphs(t *testing.T) {
 		PaneStuck:     "\ueaaf", // nf-cod-bug
 		PaneNameOpen:  "[",
 		PaneNameClose: "]",
-		RemoteHost:    "\ueb50",     // nf-cod-server
-		PR:            "\uf407",     // nf-oct-git_pull_request
-		Issue:         "\uf41b",     // nf-oct-issue_opened
-		Task:          "\ueb67",     // nf-cod-tasklist
-		CopyMode:      "\ueac0",     // nf-cod-clippy
-		Connected:     "\U000f0c53", // nf-md-check_network
-		Reconnecting:  "\uea77",     // nf-cod-sync
-		Disconnected:  "\U000f0c9b", // nf-md-network_off
+		RemoteHost:    "\ueb50", // nf-cod-server
+		PR:            "\uf407", // nf-oct-git_pull_request
+		Issue:         "\uf41b", // nf-oct-issue_opened
+		Task:          "\ueb67", // nf-cod-tasklist
+		CopyMode:      "\ueac0", // nf-cod-clippy
 	}
 	if got := NerdFontIconSet(); got != want {
 		t.Fatalf("NerdFontIconSet() = %#v, want %#v", got, want)
@@ -180,7 +170,6 @@ func TestCompositorUsesNerdFontIconSetForPaneStatusMetadata(t *testing.T) {
 		host:          "gpu",
 		task:          "build LAB-1650",
 		color:         config.TextColorHex,
-		connStatus:    "connected",
 		copyMode:      true,
 		copySearch:    "/query",
 	}
@@ -196,14 +185,13 @@ func TestCompositorUsesNerdFontIconSetForPaneStatusMetadata(t *testing.T) {
 		icons.PR + "42",
 		icons.Issue + "LAB-1650",
 		icons.RemoteHost + "gpu",
-		icons.Connected,
 		icons.Task + " build LAB-1650",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("Nerd status missing %q:\n%s", want, rendered)
 		}
 	}
-	for _, old := range []string{"●", "[copy]", "#42", "@gpu", "⚡", icons.Connected + " build LAB-1650"} {
+	for _, old := range []string{"●", "[copy]", "#42", "@gpu"} {
 		if strings.Contains(rendered, old) {
 			t.Fatalf("Nerd status still contains fallback marker %q:\n%s", old, rendered)
 		}
@@ -223,7 +211,6 @@ func TestNerdFontPaneStatusClippingKeepsGlyphWidths(t *testing.T) {
 		host:          "remote",
 		task:          "long task name",
 		color:         config.TextColorHex,
-		connStatus:    "reconnecting",
 	}
 	comp := NewCompositor(34, 3, "test")
 	comp.SetIconSet(icons)
@@ -279,9 +266,6 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 		"Issue":         ascii.Issue,
 		"Task":          ascii.Task,
 		"CopyMode":      ascii.CopyMode,
-		"Connected":     ascii.Connected,
-		"Reconnecting":  ascii.Reconnecting,
-		"Disconnected":  ascii.Disconnected,
 	} {
 		if len(value) != 1 {
 			t.Fatalf("ASCIIIconSet().%s = %q, want single-character fallback", name, value)
@@ -308,20 +292,10 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 		t.Fatalf("IconSet after no-op SetIconSet(default) = %#v, want default", got)
 	}
 
-	sentinel := IconSet{PaneLead: "L", Connected: "C", Reconnecting: "R", Disconnected: "D"}
+	sentinel := IconSet{PaneLead: "L"}
 	lead := &statusPaneData{lead: true}
 	if got := paneStatusStateIcon(false, lead, sentinel); got != "L" {
 		t.Fatalf("paneStatusStateIcon(lead) = %q, want L", got)
-	}
-	for status, want := range map[string]string{
-		"connected":    "C",
-		"reconnecting": "R",
-		"disconnected": "D",
-		"unknown":      "",
-	} {
-		if got := connStatusIcon(status, sentinel); got != want {
-			t.Fatalf("connStatusIcon(%q) = %q, want %q", status, got, want)
-		}
 	}
 }
 
@@ -338,9 +312,6 @@ func iconSetFieldMap(icons IconSet) map[string]string {
 		"Issue":         icons.Issue,
 		"Task":          icons.Task,
 		"CopyMode":      icons.CopyMode,
-		"Connected":     icons.Connected,
-		"Reconnecting":  icons.Reconnecting,
-		"Disconnected":  icons.Disconnected,
 	}
 }
 

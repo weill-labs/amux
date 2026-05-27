@@ -65,19 +65,16 @@ func TestMainDoctorFontsPrintsIconDiagnostic(t *testing.T) {
 
 func representativeDiagnosticGlyphs(icons render.IconSet) map[string]string {
 	return map[string]string{
-		"idle":         icons.PaneIdle,
-		"active":       icons.PaneActive,
-		"busy":         icons.PaneBusy,
-		"lead":         icons.PaneLead,
-		"escalated":    icons.PaneEscalated,
-		"stuck":        icons.PaneStuck,
-		"remote":       icons.RemoteHost,
-		"pr":           icons.PR,
-		"issue":        icons.Issue,
-		"task":         icons.Task,
-		"copy":         icons.CopyMode,
-		"connected":    icons.Connected,
-		"reconnecting": icons.Reconnecting,
-		"disconnected": icons.Disconnected,
+		"idle":      icons.PaneIdle,
+		"active":    icons.PaneActive,
+		"busy":      icons.PaneBusy,
+		"lead":      icons.PaneLead,
+		"escalated": icons.PaneEscalated,
+		"stuck":     icons.PaneStuck,
+		"remote":    icons.RemoteHost,
+		"pr":        icons.PR,
+		"issue":     icons.Issue,
+		"task":      icons.Task,
+		"copy":      icons.CopyMode,
 	}
 }

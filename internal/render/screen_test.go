@@ -447,7 +447,6 @@ func (e *emuPaneData) Task() string                        { return "" }
 func (e *emuPaneData) Color() string                       { return e.color }
 func (e *emuPaneData) Idle() bool                          { return true }
 func (e *emuPaneData) IsLead() bool                        { return e.lead }
-func (e *emuPaneData) ConnStatus() string                  { return "" }
 func (e *emuPaneData) InCopyMode() bool                    { return false }
 func (e *emuPaneData) CopyModeSearch() string              { return "" }
 func (e *emuPaneData) CopyModeOverlay() *proto.ViewportOverlay {
@@ -1417,8 +1416,7 @@ func TestRenderDiff_StatusLineWideRuneMatchesRenderFullAcrossPanes(t *testing.T)
 			return &statusPaneData{
 				id:           1,
 				name:         "pane-1",
-				connStatus:   "connected",
-				task:         "sync-logs",
+				task:         "⌛ sync-logs",
 				color:        config.TextColorHex,
 				screen:       "",
 				cursorHidden: true,

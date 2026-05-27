@@ -22,7 +22,6 @@ type statusPaneData struct {
 	host          string
 	task          string
 	color         string
-	connStatus    string
 	copyMode      bool
 	copySearch    string
 	idle          bool
@@ -48,7 +47,6 @@ func (p *statusPaneData) Color() string                       { return p.color }
 func (p *statusPaneData) Minimized() bool                     { return false }
 func (p *statusPaneData) Idle() bool                          { return p.idle }
 func (p *statusPaneData) IsLead() bool                        { return p.lead }
-func (p *statusPaneData) ConnStatus() string                  { return p.connStatus }
 func (p *statusPaneData) InCopyMode() bool                    { return p.copyMode }
 func (p *statusPaneData) CopyModeSearch() string              { return p.copySearch }
 func (p *statusPaneData) HasCursorBlock() bool                { return false }
@@ -75,11 +73,10 @@ func TestRenderPaneStatusVariants(t *testing.T) {
 				host:       "gpu-box",
 				task:       "train",
 				color:      config.TextColorHex,
-				connStatus: "reconnecting",
 				copyMode:   true,
 				copySearch: "/query",
 			},
-			contains: []string{"●", "[pane-1]", "[copy] /query", "@gpu-box", "⟳", "train"},
+			contains: []string{"●", "[pane-1]", "[copy] /query", "@gpu-box", "train"},
 		},
 		{
 			name:   "inactive idle pane",
@@ -96,12 +93,11 @@ func TestRenderPaneStatusVariants(t *testing.T) {
 			name:   "inactive busy pane",
 			active: false,
 			pane: &statusPaneData{
-				id:         3,
-				name:       "pane-3",
-				color:      config.TextColorHex,
-				connStatus: "disconnected",
+				id:    3,
+				name:  "pane-3",
+				color: config.TextColorHex,
 			},
-			contains: []string{"○", "[pane-3]", "✕"},
+			contains: []string{"○", "[pane-3]"},
 		},
 	}
 
@@ -499,12 +495,11 @@ func TestBuildStatusCellsPreservesRemoteMetadata(t *testing.T) {
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 40, 4)
 	grid := NewScreenGrid(40, 4)
 	buildStatusCells(grid, cell, false, &statusPaneData{
-		id:         1,
-		name:       "pane-1",
-		host:       "remote-host",
-		task:       "sync",
-		color:      config.TextColorHex,
-		connStatus: "connected",
+		id:    1,
+		name:  "pane-1",
+		host:  "remote-host",
+		task:  "sync",
+		color: config.TextColorHex,
 	})
 
 	var row strings.Builder
@@ -516,7 +511,7 @@ func TestBuildStatusCellsPreservesRemoteMetadata(t *testing.T) {
 		row.WriteString(ch)
 	}
 	line := strings.TrimRight(row.String(), " ")
-	for _, want := range []string{"@remote-host", "sync", "⚡"} {
+	for _, want := range []string{"@remote-host", "sync"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status row %q missing %q", line, want)
 		}
@@ -538,10 +533,9 @@ func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {
 		trackedIssues: []proto.TrackedIssue{
 			{ID: "LAB-339"},
 		},
-		host:       "remote-host",
-		task:       "sync",
-		color:      config.TextColorHex,
-		connStatus: "connected",
+		host:  "remote-host",
+		task:  "sync",
+		color: config.TextColorHex,
 	})
 
 	var row strings.Builder
@@ -553,7 +547,7 @@ func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {
 		row.WriteString(ch)
 	}
 	line := strings.TrimRight(row.String(), " ")
-	for _, want := range []string{"#42, #314, LAB-339", "@remote-host", "sync", "⚡"} {
+	for _, want := range []string{"#42, #314, LAB-339", "@remote-host", "sync"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status row %q missing %q", line, want)
 		}
@@ -915,53 +909,6 @@ func gridRowText(grid *ScreenGrid, y, width int) string {
 	return row.String()
 }
 
-func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
-	t.Parallel()
-
-	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 32, 4)
-	grid := NewScreenGrid(32, 4)
-	buildStatusCells(grid, cell, true, &statusPaneData{
-		id:         1,
-		name:       "pane-1",
-		connStatus: "connected",
-		task:       "sync",
-		color:      config.TextColorHex,
-	})
-
-	var row strings.Builder
-	for x := 0; x < 32; x++ {
-		ch := grid.Get(x, 0).Char
-		if ch == "" {
-			ch = " "
-		}
-		row.WriteString(ch)
-	}
-
-	line := row.String()
-	start := -1
-	for x := 0; x < 32; x++ {
-		if grid.Get(x, 0).Char == "⚡" {
-			start = x
-			break
-		}
-	}
-	if start < 0 {
-		t.Fatalf("status row %q missing connected marker", line)
-	}
-	if got := grid.Get(start, 0).Width; got != 2 {
-		t.Fatalf("connected marker width = %d, want 2", got)
-	}
-	if got := grid.Get(start+1, 0).Width; got != 0 {
-		t.Fatalf("connected marker continuation width = %d, want 0", got)
-	}
-	if got := grid.Get(start+2, 0).Char; got != " " {
-		t.Fatalf("cell after connected marker = %q, want task separator space", got)
-	}
-	if got := grid.Get(start+3, 0).Char; got != "s" {
-		t.Fatalf("task should start after the wide rune continuation, got %q", got)
-	}
-}
-
 func TestBuildStatusCellsDoesNotStartWideGlyphAtPaneRightEdge(t *testing.T) {
 	t.Parallel()
 
@@ -969,15 +916,6 @@ func TestBuildStatusCellsDoesNotStartWideGlyphAtPaneRightEdge(t *testing.T) {
 		name string
 		pane *statusPaneData
 	}{
-		{
-			name: "wide_connection_marker",
-			pane: &statusPaneData{
-				id:         1,
-				name:       "pane-1",
-				connStatus: "connected",
-				color:      config.TextColorHex,
-			},
-		},
 		{
 			name: "wide_task_glyph",
 			pane: &statusPaneData{

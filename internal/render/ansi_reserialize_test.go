@@ -43,7 +43,6 @@ func (p *ansiGoldenPaneData) Task() string                        { return "" }
 func (p *ansiGoldenPaneData) Color() string                       { return p.color }
 func (p *ansiGoldenPaneData) Idle() bool                          { return p.idle }
 func (p *ansiGoldenPaneData) IsLead() bool                        { return false }
-func (p *ansiGoldenPaneData) ConnStatus() string                  { return "" }
 func (p *ansiGoldenPaneData) InCopyMode() bool                    { return false }
 func (p *ansiGoldenPaneData) CopyModeSearch() string              { return "" }
 func (p *ansiGoldenPaneData) CopyModeOverlay() *proto.ViewportOverlay {

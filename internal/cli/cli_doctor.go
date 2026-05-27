@@ -65,11 +65,6 @@ func writeIconPresetDiagnostic(w io.Writer, name string, icons render.IconSet) {
 		diagnosticGlyph(icons.Task),
 		diagnosticGlyph(icons.CopyMode),
 	)
-	fmt.Fprintf(w, "  connection: connected=%s reconnecting=%s disconnected=%s\n",
-		diagnosticGlyph(icons.Connected),
-		diagnosticGlyph(icons.Reconnecting),
-		diagnosticGlyph(icons.Disconnected),
-	)
 	fmt.Fprintln(w)
 }
 

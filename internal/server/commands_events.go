@@ -23,7 +23,6 @@ func parseEventsArgs(args []string) eventsArgs {
 		filter: eventFilter{
 			Types:    append([]string(nil), parsed.Filter.Types...),
 			PaneName: parsed.Filter.PaneName,
-			Host:     parsed.Filter.Host,
 			ClientID: parsed.Filter.ClientID,
 		},
 		throttle: parsed.Throttle,
@@ -42,7 +41,6 @@ func (ctx eventsCommandContext) Subscribe(filter eventscmd.Filter) (eventscmd.Su
 	res := ctx.Sess.enqueueEventSubscribe(ctx.context(), eventFilter{
 		Types:    append([]string(nil), filter.Types...),
 		PaneName: filter.PaneName,
-		Host:     filter.Host,
 		ClientID: filter.ClientID,
 	}, true)
 	if res.sub == nil {

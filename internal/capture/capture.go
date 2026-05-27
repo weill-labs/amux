@@ -147,7 +147,6 @@ type PaneInput struct {
 	Task          string
 	Color         string
 	ColumnIndex   int
-	ConnStatus    string
 	Cwd           string
 	GitBranch     string
 	PR            string
@@ -253,14 +252,13 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 			TrackedPRs:    proto.CloneTrackedPRs(input.TrackedPRs),
 			TrackedIssues: proto.CloneTrackedIssues(input.TrackedIssues),
 		},
-		ConnStatus: input.ConnStatus,
-		Cwd:        input.Cwd,
-		GitBranch:  input.GitBranch,
-		PR:         input.PR,
-		Cursor:     input.Cursor,
-		Terminal:   cloneTerminal(input.Terminal),
-		Content:    append([]string(nil), input.Content...),
-		History:    append([]string(nil), input.History...),
+		Cwd:       input.Cwd,
+		GitBranch: input.GitBranch,
+		PR:        input.PR,
+		Cursor:    input.Cursor,
+		Terminal:  cloneTerminal(input.Terminal),
+		Content:   append([]string(nil), input.Content...),
+		History:   append([]string(nil), input.History...),
 	}
 	cp.ApplyAgentStatus(agentStatus)
 	return cp

@@ -18,9 +18,6 @@ type IconSet struct {
 	Issue         string
 	Task          string
 	CopyMode      string
-	Connected     string
-	Reconnecting  string
-	Disconnected  string
 }
 
 // IconSetPreset pairs a validated config name with its renderer glyphs.
@@ -69,9 +66,6 @@ func UnicodeIconSet() IconSet {
 		Issue:         "",
 		Task:          "",
 		CopyMode:      "[copy]",
-		Connected:     "⚡",
-		Reconnecting:  "⟳",
-		Disconnected:  "✕",
 	}
 }
 
@@ -91,9 +85,6 @@ func ASCIIIconSet() IconSet {
 		Issue:         "I",
 		Task:          "T",
 		CopyMode:      "C",
-		Connected:     "+",
-		Reconnecting:  "~",
-		Disconnected:  "x",
 	}
 }
 
@@ -113,9 +104,6 @@ func NerdFontIconSet() IconSet {
 		Issue:         "\uf41b",
 		Task:          "\ueb67",
 		CopyMode:      "\ueac0",
-		Connected:     "\U000f0c53",
-		Reconnecting:  "\uea77",
-		Disconnected:  "\U000f0c9b",
 	}
 }
 

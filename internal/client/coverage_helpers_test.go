@@ -255,12 +255,11 @@ func TestLegacyKeyHelpersAndClientPaneDataAccessors(t *testing.T) {
 	pd := &clientPaneData{
 		emu: newTestVTEmulator(20, 2),
 		info: proto.PaneSnapshot{
-			ID:         1,
-			Name:       "pane-1",
-			Host:       "local",
-			Task:       "task",
-			Color:      "f5e0dc",
-			ConnStatus: "connected",
+			ID:    1,
+			Name:  "pane-1",
+			Host:  "local",
+			Task:  "task",
+			Color: "f5e0dc",
 		},
 		cm: cm,
 	}

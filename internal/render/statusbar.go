@@ -240,18 +240,6 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 		segments = appendPaneStatusSegment(segments, icons.RemoteHost+pd.Host(), paneStatusSegmentGreen)
 	}
 
-	if cs := pd.ConnStatus(); cs != "" {
-		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
-		switch cs {
-		case "connected":
-			segments = appendPaneStatusSegment(segments, icons.Connected, paneStatusSegmentGreen)
-		case "reconnecting":
-			segments = appendPaneStatusSegment(segments, icons.Reconnecting, paneStatusSegmentYellow)
-		case "disconnected":
-			segments = appendPaneStatusSegment(segments, icons.Disconnected, paneStatusSegmentRed)
-		}
-	}
-
 	if taskText := paneStatusTaskText(pd.Task(), icons); taskText != "" {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 		segments = appendPaneStatusSegment(segments, taskText, paneStatusSegmentText)
@@ -686,9 +674,6 @@ func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, ico
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		usedWidth += 1 + runewidth.StringWidth(icons.RemoteHost) + runewidth.StringWidth(pd.Host())
 	}
-	if cs := pd.ConnStatus(); cs != "" {
-		usedWidth += 1 + runewidth.StringWidth(connStatusIcon(cs, icons))
-	}
 	if taskText := paneStatusTaskText(pd.Task(), icons); taskText != "" {
 		usedWidth += 1 + runewidth.StringWidth(taskText)
 	}
@@ -706,20 +691,6 @@ func paneStatusStateIcon(isActive bool, pd PaneData, icons IconSet) string {
 		return icons.PaneIdle
 	default:
 		return icons.PaneBusy
-	}
-}
-
-func connStatusIcon(status string, icons IconSet) string {
-	icons = normalizeIconSet(icons)
-	switch status {
-	case "connected":
-		return icons.Connected
-	case "reconnecting":
-		return icons.Reconnecting
-	case "disconnected":
-		return icons.Disconnected
-	default:
-		return ""
 	}
 }
 

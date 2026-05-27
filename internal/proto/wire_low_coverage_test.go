@@ -46,7 +46,7 @@ func sampleLayoutSnapshot() *LayoutSnapshot {
 		},
 		Panes: []PaneSnapshot{
 			{ID: 1, Name: "pane-1", Host: "local", Task: "shell", Color: "rosewater"},
-			{ID: 2, Name: "pane-2", Host: "remote", Task: "build", Color: "mauve", ConnStatus: "connected"},
+			{ID: 2, Name: "pane-2", Host: "remote", Task: "build", Color: "mauve"},
 			{ID: 3, Name: "pane-3", Host: "local", Task: "logs", Color: "green"},
 		},
 		Width:  80,
