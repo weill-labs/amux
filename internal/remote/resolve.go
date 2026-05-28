@@ -52,9 +52,6 @@ func ResolvePaneID(ctx context.Context, conn net.Conn, session, name string) (ui
 	if conn == nil {
 		return 0, fmt.Errorf("resolve pane name %q: nil connection", name)
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}

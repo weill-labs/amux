@@ -191,25 +191,6 @@ func TestResolvePaneIDConnectionErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("nil context uses background", func(t *testing.T) {
-		t.Parallel()
-
-		clientConn, requests := startResolveListServer(t, &proto.Message{
-			Type: proto.MsgTypeLayout,
-			Layout: layoutWithWindows(
-				windowWithPanes(paneDef{id: 11, name: "agent"}),
-			),
-		})
-		got, err := ResolvePaneID(nil, clientConn, "remote-session", "agent")
-		if err != nil {
-			t.Fatalf("ResolvePaneID() error = %v, want nil", err)
-		}
-		if got != 11 {
-			t.Fatalf("ResolvePaneID() ID = %d, want 11", got)
-		}
-		assertListPanesRequest(t, <-requests, "remote-session")
-	})
-
 	t.Run("write error before request", func(t *testing.T) {
 		t.Parallel()
 
