@@ -201,6 +201,30 @@ func TestRunDoctorNamedChecksReportExpectedSeverities(t *testing.T) {
 	}
 }
 
+func TestDoctorConfigCheckFailsOnMalformedRemoteHost(t *testing.T) {
+	t.Parallel()
+
+	deps := newHealthyDoctorDeps(t, "unit")
+	configPath := deps.configPath()
+	content := `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+session = "main"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
+		t.Fatalf("WriteFile(%q): %v", configPath, err)
+	}
+
+	report := runDoctor(context.Background(), "unit", doctorOptions{checkName: "config"}, deps)
+	if report.Overall != doctorStatusFail {
+		t.Fatalf("overall = %s, want fail\n%+v", report.Overall, report.Checks)
+	}
+	check := report.Checks[0]
+	if !strings.Contains(check.Hint, "remote.hosts.hetzner-1.socket_path is required") {
+		t.Fatalf("config hint = %q, want remote host validation error", check.Hint)
+	}
+}
+
 func TestDoctorSocketCheckFailsOnOwnerMismatch(t *testing.T) {
 	t.Parallel()
 

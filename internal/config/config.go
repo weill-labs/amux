@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/weill-labs/amux/internal/proto"
@@ -111,12 +113,23 @@ type ThemeConfig struct {
 	Icons       *string `toml:"icons"`
 }
 
+type RemoteConfig struct {
+	Hosts map[string]Host `toml:"hosts"`
+}
+
+type Host struct {
+	SSH        string `toml:"ssh"`
+	Session    string `toml:"session"`
+	SocketPath string `toml:"socket_path"`
+}
+
 // Config is the top-level amux configuration.
 type Config struct {
 	ScrollbackLines *int         `toml:"scrollback_lines"`
 	Debug           DebugConfig  `toml:"debug"`
 	Client          ClientConfig `toml:"client"`
 	Theme           ThemeConfig  `toml:"theme"`
+	Remote          RemoteConfig `toml:"remote"`
 }
 
 // DefaultPath returns the default config file path.
@@ -166,6 +179,9 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, err
 	}
 	if _, err := ResolveThemeIcons(cfg.Theme.Icons); err != nil {
+		return nil, err
+	}
+	if err := ValidateRemoteHosts(cfg.Remote.Hosts); err != nil {
 		return nil, err
 	}
 
@@ -302,4 +318,34 @@ func (c *Config) EffectiveThemeIcons() string {
 		return ThemeIconsUnicode
 	}
 	return icons
+}
+
+func ValidateRemoteHosts(hosts map[string]Host) error {
+	names := make([]string, 0, len(hosts))
+	for name := range hosts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		host := hosts[name]
+		ssh := strings.TrimSpace(host.SSH)
+		socketPath := strings.TrimSpace(host.SocketPath)
+		if ssh == "" {
+			return fmt.Errorf("remote.hosts.%s.ssh is required", name)
+		}
+		if strings.HasPrefix(ssh, "-") {
+			return fmt.Errorf("remote.hosts.%s.ssh must not start with '-'", name)
+		}
+		if strings.TrimSpace(host.Session) == "" {
+			return fmt.Errorf("remote.hosts.%s.session is required", name)
+		}
+		if socketPath == "" {
+			return fmt.Errorf("remote.hosts.%s.socket_path is required", name)
+		}
+		if !filepath.IsAbs(socketPath) {
+			return fmt.Errorf("remote.hosts.%s.socket_path must be absolute", name)
+		}
+	}
+	return nil
 }

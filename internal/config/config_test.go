@@ -111,6 +111,41 @@ status_style = "powerline"
 	}
 }
 
+func TestLoadRemoteHosts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+session = "main"
+socket_path = "/tmp/amux-1000/main"
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	host, ok := cfg.Remote.Hosts["hetzner-1"]
+	if !ok {
+		t.Fatalf("Remote.Hosts missing hetzner-1: %+v", cfg.Remote.Hosts)
+	}
+	if host.SSH != "cweill@100.115.94.1" {
+		t.Fatalf("host.SSH = %q, want configured target", host.SSH)
+	}
+	if host.Session != "main" {
+		t.Fatalf("host.Session = %q, want main", host.Session)
+	}
+	if host.SocketPath != "/tmp/amux-1000/main" {
+		t.Fatalf("host.SocketPath = %q, want configured socket path", host.SocketPath)
+	}
+}
+
 func TestEffectiveStatusStyleDefaultsToCompact(t *testing.T) {
 	t.Parallel()
 
@@ -339,6 +374,98 @@ s = "split"
 			}
 			if got, want := err.Error(), tt.wantErr; got != want {
 				t.Fatalf("Load() error = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidRemoteHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name: "missing ssh target",
+			content: `
+[remote.hosts.hetzner-1]
+session = "main"
+socket_path = "/tmp/amux-1000/main"
+`,
+			wantErr: `remote.hosts.hetzner-1.ssh is required`,
+		},
+		{
+			name: "missing session",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+socket_path = "/tmp/amux-1000/main"
+`,
+			wantErr: `remote.hosts.hetzner-1.session is required`,
+		},
+		{
+			name: "ssh starts with dash",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "-o ProxyCommand=malicious"
+session = "main"
+socket_path = "/tmp/amux-1000/main"
+`,
+			wantErr: `remote.hosts.hetzner-1.ssh must not start with '-'`,
+		},
+		{
+			name: "missing socket path",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+session = "main"
+`,
+			wantErr: `remote.hosts.hetzner-1.socket_path is required`,
+		},
+		{
+			name: "relative socket path",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+session = "main"
+socket_path = "amux-main"
+`,
+			wantErr: `remote.hosts.hetzner-1.socket_path must be absolute`,
+		},
+		{
+			name: "trimmed absolute socket path",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+session = "main"
+socket_path = " /tmp/amux-1000/main "
+`,
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+			if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			_, err := Load(path)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Load() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("Load() error = %v, want %q", err, tt.wantErr)
 			}
 		})
 	}
