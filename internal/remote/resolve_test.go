@@ -110,6 +110,9 @@ func TestResolvePaneIDFromLayout(t *testing.T) {
 			if !errors.As(err, &resolveErr) {
 				t.Fatalf("ResolvePaneIDFromLayout() error = %T %[1]v, want ResolvePaneIDError", err)
 			}
+			if !strings.Contains(err.Error(), tt.pane) {
+				t.Fatalf("ResolvePaneIDFromLayout() error = %q, want pane name %q", err, tt.pane)
+			}
 			if resolveErr.Kind != tt.wantErr {
 				t.Fatalf("ResolvePaneIDError.Kind = %q, want %q", resolveErr.Kind, tt.wantErr)
 			}
@@ -220,6 +223,22 @@ func TestResolvePaneIDConnectionErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("context deadline during write", func(t *testing.T) {
+		t.Parallel()
+
+		serverConn, clientConn := net.Pipe()
+		t.Cleanup(func() { serverConn.Close() })
+		t.Cleanup(func() { clientConn.Close() })
+
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+
+		_, err := ResolvePaneID(ctx, clientConn, "remote-session", "agent")
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("ResolvePaneID() error = %v, want context.DeadlineExceeded", err)
+		}
+	})
+
 	t.Run("read error after request", func(t *testing.T) {
 		t.Parallel()
 
@@ -227,6 +246,20 @@ func TestResolvePaneIDConnectionErrors(t *testing.T) {
 		_, err := ResolvePaneID(context.Background(), clientConn, "remote-session", "agent")
 		if err == nil {
 			t.Fatal("ResolvePaneID() error = nil, want read error")
+		}
+		assertListPanesRequest(t, <-requests, "remote-session")
+	})
+
+	t.Run("context deadline during read", func(t *testing.T) {
+		t.Parallel()
+
+		clientConn, requests := startResolveReadOnlyListServer(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+
+		_, err := ResolvePaneID(ctx, clientConn, "remote-session", "agent")
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("ResolvePaneID() error = %v, want context.DeadlineExceeded", err)
 		}
 		assertListPanesRequest(t, <-requests, "remote-session")
 	})
@@ -277,6 +310,40 @@ func startResolveListServer(t *testing.T, response *proto.Message) (net.Conn, <-
 		case <-done:
 		case <-time.After(time.Second):
 			t.Fatal("list server did not exit")
+		}
+	})
+
+	return clientConn, requests
+}
+
+func startResolveReadOnlyListServer(t *testing.T) (net.Conn, <-chan *proto.Message) {
+	t.Helper()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { clientConn.Close() })
+
+	requests := make(chan *proto.Message, 1)
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer serverConn.Close()
+
+		request, err := proto.NewReader(serverConn).ReadMsg()
+		if err == nil {
+			requests <- request
+		}
+		close(requests)
+		<-release
+	}()
+
+	t.Cleanup(func() {
+		close(release)
+		clientConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("read-only list server did not exit")
 		}
 	})
 

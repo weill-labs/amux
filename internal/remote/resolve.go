@@ -3,6 +3,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -65,7 +66,7 @@ func ResolvePaneID(ctx context.Context, conn net.Conn, session, name string) (ui
 		Type:    proto.MsgTypeListPanes,
 		Session: session,
 	}); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
+		if ctxErr := contextErrorAfterConnIO(ctx, err); ctxErr != nil {
 			return 0, ctxErr
 		}
 		return 0, fmt.Errorf("list panes: %w", err)
@@ -73,7 +74,7 @@ func ResolvePaneID(ctx context.Context, conn net.Conn, session, name string) (ui
 
 	msg, err := proto.NewReader(conn).ReadMsg()
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
+		if ctxErr := contextErrorAfterConnIO(ctx, err); ctxErr != nil {
 			return 0, ctxErr
 		}
 		return 0, fmt.Errorf("read list panes response: %w", err)
@@ -116,6 +117,19 @@ func bindConnDeadlineToContext(ctx context.Context, conn net.Conn) func() {
 			_ = conn.SetDeadline(time.Time{})
 		}
 	}
+}
+
+func contextErrorAfterConnIO(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return context.DeadlineExceeded
+		}
+	}
+	return nil
 }
 
 func listPanesLayout(msg *proto.Message) (*proto.LayoutSnapshot, error) {
