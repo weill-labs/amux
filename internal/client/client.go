@@ -1105,7 +1105,7 @@ func (cr *ClientRenderer) PrepareLocalEchoInput(data []byte, now time.Time) (uin
 // It renders from the client-side emulators and returns a response message.
 func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
 	if isDebugFramesClientQuery(args) {
-		return clientFrameStatsResponse(cr.frameStats)
+		return clientFrameStatsResponse(&cr.frameStats)
 	}
 	req := caputil.ParseArgs(args)
 	if !req.FormatJSON || req.IncludeANSI || req.ColorMap || req.DisplayMode || req.ClientMode {

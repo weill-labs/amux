@@ -795,7 +795,7 @@ func (r *Renderer) resizeSnapshotEmulators(next *rendererSnapshot, emulators map
 // the live client (main package) and the headless test client.
 func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
 	if isDebugFramesClientQuery(args) {
-		return clientFrameStatsResponse(clientFrameStats{})
+		return clientFrameStatsResponse(&clientFrameStats{})
 	}
 	req := caputil.ParseArgs(args)
 	if err := caputil.ValidateScreenRequest(req); err != nil {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -22,6 +23,7 @@ type clientFrameSample struct {
 }
 
 type clientFrameStats struct {
+	mu                   sync.Mutex
 	samples              [clientFrameStatsWindowSize]clientFrameSample
 	next                 int
 	count                int
@@ -38,6 +40,9 @@ type clientFrameStatsSnapshot struct {
 }
 
 func (s *clientFrameStats) record(sample clientFrameSample) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.samples[s.next] = sample
 	s.next = (s.next + 1) % len(s.samples)
 	if s.count < len(s.samples) {
@@ -49,6 +54,10 @@ func (s *clientFrameStats) recordActorQueueLatency(latency time.Duration) {
 	if latency < 0 {
 		return
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.actorQueueLatencies[s.actorQueueNext] = latency
 	s.actorQueueNext = (s.actorQueueNext + 1) % len(s.actorQueueLatencies)
 	if s.actorQueueSampleSize < len(s.actorQueueLatencies) {
@@ -57,6 +66,9 @@ func (s *clientFrameStats) recordActorQueueLatency(latency time.Duration) {
 }
 
 func (s *clientFrameStats) snapshot() clientFrameStatsSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.count == 0 && s.actorQueueSampleSize == 0 {
 		return clientFrameStatsSnapshot{}
 	}
@@ -197,7 +209,7 @@ func isDebugFramesClientQuery(args []string) bool {
 	return len(args) == 1 && args[0] == proto.ClientQueryDebugFramesArg
 }
 
-func clientFrameStatsResponse(stats clientFrameStats) *proto.Message {
+func clientFrameStatsResponse(stats *clientFrameStats) *proto.Message {
 	return &proto.Message{
 		Type:      proto.MsgTypeCaptureResponse,
 		CmdOutput: stats.format() + "\n",
