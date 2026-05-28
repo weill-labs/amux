@@ -1,6 +1,7 @@
 package render
 
 import (
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -38,4 +39,10 @@ type PaneData interface {
 	// CopyModeSearch returns the search prompt text (e.g., "/pattern")
 	// when the user is actively typing a search in copy mode. Empty otherwise.
 	CopyModeSearch() string
+}
+
+// PaneCellReader is an optional fast path for PaneData implementations that can
+// expose a cell without returning the full ScreenCell struct by value.
+type PaneCellReader interface {
+	CellFieldsAt(col, row int, active bool) (char string, link uv.Link, style uv.Style, width int)
 }

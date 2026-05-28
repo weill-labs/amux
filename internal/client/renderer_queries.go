@@ -64,17 +64,26 @@ func (p paneBufferSnapshot) ScreenCellAt(col, row int) proto.Cell {
 }
 
 func paneBufferLineCell(lines []paneBufferLine, row, col int) render.ScreenCell {
+	var cell render.ScreenCell
+	paneBufferLineCellInto(&cell, lines, row, col)
+	return cell
+}
+
+func paneBufferLineCellInto(dst *render.ScreenCell, lines []paneBufferLine, row, col int) {
 	if row < 0 || row >= len(lines) {
-		return render.ScreenCell{Char: " ", Width: 1}
+		*dst = render.ScreenCell{Char: " ", Width: 1}
+		return
 	}
 	line := lines[row]
 	if len(line.cells) != 0 {
 		if col >= 0 && col < len(line.cells) {
-			return line.cells[col]
+			*dst = line.cells[col]
+			return
 		}
-		return render.ScreenCell{Char: " ", Width: 1}
+		*dst = render.ScreenCell{Char: " ", Width: 1}
+		return
 	}
-	return plainTextHistoryCell(line.text, col)
+	*dst = plainTextHistoryCell(line.text, col)
 }
 
 func plainTextHistoryCell(line string, col int) render.ScreenCell {

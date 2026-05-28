@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
@@ -1113,22 +1114,29 @@ func (c *clientPaneData) RenderScreen(active bool) string {
 }
 
 func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {
+	char, link, style, width := c.CellFieldsAt(col, row, active)
+	return render.ScreenCell{Char: char, Link: link, Style: style, Width: width}
+}
+
+func (c *clientPaneData) CellFieldsAt(col, row int, active bool) (string, uv.Link, uv.Style, int) {
 	if c.cm != nil {
-		return render.ScreenCellFromCopyMode(c.cm.ViewportCellAt(col, row))
+		return render.ScreenCellFieldsFromCopyMode(c.cm.ViewportCellAt(col, row))
 	}
 	emu := c.displayEmulator()
 	cell := emu.CellAt(col, row)
-	sc := render.CellFromUV(cell)
+	char, link, style, width := render.CellFieldsFromUV(cell)
+	sc := render.ScreenCell{Char: char, Link: link, Style: style, Width: width}
 	if c.suppressCursor(active) {
 		stripCursorBlock(&sc, emu, col, row)
 	}
 	if c.prediction != nil {
-		confirmed := render.CellFromUV(c.emu.CellAt(col, row))
+		var confirmed render.ScreenCell
+		render.CellFromUVInto(&confirmed, c.emu.CellAt(col, row))
 		if predictionCellChanged(confirmed, sc) {
-			sc = applyPredictionStyle(sc, c.predictionStyle)
+			applyPredictionStyleInPlace(&sc, c.predictionStyle)
 		}
 	}
-	return sc
+	return sc.Char, sc.Link, sc.Style, sc.Width
 }
 
 func (c *clientPaneData) CursorPos() (col, row int) {

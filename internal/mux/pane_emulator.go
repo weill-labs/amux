@@ -24,14 +24,22 @@ type PaneRenderSnapshot struct {
 }
 
 func (s PaneRenderSnapshot) CellAt(col, row int) (uv.Cell, bool) {
-	if col < 0 || row < 0 || col >= s.Width || row >= s.Height {
+	cell, ok := s.CellPtrAt(col, row)
+	if !ok {
 		return uv.Cell{}, false
+	}
+	return *cell, true
+}
+
+func (s PaneRenderSnapshot) CellPtrAt(col, row int) (*uv.Cell, bool) {
+	if col < 0 || row < 0 || col >= s.Width || row >= s.Height {
+		return nil, false
 	}
 	idx := row*s.Width + col
 	if idx >= len(s.ScreenCells) {
-		return uv.Cell{}, false
+		return nil, false
 	}
-	return s.ScreenCells[idx], true
+	return &s.ScreenCells[idx], true
 }
 
 // wireScrollbackCallbacks connects the emulator's scrollback push/clear

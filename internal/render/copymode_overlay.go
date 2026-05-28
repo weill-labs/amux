@@ -15,28 +15,53 @@ var (
 )
 
 func ScreenCellFromCopyMode(cell proto.Cell) ScreenCell {
-	return normalizeScreenCell(ScreenCell{
+	sc := ScreenCell{
 		Char:  cell.Char,
 		Style: cell.Style,
 		Width: cell.Width,
-	})
-}
-
-func normalizeScreenCell(cell ScreenCell) ScreenCell {
-	sc := cell
-	if sc.Char == "" {
-		sc.Char = " "
 	}
-	if sc.Width < 0 {
-		sc.Width = 1
-	}
+	normalizeScreenCellInPlace(&sc)
 	return sc
 }
 
+func ScreenCellFromCopyModeInto(dst *ScreenCell, cell proto.Cell) {
+	dst.Char = cell.Char
+	dst.Link = uv.Link{}
+	dst.Style = cell.Style
+	dst.Width = cell.Width
+	normalizeScreenCellInPlace(dst)
+}
+
+func ScreenCellFieldsFromCopyMode(cell proto.Cell) (string, uv.Link, uv.Style, int) {
+	char := cell.Char
+	if char == "" {
+		char = " "
+	}
+	width := cell.Width
+	if width < 0 {
+		width = 1
+	}
+	return char, uv.Link{}, cell.Style, width
+}
+
+func normalizeScreenCellInPlace(cell *ScreenCell) {
+	if cell.Char == "" {
+		cell.Char = " "
+	}
+	if cell.Width < 0 {
+		cell.Width = 1
+	}
+}
+
 func applyCopyModeOverlay(base ScreenCell, overlay *proto.ViewportOverlay, col, row int) ScreenCell {
-	base = normalizeScreenCell(base)
+	applyCopyModeOverlayInPlace(&base, overlay, col, row)
+	return base
+}
+
+func applyCopyModeOverlayInPlace(base *ScreenCell, overlay *proto.ViewportOverlay, col, row int) {
+	normalizeScreenCellInPlace(base)
 	if overlay == nil {
-		return base
+		return
 	}
 
 	kind := copyModeHighlightAt(overlay, row, col)
@@ -53,8 +78,6 @@ func applyCopyModeOverlay(base ScreenCell, overlay *proto.ViewportOverlay, col, 
 	if overlay.Cursor == (proto.CursorPosition{Col: col, Row: row}) {
 		base.Style.Attrs |= uv.AttrReverse
 	}
-
-	return base
 }
 
 func copyModeHighlightAt(overlay *proto.ViewportOverlay, row, col int) proto.HighlightKind {
