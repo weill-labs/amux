@@ -81,6 +81,7 @@ Destructive actions that require user confirmation:
 When troubleshooting spawn or assignment failures, fix the specific problem (clean up duplicate panes, check amux state) rather than restarting orca.
 
 - **Recovery ≠ assignment**: restoring a codex process is a separate action from giving it work. After recovery, leave workers at idle prompts. Only assign specific, user-approved issues.
+- **Detecting when a codex pane finishes**: poll `amux capture` for the **absence** of the `esc to interrupt` line (shown as `Working (Ns • esc to interrupt)` while codex is busy). Do **not** key on the input-box placeholder (`Improve documentation in @filename`) — it is always present, even mid-task, so it false-signals "idle" immediately. Give codex a few seconds to pick up a submitted prompt before the first poll.
 
 ### Working In amux
 
@@ -161,6 +162,8 @@ Use matter-of-fact language. State what the PR does, not how good it is. Avoid v
 After opening a PR, run `scripts/watch-pr-ci.sh` once to wait for its required checks. For later updates to an open PR, prefer `scripts/push-and-watch-ci.sh` instead of bare `git push` so the CI watch step is not skipped.
 
 If CI fails, inspect the failed-check summary and failed-step logs from `scripts/watch-pr-ci.sh`, fix issues that plausibly come from your diff, rerun the relevant local tests, and push again. Repeat up to 3 attempts. If the failure looks flaky or unrelated to your change, say so explicitly with evidence instead of churning.
+
+Confirm the required `test` check actually passed before merging — do not treat the watch script's exit as proof. `scripts/watch-pr-ci.sh` can return a clean "no failed runs" message for a head SHA while `test` is still `pending` (it reports absence of failures, not presence of success). Before `gh pr merge`, run `gh pr checks <PR>` and verify `test` shows `pass` (not `pending`/`fail`).
 
 ### Review Before Done
 
