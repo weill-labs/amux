@@ -23,6 +23,8 @@ func FuzzParseConfig(f *testing.F) {
 		[]byte("[theme]\nicons = \"unicode\"\n"),
 		[]byte("[theme]\nicons = \"powerline\"\n"),
 		[]byte("[theme]\nicons = \"\"\n"),
+		[]byte("[remote.hosts.dev]\nssh = \"cweill@example.test\"\nsession = \"main\"\nsocket_path = \"/tmp/amux-1000/main\"\n"),
+		[]byte("[remote.hosts.dev]\nssh = \"cweill@example.test\"\nsession = \"main\"\n"),
 		[]byte("scrollback_lines = 0\n"),
 		[]byte("[keys]\nprefix = \"C-b\"\n"),
 		[]byte("[keys.bind]\ns = \"split\"\n"),
@@ -66,5 +68,8 @@ func assertParsedConfigValid(t *testing.T, cfg *Config) {
 	}
 	if _, err := ResolveThemeIcons(cfg.Theme.Icons); err != nil {
 		t.Fatalf("theme.icons did not validate after parse: %v", err)
+	}
+	if err := ValidateRemoteHosts(cfg.Remote.Hosts); err != nil {
+		t.Fatalf("remote hosts did not validate after parse: %v", err)
 	}
 }

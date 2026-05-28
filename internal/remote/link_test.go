@@ -35,6 +35,13 @@ func TestDefaultRetryPolicyDelays(t *testing.T) {
 	if got := policy.Delay(10); got != 30*time.Second {
 		t.Fatalf("Delay(10) = %v, want cap 30s", got)
 	}
+	custom := RetryPolicy{InitialBackoff: 0, MaxBackoff: 3 * time.Second}
+	if got := custom.Delay(0); got != time.Second {
+		t.Fatalf("custom Delay(0) = %v, want default initial 1s", got)
+	}
+	if got := (RetryPolicy{}).Delay(3); got != 4*time.Second {
+		t.Fatalf("zero-value Delay(3) = %v, want defaulted 4s", got)
+	}
 }
 
 func TestLinkConnectsWithInjectedDialer(t *testing.T) {
@@ -89,6 +96,51 @@ func TestLinkConnectSurfacesDialerError(t *testing.T) {
 	link := NewLink(config.Host{SSH: "test", Session: "main", SocketPath: "/tmp/amux-test"}, errorDialer{err: dialErr})
 	if err := link.Connect(context.Background()); !errors.Is(err, dialErr) {
 		t.Fatalf("Connect() error = %v, want %v", err, dialErr)
+	}
+}
+
+func TestLinkClosedState(t *testing.T) {
+	t.Parallel()
+
+	var nilLink *Link
+	if err := nilLink.Close(); err != nil {
+		t.Fatalf("nil Close() = %v, want nil", err)
+	}
+	if err := nilLink.Connect(context.Background()); err == nil {
+		t.Fatal("nil Connect() error = nil, want error")
+	}
+
+	link := NewLink(config.Host{SSH: "test", Session: "main", SocketPath: "/tmp/amux-test"}, nil)
+	if err := link.WriteMsg(&proto.Message{Type: proto.MsgTypeNotify}); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("WriteMsg before Connect = %v, want net.ErrClosed", err)
+	}
+	if _, err := link.ReadMsg(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("ReadMsg before Connect = %v, want net.ErrClosed", err)
+	}
+}
+
+func TestSSHDialerRejectsMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		host config.Host
+		want string
+	}{
+		{name: "ssh", host: config.Host{SocketPath: "/tmp/amux-test"}, want: "ssh target is required"},
+		{name: "socket", host: config.Host{SSH: "cweill@example.test"}, want: "socket path is required"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := (SSHDialer{}).Dial(context.Background(), tt.host)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Dial() error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

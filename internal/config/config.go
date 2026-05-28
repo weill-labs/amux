@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/weill-labs/amux/internal/proto"
@@ -319,14 +321,21 @@ func (c *Config) EffectiveThemeIcons() string {
 }
 
 func ValidateRemoteHosts(hosts map[string]Host) error {
-	for name, host := range hosts {
-		if host.SSH == "" {
+	names := make([]string, 0, len(hosts))
+	for name := range hosts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		host := hosts[name]
+		if strings.TrimSpace(host.SSH) == "" {
 			return fmt.Errorf("remote.hosts.%s.ssh is required", name)
 		}
-		if host.Session == "" {
+		if strings.TrimSpace(host.Session) == "" {
 			return fmt.Errorf("remote.hosts.%s.session is required", name)
 		}
-		if host.SocketPath == "" {
+		if strings.TrimSpace(host.SocketPath) == "" {
 			return fmt.Errorf("remote.hosts.%s.socket_path is required", name)
 		}
 		if !filepath.IsAbs(host.SocketPath) {

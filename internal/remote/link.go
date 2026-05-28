@@ -23,10 +23,11 @@ type Link struct {
 	host   config.Host
 	dialer Dialer
 
-	mu     sync.Mutex
-	conn   net.Conn
-	reader *proto.Reader
-	writer *proto.Writer
+	mu      sync.Mutex
+	writeMu sync.Mutex
+	conn    net.Conn
+	reader  *proto.Reader
+	writer  *proto.Writer
 }
 
 func NewLink(host config.Host, dialer Dialer) *Link {
@@ -40,6 +41,13 @@ func (l *Link) Connect(ctx context.Context) error {
 	if l == nil {
 		return errors.New("remote link is nil")
 	}
+	l.mu.Lock()
+	if l.conn != nil {
+		l.mu.Unlock()
+		return errors.New("remote link already connected")
+	}
+	l.mu.Unlock()
+
 	conn, err := l.dialer.Dial(ctx, l.host)
 	if err != nil {
 		return err
@@ -68,6 +76,9 @@ func (l *Link) ReadMsg() (*proto.Message, error) {
 }
 
 func (l *Link) WriteMsg(msg *proto.Message) error {
+	l.writeMu.Lock()
+	defer l.writeMu.Unlock()
+
 	l.mu.Lock()
 	writer := l.writer
 	l.mu.Unlock()
