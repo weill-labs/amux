@@ -385,7 +385,7 @@ Each PR independently shippable. After phase 2, mirrors are usable from the comm
 | 2026-05-27 | Restricted-mode `MsgTypeAttachPane` (security boundary) | Codex review R5. Without it, a federated client can run any server command. Verified airtight in PR #826. |
 | 2026-05-27 | `amux remote <subcommand>` namespace | UX review #6. Avoids verb sprawl. |
 | 2026-05-27 | `spawn --at ... --attach host:pane-name` (not `--mirror`) | UX review #1, #2. `split-right` doesn't exist; `mirror` implies read-only. |
-| 2026-05-27 | Pane *names* on the wire, not IDs | "Names over IDs" principle. IDs are session-monotonic and not stable across remote restart. |
+| 2026-05-27 | Pane *names* are the durable handle (persisted in `RemoteRef`), resolved to IDs at attach time | "Names over IDs" principle. IDs are session-monotonic and not stable across remote restart. (Superseded the original "names on the wire" wording — the wire attach is ID-only; see the 2026-05-28 entry.) |
 | 2026-05-27 | Letterbox at remote geometry; `amux remote resize` for explicit opt-in | Avoids multi-user resize tug-of-war. v1 keeps the matrix of behaviors small. |
 | 2026-05-27 | `MirrorManager` in `internal/server/mirror/`, injected into `Session` | Architect #3. Matches the existing `capture.go` injection pattern. |
 | 2026-05-27 | `Dialer` interface for test bypass | Architect #5. Integration tests use direct Unix socket dial, not a real SSH daemon. |
