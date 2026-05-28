@@ -1,6 +1,6 @@
 # amux federation: mirroring a remote pane in the local layout
 
-Date: 2026-05-28. Supersedes the draft at `/tmp/amux-federation-design.md` (v1). Related: [LAB-1934](https://linear.app/weill-labs/issue/LAB-1934/delete-all-remote-logic) (the deleted predecessor), [PR #826](https://github.com/weill-labs/amux/pull/826) (tracer bullet), [PR #825](https://github.com/weill-labs/amux/pull/825) (two-server harness).
+Date: 2026-05-28. Supersedes an earlier **uncommitted** design draft (referred to below as "the original draft"; it was never checked in). Related: [LAB-1934](https://linear.app/weill-labs/issue/LAB-1934/delete-all-remote-logic) (the deleted predecessor), [PR #826](https://github.com/weill-labs/amux/pull/826) (tracer bullet), [PR #825](https://github.com/weill-labs/amux/pull/825) (two-server harness).
 
 ## Motivation
 
@@ -10,9 +10,9 @@ LAB-1934 deleted an earlier remote feature (~7000 LOC) that wrapped `ssh user@ho
 
 This spec is structurally different: **two `amux` servers federate**, the local server holds a mirror pane in its layout fed by the wire protocol, and the remote pane stays where it is.
 
-## What changed since v1
+## What changed since the original draft
 
-The v1 draft was reviewed by four independent perspectives (skeptic, architect, UX, codex) and produced a single tracer-bullet ticket (LAB-1952) whose only purpose was to falsify the riskiest premise: that scoped per-pane subscription would tangle with the existing whole-session broadcast paths in `internal/server/`.
+The original draft was reviewed by four independent perspectives (skeptic, architect, UX, codex) and produced a single tracer-bullet ticket (LAB-1952) whose only purpose was to falsify the riskiest premise: that scoped per-pane subscription would tangle with the existing whole-session broadcast paths in `internal/server/`.
 
 **The tracer bullet result (PR #826, merged 2026-05-28):**
 
@@ -70,7 +70,7 @@ These survived LAB-1934 and LAB-1937 deletions and are load-bearing for v2:
 - `mux.NewProxyPaneWithScrollback` (`internal/mux/pane.go:808`) — creates a pane with no PTY.
 - `mux.Pane.IsProxy()` (`internal/mux/pane.go:845`).
 - `server.checkpoint.IsProxy` serialization (`internal/server/checkpoint.go:76`) — preserves proxy panes across server reload.
-- `icons.RemoteHost` (the `@` glyph in `internal/render/icons.go:64`) — status line already renders `@<host>` for any pane with `PaneMeta.Host != ""`.
+- `icons.RemoteHost` (field defined at `internal/render/icons.go:16`; rendered as the `@` glyph in the default themes, e.g. the Catppuccin-mocha literal at `:64`) — status line already renders `@<host>` for any pane with `PaneMeta.Host != ""`.
 - **New from PR #826**: `MsgTypeListPanes`, `MsgTypeAttachPane`, restricted-mode dispatch in `client_conn.go`, scoped subscriber tracking in `session_events_pane.go`.
 
 ### Deleted and not coming back
@@ -90,10 +90,11 @@ These survived LAB-1934 and LAB-1937 deletions and are load-bearing for v2:
 | `internal/server/commands_layout.go` | `--attach <host>:<pane-name>` flag on `spawn` | 100 |
 | `internal/client/chooser.go` | Extract `Source` interface; add `RemoteSource` (calls `remote panes` via local server) | 150 |
 | `internal/render/statusbar.go` | Re-introduce connection-state segment (amber border, glyph) — note that LAB-1937 deleted prior `ConnStatus` plumbing, so this is from scratch | 150 |
+| **Subtotal (production)** | | **~1630** |
 | Tests | Integration coverage using LAB-1953's `newServerHarnessPair` | 800 |
-| **Total** | | **~2430** |
+| **Total (production + tests)** | | **~2430** |
 
-This is **larger than the v1 estimate of ~2000 LOC** because the v1 estimate was based on outdated assumptions about surviving plumbing. The skeptic's R2 finding (LAB-1934 cost was lifecycle, not transport) is corrected here: `MirrorManager` is sized realistically at 500 LOC. If `MirrorManager` exceeds 800 LOC during implementation, the worker should comment on the relevant ticket as a blocker.
+Production code is **~1630 LOC**; with the ~800 LOC of tests the total lands at **~2430 LOC**. This is **larger than the original draft's estimate of ~2000 LOC** because that estimate was based on outdated assumptions about surviving plumbing. The skeptic's R2 finding (LAB-1934 cost was lifecycle, not transport) is corrected here: `MirrorManager` is sized realistically at 500 LOC. If `MirrorManager` exceeds 800 LOC during implementation, the worker should comment on the relevant ticket as a blocker.
 
 ### Architect-recommended factoring
 
@@ -126,12 +127,21 @@ No other wire changes for v1. `MsgTypePaneHistory` already exists and serves the
 
 After a connection sends `MsgTypeAttachPane{PaneID: N}`:
 
-- ✓ Receives `MsgTypePaneOutput` only for `PaneID == N`.
-- ✓ Receives `MsgTypeExit` if pane N exits, then the connection closes.
-- ✓ Accepts `MsgTypeInputPane` if and only if `PaneID == N` (other PaneIDs return non-fatal error).
-- ✗ Any other client→server message closes the connection with an error. Specifically: `MsgTypeAttach`, `MsgTypeCommand`, `MsgTypeResize`, `MsgTypeInput` (without PaneID), `MsgTypeUIEvent`, `MsgTypeCaptureResponse`.
+**Client → server (what the restricted connection may send):**
 
-This is the security boundary codex flagged in R5 of the v1 review. It is not optional and not relaxable.
+- ✓ `MsgTypeInputPane` if and only if `PaneID == N` (other PaneIDs return a non-fatal error; the connection survives).
+- ✗ Any other client→server message closes the connection with an error. Specifically: `MsgTypeAttach`, `MsgTypeCommand`, `MsgTypeResize`, `MsgTypeInput` (without PaneID), `MsgTypeUIEvent`, `MsgTypeCaptureResponse`. There are **no exceptions** — including resize (see [Resize policy](#resize-policy), which uses a separate non-restricted connection precisely so this invariant holds).
+
+**Server → client (what the server may send to a restricted connection):**
+
+- ✓ `MsgTypePaneOutput` only for `PaneID == N`. *(already in PR #826)*
+- ✓ `MsgTypeExit` if pane N exits, then the connection closes. *(already in PR #826)*
+- ✓ `MsgTypePaneHistory` once, as the attach-time bootstrap for pane N. *(new wire addition — see phase 2)*
+- ✓ `MsgTypeClipboard` when pane N emits OSC 52. *(new wire addition — must be added to the scoped subscriber path in `session_events_pane.go`)*
+- ✓ `MsgTypeBell` when pane N rings the bell. *(new wire addition)*
+- ✓ `MsgTypePaneMetaUpdate` when pane N's meta changes. *(new wire addition — see [capability matrix](#capability-matrix-mirror-panes))*
+
+The client→server direction is the security boundary codex flagged in R5 of the v1 review. It is not optional and not relaxable. The server→client list grows in v2 (the four `new wire addition` rows above are explicit implementation-ticket deliverables, not yet in PR #826), but every addition is a server-originated push to a pane-N subscriber — none of them widen what the *client* is allowed to drive.
 
 ## Transport
 
@@ -167,7 +177,7 @@ amux remote panes <name>               # table identical to `amux list`, scoped 
 amux remote status                     # link health + active mirrors per host
 amux remote attach <name>:<pane-name>  # mirror a remote pane (non-interactive, scripting-friendly)
 amux remote detach <local-pane>        # drop a mirror (remote pane keeps running)
-amux remote resize <local-pane>        # send a resize negotiation to the remote (affects all clients)
+amux remote resize <local-pane>        # resize the remote pane via a separate connection (affects all its clients)
 ```
 
 ### Spawn with attach (scripting path)
@@ -221,20 +231,24 @@ The UX reviewer flagged that the v1 "dim the content" signal conflicts with the 
 ## State machine
 
 ```
-                  ┌─ connecting ─┐
-                  ▼              │
-                connected ───────┤ ssh drop
-                  │              ▼
-                  │         reconnecting ──┐
-                  │              │         │
-                  │              │ epoch+1 │
-                  │              ▼         │ retry budget exhausted (5 attempts)
-                  │         connected ◀────┘
-                  │              │
-                  ▼              ▼
-              detached      dead (banner stays, mirror in layout)
-              (user closed) (user must amux remote attach again)
+   connecting
+       │ attach ok
+       ▼
+   connected ───────────── user closes ─────────────▶ detached
+       │  ▲                                            (mirror removed
+       │  │ reconnect ok                                from layout)
+ ssh   │  │ (epoch+1, fresh
+ drop  │  │  MsgTypePaneHistory)
+       ▼  │
+   reconnecting ──── retry budget exhausted (5 attempts) ────▶ dead
+                                                               (banner stays,
+                                                                mirror kept in
+                                                                layout; user must
+                                                                amux remote attach
+                                                                again)
 ```
+
+`reconnecting` has exactly two exits: **reconnect ok** loops back to `connected` (incrementing the epoch and replaying a fresh `MsgTypePaneHistory`), and **retry budget exhausted** terminates in `dead`. There is no path from `reconnecting` straight back to `connected` without a successful re-dial.
 
 **Retry budget**: 5 attempts with `1s → 2s → 4s → 8s → 16s` backoff (cap 30s). After exhaustion, mirror transitions to `dead`, stays in layout with a red banner. User decides whether to re-attach.
 
@@ -246,9 +260,11 @@ The UX reviewer flagged that the v1 "dim the content" signal conflicts with the 
 - When the local cell is larger than that geometry: pad with blank cells.
 - When the local cell is smaller: crop with a visible truncation indicator on the right/bottom edges.
 
-`amux remote resize <local-pane>` sends a `MsgTypeResize` to the remote *before* it falls under restricted-mode reject. (This is the one explicit exception: a resize sent specifically by a scoped subscriber is accepted by the remote and applied to the target pane — affecting every client attached to it.)
+`amux remote resize <local-pane>` does **not** go through the mirror's restricted connection. The scoped subscriber rejects every client→server message except `MsgTypeInputPane` (see [Restricted mode invariants](#restricted-mode-invariants-already-enforced-in-pr-826)), and that boundary stays absolute. Instead, the command opens a **separate, short-lived, non-restricted client connection** to the remote server over the same SSH tunnel, issues a normal pane-resize command for the target pane, and closes. The mirror's scoped connection is untouched; on the next `MsgTypePaneOutput` frame it simply observes the remote pane at its new geometry and re-letterboxes.
 
-This is explicit, easy to explain, and avoids the multi-user resize tug-of-war. A future `--negotiate` mode is additive and out of scope for v1.
+This costs one extra dial per explicit resize (rare, user-initiated) but keeps the restricted mode a true invariant rather than an invariant-with-an-asterisk. Because the resize lands on the remote pane itself, it affects every client attached to that pane on the remote — the documented multi-user trade-off.
+
+This is explicit, easy to explain, and avoids the multi-user resize tug-of-war for the common (letterbox) path. A future `--negotiate` mode is additive and out of scope for v1.
 
 ## Capability matrix (mirror panes)
 
@@ -272,9 +288,11 @@ For each existing per-pane signal, behavior on a mirror:
 | `amux capture --format json` (local server) | Returns the mirror's local emulator snapshot. |
 | `AgentStatus` in capture JSON | **Forwarded via a new per-pane meta channel** (see below). Otherwise agents that read capture JSON misroute mirrors as idle. |
 | `amux respawn pane-91` | **Forbidden** — error. (Already enforced for proxy panes at `commands_layout.go:581`.) |
-| Local server hot-reload | Mirror enters `reconnecting` after restore; emulator content shown frozen until reconnect succeeds. Checkpoint stores `RemoteRef{host, session, pane_name, last_epoch}`. |
+| `amux rename pane-91 <name>` | Renames the **local** mirror pane only. The remote pane's name is unchanged. The mirror's remote handle (stored in `RemoteRef.PaneName`) is unaffected. |
+| `amux focus pane-91` | Works normally — focus is a local layout operation. The remote pane's active state is unchanged. |
+| Local server hot-reload | Mirror enters `reconnecting` after restore; emulator content shown frozen until reconnect succeeds. Checkpoint stores `RemoteRef{host, session, pane_name, last_epoch}`. (Construction ordering caveat — see [Checkpoint and hot-reload](#checkpoint-and-hot-reload).) |
 | Remote pane killed externally | Local mirror receives `MsgTypeExit`, status flips to red `✗ remote pane gone`. Stays in layout. |
-| Remote server restart | Mirror enters `dead` after retry budget; remote pane IDs are not stable across restart, so re-attach requires a new chooser pick. |
+| Remote server restart | Mirror enters `dead` after the retry budget exhausts. The SSH connection drops when the remote server exits, and within the budget window the local `MirrorManager` cannot distinguish a server that is restarting from one that is gone for good — so v1 deliberately does **not** auto-reconnect across a remote restart, even though the pane *name* would still resolve once the remote is back. Re-attach is a manual `amux remote attach` (the chooser re-resolves the name). See the Decision Log for why this is a deliberate v1 simplification rather than an ID-stability limitation. |
 
 The forwarding mechanism for `AgentStatus` and per-pane meta (`PaneMeta.Host`, `PaneMeta.GitBranch`, `PaneMeta.PR`, `PaneMeta.TrackedPRs`, `PaneMeta.TrackedIssues`) is a new wire message piggybacking on the same restricted mode:
 
@@ -286,7 +304,9 @@ Stamped with the subscription epoch like `MsgTypePaneOutput`.
 
 ## Checkpoint and hot-reload
 
-The architect's critical finding: today's proxy-pane checkpoint restore stub (`internal/server/checkpoint.go:260`) installs a write-discarding stub. For mirrors, that path must be replaced with `MirrorManager` rehydration.
+The architect's critical finding: today's proxy-pane checkpoint restore path (the `NewProxyPaneWithScrollback` call begins at `internal/server/checkpoint.go:260`; the write-discarding lambda `func(data []byte) (int, error) { return len(data), nil }` is at `:262`) installs a write-discarding stub. For mirrors, that path must be replaced with `MirrorManager` rehydration.
+
+**Construction-ordering caveat.** Pane restore happens during checkpoint load, but `MirrorManager` is injected into `Session` at construction. The restore path therefore runs at a point where the `MirrorManager` must already exist to be notified. The implementation must construct `MirrorManager` *before* the pane-restore loop in the checkpoint constructor (`NewServerFromCheckpoint…`), then have restore call into it for each `RemoteRef != nil` pane. If a restored mirror's pane is reconstructed before the manager is wired, the notification in step 2 below is dropped and the mirror stays frozen. This ordering is the v2 analogue of the existing capture-forwarder injection at `server.go:500` and must be covered by the checkpoint round-trip test.
 
 **Checkpoint format addition** (new field, additive — old checkpoints continue to restore as frozen proxies):
 
@@ -345,7 +365,7 @@ Each PR independently shippable. After phase 2, mirrors are usable from the comm
 - **Per-mirror local echo prediction.** RTT too variable.
 - **`--negotiate` resize mode.** Additive to v1.
 - **Multiple local mirrors of the same remote pane with input arbitration.** First mirror to send input wins; second mirror's input is dropped with a banner. Not arbitrated.
-- **Rate limiting on the remote.** A misbehaving local mirror can flood the remote with `MsgTypeInputPane`. Existing `maxMessageSize = 16 MB` per frame applies; finer-grained limits are out of scope for v1.
+- **Rate / flood limiting on the remote.** A misbehaving local mirror can flood the remote with many small `MsgTypeInputPane` frames. The existing `maxMessageSize = 16 MB` cap (`wire.go`, enforced per message at decode time) bounds each *frame's size* but is **not** a rate or flood control — a fast stream of small frames is unaffected by it. No per-connection rate limiting ships in v1; it is acknowledged as a gap, not mitigated.
 - **`amux events` `--host` filter.** Removed in LAB-1937. Re-introduction tracked separately if needed.
 
 ## Decision log
@@ -366,8 +386,12 @@ Each PR independently shippable. After phase 2, mirrors are usable from the comm
 | 2026-05-28 | Tracer bullet (PR #826) proves scoped subscription doesn't tangle with broadcast | +70 LOC in `client_conn.go`, well under 300 threshold. Cleared the go/no-go premise. |
 | 2026-05-28 | Reconnect uses `SubscriptionEpoch` on every PaneOutput frame | Codex review R2. Closes the in-flight-stale-frame race. |
 | 2026-05-28 | `MsgTypePaneMetaUpdate = 28` for forwarding per-pane meta (AgentStatus, GitBranch, PR) | Architect #4 + codex hand-waved item. Without this, agents misroute mirrors as idle. |
-| 2026-05-28 | LOC budget ~2430 (production), realistic vs v1's ~2000 | Skeptic R2. v1 budget mis-attributed deleted code. |
+| 2026-05-28 | LOC budget ~1630 production + ~800 tests = ~2430 total, realistic vs the original draft's ~2000 | Skeptic R2. Original budget mis-attributed deleted code. |
 | 2026-05-28 | Checkpoint stores `RemoteRef{host, session, pane_name, last_epoch}`; old checkpoints restore as frozen (back-compat) | Architect critical fix. |
+| 2026-05-28 | `amux remote resize` uses a separate non-restricted connection, **not** the mirror's scoped tunnel | Review of PR #827 (Claude + Greptile P1). Keeps the restricted-mode security boundary an absolute invariant instead of an invariant-with-an-exception. Resolves the contradiction between the invariants list and the resize policy. |
+| 2026-05-28 | v1 does **not** auto-reconnect a mirror across a remote *server* restart, even when the pane name would still resolve | Review of PR #827 (Claude non-blocking #3). The SSH drop on remote exit is indistinguishable from "remote gone" within the retry-budget window, so the mirror terminates in `dead` and the user re-attaches manually. This is a deliberate v1 simplification, not an ID-stability limitation. |
+| 2026-05-28 | Restricted-mode server→client send list is explicit and grows in v2 (adds PaneHistory, Clipboard, Bell, PaneMetaUpdate) | Review of PR #827 (Claude non-blocking #2). PR #826 sends only PaneOutput + Exit; the four additions are tracked implementation-ticket deliverables so they aren't silently missed. |
+| 2026-05-28 | `MirrorManager` must be constructed before the checkpoint pane-restore loop | Review of PR #827 (Claude open-question #5). Otherwise restore-time mirror notifications are dropped and mirrors stay frozen after hot-reload. |
 
 ## Open questions
 
