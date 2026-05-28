@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -453,6 +454,81 @@ func BenchmarkPaneOutputCaptureRefreshBurst(b *testing.B) {
 			r.HandlePaneOutputBatchInfo(items)
 		}
 	})
+}
+
+func BenchmarkRenderCoalescedForegroundWithNoisyBackground(b *testing.B) {
+	const (
+		width              = 160
+		layoutHeight       = 31
+		backgroundMessages = 64
+		payloadVariants    = 256
+	)
+
+	backgroundPayloads := make([][]byte, payloadVariants)
+	foregroundPayloads := make([][]byte, payloadVariants)
+	for i := range payloadVariants {
+		backgroundPayloads[i] = []byte(fmt.Sprintf("\x1b[2;1Hbackground noisy tick %03d", i))
+		foregroundPayloads[i] = []byte(fmt.Sprintf("\x1b[1;1Htyped foreground %03d", i))
+	}
+
+	cr := NewClientRenderer(width, layoutHeight+1)
+	defer cr.renderer.Close()
+	cr.HandleLayout(benchLayoutSnapshot(2, width, layoutHeight))
+	cr.RenderDiff()
+	cr.renderFrameInterval = time.Hour
+	cr.renderPriorityWindow = time.Hour
+
+	msgCh := make(chan *RenderMsg, backgroundMessages+4)
+	rendered := make(chan time.Duration, 4)
+	done := make(chan struct{})
+	var frameStart time.Time
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			rendered <- time.Since(frameStart)
+		})
+		close(done)
+	}()
+
+	var foregroundLatency time.Duration
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cr.MarkLocalInput()
+		frameStart = time.Now()
+		for j := 0; j < backgroundMessages; j++ {
+			msgCh <- &RenderMsg{
+				Typ:    RenderMsgPaneOutput,
+				PaneID: 2,
+				Data:   backgroundPayloads[(i+j)%payloadVariants],
+			}
+		}
+		msgCh <- &RenderMsg{
+			Typ:    RenderMsgPaneOutput,
+			PaneID: 1,
+			Data:   foregroundPayloads[i%payloadVariants],
+		}
+		foregroundLatency += <-rendered
+
+		callLocalRenderAction[struct{}](cr, msgCh, func(*ClientRenderer) localRenderResult {
+			return renderNowResult()
+		})
+		for {
+			select {
+			case <-rendered:
+			default:
+				goto drained
+			}
+		}
+	drained:
+	}
+	b.StopTimer()
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+
+	if b.N > 0 {
+		b.ReportMetric(float64((foregroundLatency / time.Duration(b.N)).Nanoseconds()), "fg-ns/op")
+	}
 }
 
 func BenchmarkCapturePaneRenderSnapshotRender(b *testing.B) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -22,17 +23,26 @@ type clientFrameSample struct {
 }
 
 type clientFrameStats struct {
-	samples [clientFrameStatsWindowSize]clientFrameSample
-	next    int
-	count   int
+	mu                   sync.Mutex
+	samples              [clientFrameStatsWindowSize]clientFrameSample
+	next                 int
+	count                int
+	actorQueueLatencies  [clientFrameStatsWindowSize]time.Duration
+	actorQueueNext       int
+	actorQueueSampleSize int
 }
 
 type clientFrameStatsSnapshot struct {
-	sampleCount int
-	samples     []clientFrameSample
+	sampleCount           int
+	samples               []clientFrameSample
+	actorQueueSampleCount int
+	actorQueueLatencies   []time.Duration
 }
 
 func (s *clientFrameStats) record(sample clientFrameSample) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.samples[s.next] = sample
 	s.next = (s.next + 1) % len(s.samples)
 	if s.count < len(s.samples) {
@@ -40,30 +50,61 @@ func (s *clientFrameStats) record(sample clientFrameSample) {
 	}
 }
 
+func (s *clientFrameStats) recordActorQueueLatency(latency time.Duration) {
+	if latency < 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.actorQueueLatencies[s.actorQueueNext] = latency
+	s.actorQueueNext = (s.actorQueueNext + 1) % len(s.actorQueueLatencies)
+	if s.actorQueueSampleSize < len(s.actorQueueLatencies) {
+		s.actorQueueSampleSize++
+	}
+}
+
 func (s *clientFrameStats) snapshot() clientFrameStatsSnapshot {
-	if s.count == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.count == 0 && s.actorQueueSampleSize == 0 {
 		return clientFrameStatsSnapshot{}
 	}
 
-	start := s.next - s.count
-	if start < 0 {
-		start += len(s.samples)
+	frameStart := s.next - s.count
+	if frameStart < 0 {
+		frameStart += len(s.samples)
 	}
 
 	out := make([]clientFrameSample, 0, s.count)
 	for i := 0; i < s.count; i++ {
-		idx := (start + i) % len(s.samples)
+		idx := (frameStart + i) % len(s.samples)
 		out = append(out, s.samples[idx])
 	}
+
+	queueStart := s.actorQueueNext - s.actorQueueSampleSize
+	if queueStart < 0 {
+		queueStart += len(s.actorQueueLatencies)
+	}
+
+	queueLatencies := make([]time.Duration, 0, s.actorQueueSampleSize)
+	for i := 0; i < s.actorQueueSampleSize; i++ {
+		idx := (queueStart + i) % len(s.actorQueueLatencies)
+		queueLatencies = append(queueLatencies, s.actorQueueLatencies[idx])
+	}
 	return clientFrameStatsSnapshot{
-		sampleCount: s.count,
-		samples:     out,
+		sampleCount:           s.count,
+		samples:               out,
+		actorQueueSampleCount: s.actorQueueSampleSize,
+		actorQueueLatencies:   queueLatencies,
 	}
 }
 
 func (s *clientFrameStats) format() string {
 	snap := s.snapshot()
-	if snap.sampleCount == 0 {
+	if snap.sampleCount == 0 && len(snap.actorQueueLatencies) == 0 {
 		return "no frame samples recorded yet"
 	}
 
@@ -80,37 +121,57 @@ func (s *clientFrameStats) format() string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "samples: %d\n", snap.sampleCount)
-	fmt.Fprintf(&b, "frame duration: p50 %s  p95 %s  p99 %s\n",
-		percentileDuration(durations, 50),
-		percentileDuration(durations, 95),
-		percentileDuration(durations, 99),
-	)
-	fmt.Fprintf(&b, "cells diffed: p50 %d  p95 %d  p99 %d\n",
-		percentileInt(cells, 50),
-		percentileInt(cells, 95),
-		percentileInt(cells, 99),
-	)
-	fmt.Fprintf(&b, "ansi bytes emitted: p50 %d  p95 %d  p99 %d\n",
-		percentileInt(ansiBytes, 50),
-		percentileInt(ansiBytes, 95),
-		percentileInt(ansiBytes, 99),
-	)
-	fmt.Fprintf(&b, "panes composited: p50 %d  p95 %d  p99 %d\n",
-		percentileInt(panes, 50),
-		percentileInt(panes, 95),
-		percentileInt(panes, 99),
-	)
+	if snap.sampleCount == 0 {
+		b.WriteString("frame duration: no samples\n")
+		b.WriteString("cells diffed: no samples\n")
+		b.WriteString("ansi bytes emitted: no samples\n")
+		b.WriteString("panes composited: no samples\n")
+	} else {
+		fmt.Fprintf(&b, "frame duration: p50 %s  p95 %s  p99 %s\n",
+			percentileDuration(durations, 50),
+			percentileDuration(durations, 95),
+			percentileDuration(durations, 99),
+		)
+		fmt.Fprintf(&b, "cells diffed: p50 %d  p95 %d  p99 %d\n",
+			percentileInt(cells, 50),
+			percentileInt(cells, 95),
+			percentileInt(cells, 99),
+		)
+		fmt.Fprintf(&b, "ansi bytes emitted: p50 %d  p95 %d  p99 %d\n",
+			percentileInt(ansiBytes, 50),
+			percentileInt(ansiBytes, 95),
+			percentileInt(ansiBytes, 99),
+		)
+		fmt.Fprintf(&b, "panes composited: p50 %d  p95 %d  p99 %d\n",
+			percentileInt(panes, 50),
+			percentileInt(panes, 95),
+			percentileInt(panes, 99),
+		)
+	}
+	if len(snap.actorQueueLatencies) == 0 {
+		b.WriteString("actor queueing latency: no samples\n")
+	} else {
+		fmt.Fprintf(&b, "actor queueing latency: p50 %s  p95 %s  p99 %s\n",
+			percentileDuration(snap.actorQueueLatencies, 50),
+			percentileDuration(snap.actorQueueLatencies, 95),
+			percentileDuration(snap.actorQueueLatencies, 99),
+		)
+	}
 
 	recentStart := len(snap.samples) - clientFrameStatsRecentSize
 	if recentStart < 0 {
 		recentStart = 0
 	}
-	b.WriteString("last 100 frame times (oldest -> newest): ")
-	for i, sample := range snap.samples[recentStart:] {
-		if i > 0 {
-			b.WriteString(", ")
+	if snap.sampleCount == 0 {
+		b.WriteString("last 100 frame times (oldest -> newest): no samples")
+	} else {
+		b.WriteString("last 100 frame times (oldest -> newest): ")
+		for i, sample := range snap.samples[recentStart:] {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(sample.frameDuration.String())
 		}
-		b.WriteString(sample.frameDuration.String())
 	}
 	return b.String()
 }
@@ -159,7 +220,7 @@ func isDebugFramesClientQuery(args []string) bool {
 	return len(args) == 1 && args[0] == proto.ClientQueryDebugFramesArg
 }
 
-func clientFrameStatsResponse(stats clientFrameStats) *proto.Message {
+func clientFrameStatsResponse(stats *clientFrameStats) *proto.Message {
 	return &proto.Message{
 		Type:      proto.MsgTypeCaptureResponse,
 		CmdOutput: stats.format() + "\n",
