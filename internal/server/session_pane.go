@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -154,6 +155,43 @@ func (s *Session) preparePendingLocalPane(srv *Server, meta mux.PaneMeta, cols, 
 	s.appendPaneLog(paneLogEventCreate, pane, "")
 	s.logPaneCreate(pane, "local")
 	return pane, s.newLocalPaneBuildRequest(id, meta, cols, rows, colorProfile), nil
+}
+
+func (s *Session) mirrorWriteOverride(paneID uint32) func([]byte) (int, error) {
+	return func(data []byte) (int, error) {
+		if s == nil || s.mirror == nil {
+			return len(data), nil
+		}
+		return s.mirror.Write(paneID, data)
+	}
+}
+
+func (s *Session) prepareMirrorPane(meta mux.PaneMeta, ref checkpoint.RemoteRef, cols, rows int) (*mux.Pane, error) {
+	if ref.Host == "" {
+		return nil, fmt.Errorf("remote host is required")
+	}
+	if ref.PaneName == "" {
+		return nil, fmt.Errorf("remote pane name is required")
+	}
+	if meta.Host == "" {
+		meta.Host = ref.Host
+	}
+	id, meta := s.reserveLocalPaneMeta(meta)
+	pane := mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLinesForHost(meta.Host),
+		s.paneOutputCallback(), s.paneExitCallback(), s.mirrorWriteOverride(id))
+	pane = s.configureLocalPane(pane, nil)
+
+	s.Panes = append(s.Panes, pane)
+	s.appendPaneLog(paneLogEventCreate, pane, "")
+	s.logPaneCreate(pane, "mirror")
+	return pane, nil
+}
+
+func (s *Session) trackMirrorPane(pane *mux.Pane, ref checkpoint.RemoteRef) error {
+	if s == nil || s.mirror == nil {
+		return fmt.Errorf("mirror manager is not configured")
+	}
+	return s.mirror.Track(pane, ref)
 }
 
 func (s *Session) startPendingLocalPaneBuild(srv *Server, placeholder *mux.Pane, req localPaneBuildRequest, done chan error) {

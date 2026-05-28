@@ -128,7 +128,7 @@ func (cc *clientConn) allowsServerMessage(msg *Message) bool {
 		return true
 	}
 	switch msg.Type {
-	case MsgTypePaneOutput:
+	case MsgTypePaneOutput, MsgTypePaneHistory, MsgTypeClipboard, MsgTypeBell:
 		return msg.PaneID == cc.scopedPaneID
 	case MsgTypeCmdResult, MsgTypeExit:
 		return true

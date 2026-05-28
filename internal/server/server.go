@@ -15,9 +15,12 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/remote"
+	"github.com/weill-labs/amux/internal/server/mirror"
 	"github.com/weill-labs/amux/internal/termprofile"
 )
 
@@ -96,6 +99,11 @@ type Session struct {
 	// client so the result reflects client-side emulator state.
 	// The event loop owns the single in-flight request and queued requests.
 	capture *captureForwarder
+
+	// Mirror management owns remote-pane proxy state machines. It is created
+	// with the session so checkpoint restore can register mirror panes while
+	// panes are being reconstructed.
+	mirror *mirror.Manager
 
 	// Crash checkpoint coordination owns debounce/periodic scheduling and disk writes.
 	checkpointCoordinator crashCheckpointCoordinator
@@ -498,11 +506,27 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()
+	sess.mirror = mirror.NewManager(mirror.Config{})
 	sess.input = newInputRouter()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.undo = newUndoManager(undoManagerConfig{})
 	sess.startEventLoop()
 	return sess
+}
+
+func (s *Server) ConfigureMirrors(hosts map[string]config.Host, dialer remote.Dialer) {
+	if s == nil {
+		return
+	}
+	for _, sess := range s.sessions {
+		if sess == nil || sess.mirror == nil {
+			continue
+		}
+		sess.mirror.Configure(mirror.Config{
+			Hosts:  hosts,
+			Dialer: dialer,
+		})
+	}
 }
 
 func (s *Session) scrollbackLinesForHost(host string) int {
@@ -783,6 +807,9 @@ func (s *Server) shutdown() {
 		// Stop crash checkpoint loop and wait for it to exit.
 		// The shutdown flag prevents any further writes.
 		sess.stopCrashCheckpointLoop()
+		if sess.mirror != nil {
+			sess.mirror.Close()
+		}
 
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
@@ -892,12 +919,33 @@ func (s *Server) handleAttachPane(cc *clientConn, msg *Message) {
 	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
 	cc.logger = sess.logger.With("client_id", cc.ID)
 	cc.restrictToPane(msg.PaneID)
+	cc.startBootstrap()
 
-	if err := sess.enqueueAttachPaneClient(cc, msg.PaneID); err != nil {
-		cc.sendProtocolError(err.Error())
+	res := sess.enqueueAttachPaneClient(cc, msg.PaneID)
+	if res.err != nil {
+		cc.sendProtocolError(res.err.Error())
 		cc.Close()
 		return
 	}
+	if len(res.snapshot.styledHistory) > 0 {
+		messages, err := chunkPaneHistoryMessages(res.snapshot.paneID, res.snapshot.styledHistory, paneHistoryChunkThreshold, false)
+		if err != nil {
+			cc.sendProtocolError(err.Error())
+			cc.Close()
+			return
+		}
+		for _, historyMsg := range messages {
+			if err := cc.Send(historyMsg); err != nil {
+				cc.Close()
+				return
+			}
+		}
+	}
+	if err := cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: res.snapshot.paneID, PaneData: res.snapshot.screen}); err != nil {
+		cc.Close()
+		return
+	}
+	cc.finishBootstrap(map[uint32]uint64{res.snapshot.paneID: res.snapshot.outputSeq})
 	cc.readLoop(s, sess)
 }
 

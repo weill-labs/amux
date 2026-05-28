@@ -96,6 +96,13 @@ func newAttachPaneProtocolPane(sess *Session, id uint32, writes chan<- []byte) *
 
 func startAttachPaneProtocolConn(t *testing.T, h *attachPaneProtocolHarness, paneID uint32) net.Conn {
 	t.Helper()
+	conn := startAttachPaneProtocolConnRaw(t, h, paneID)
+	drainAttachPaneBootstrap(t, conn, paneID)
+	return conn
+}
+
+func startAttachPaneProtocolConnRaw(t *testing.T, h *attachPaneProtocolHarness, paneID uint32) net.Conn {
+	t.Helper()
 
 	serverConn, clientConn := net.Pipe()
 	t.Cleanup(func() { clientConn.Close() })
@@ -123,6 +130,27 @@ func startAttachPaneProtocolConn(t *testing.T, h *attachPaneProtocolHarness, pan
 	}
 	waitForScopedClient(t, h.sess, paneID)
 	return clientConn
+}
+
+func drainAttachPaneBootstrap(t *testing.T, conn net.Conn, paneID uint32) {
+	t.Helper()
+
+	for {
+		msg := readAttachPaneMsgWithTimeout(t, conn)
+		switch msg.Type {
+		case MsgTypePaneHistory:
+			if msg.PaneID != paneID {
+				t.Fatalf("bootstrap history pane = %d, want %d", msg.PaneID, paneID)
+			}
+		case MsgTypePaneOutput:
+			if msg.PaneID != paneID {
+				t.Fatalf("bootstrap output pane = %d, want %d", msg.PaneID, paneID)
+			}
+			return
+		default:
+			t.Fatalf("bootstrap message type = %v, want history/output", msg.Type)
+		}
+	}
 }
 
 func waitForScopedClient(t *testing.T, sess *Session, paneID uint32) {
@@ -349,6 +377,40 @@ func TestMsgTypeAttachPaneScopesOutputAndInput(t *testing.T) {
 	case got := <-h.writes1:
 		t.Fatalf("pane 1 received unexpected input %q", got)
 	default:
+	}
+}
+
+func TestMsgTypeAttachPaneSendsHistoryBootstrap(t *testing.T) {
+	t.Parallel()
+
+	h := newSingleAttachPaneProtocolHarness(t)
+	if err := h.pane1.Resize(80, 2); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	h.pane1.FeedOutput([]byte("line-1\r\nline-2\r\nline-3\r\nline-4\r\n"))
+
+	conn := startAttachPaneProtocolConnRaw(t, h, h.pane1.ID)
+
+	msg := readAttachPaneMsgWithTimeout(t, conn)
+	if msg.Type != MsgTypePaneHistory {
+		t.Fatalf("first bootstrap message type = %v, want PaneHistory", msg.Type)
+	}
+	if msg.PaneID != h.pane1.ID {
+		t.Fatalf("history pane = %d, want %d", msg.PaneID, h.pane1.ID)
+	}
+	if len(msg.History) == 0 || msg.History[0] != "line-1" {
+		t.Fatalf("history = %#v, want retained line-1", msg.History)
+	}
+
+	msg = readAttachPaneMsgWithTimeout(t, conn)
+	if msg.Type != MsgTypePaneOutput {
+		t.Fatalf("second bootstrap message type = %v, want PaneOutput", msg.Type)
+	}
+	if msg.PaneID != h.pane1.ID {
+		t.Fatalf("output pane = %d, want %d", msg.PaneID, h.pane1.ID)
+	}
+	if !strings.Contains(string(msg.PaneData), "line-4") {
+		t.Fatalf("bootstrap output = %q, want latest screen", msg.PaneData)
 	}
 }
 
