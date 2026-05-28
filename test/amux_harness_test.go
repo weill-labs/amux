@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,14 +30,16 @@ type AmuxHarness struct {
 	outer              *ServerHarness
 	inner              string // inner session name
 	innerBin           string
+	innerSocketDir     string
 	tb                 testing.TB
 	session            string // alias for inner, used by extractFrame
 	initialLeadHandled bool
 }
 
-// Nested harnesses only need startup serialization when an inner session is
-// explicitly watching the shared package-level test binary. Most integration
-// tests do not exercise auto-reload, so they disable watch by default.
+// Nested harnesses that launch the shared package-level test binary serialize
+// startup. The launch path runs an interactive client inside an outer PTY;
+// under high parallelism, overlapping shared-binary startups can corrupt the
+// initial client protocol stream before the harness has a stable inner client.
 var nestedHarnessStartupMu sync.Mutex
 
 func prepareInnerAmuxEnv(envVars []string) []string {
@@ -57,12 +60,8 @@ func lookupInnerAmuxEnv(envVars []string, key string) (string, bool) {
 	return "", false
 }
 
-func needsNestedHarnessStartupLock(binPath string, envVars []string) bool {
-	if binPath != amuxBin {
-		return false
-	}
-	noWatch, ok := lookupInnerAmuxEnv(envVars, "AMUX_NO_WATCH")
-	return ok && noWatch != "1"
+func needsNestedHarnessStartupLock(binPath string, _ []string) bool {
+	return binPath == amuxBin
 }
 
 func buildInnerAmuxLaunchCommand(binPath, session, launchDir string, envVars []string) string {
@@ -113,8 +112,8 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	var b [8]byte
 	mustRandRead(tb, b[:])
 	inner := fmt.Sprintf("t-%x", b)
-
-	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, tb: tb, session: inner}
+	h := newAmuxHarnessHandle(tb, outer, inner, binPath)
+	envVars = upsertEnv(envVars, proto.SocketDirEnv, h.innerSocketDir)
 
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(binPath, inner, launchDir, envVars), "Enter")
@@ -124,6 +123,19 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	// be accepting connections — no polling loop needed.
 	outer.waitForTimeout("pane-1", "[pane-", "30s")
 
+	return h
+}
+
+func newAmuxHarnessHandle(tb testing.TB, outer *ServerHarness, inner, binPath string) *AmuxHarness {
+	tb.Helper()
+	h := &AmuxHarness{
+		outer:          outer,
+		inner:          inner,
+		innerBin:       binPath,
+		innerSocketDir: tb.TempDir(),
+		tb:             tb,
+		session:        inner,
+	}
 	tb.Cleanup(h.cleanup)
 	return h
 }
@@ -162,7 +174,7 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 		}
 	}
 
-	socketDir := server.SocketDir()
+	socketDir := h.innerSocketDirOrDefault()
 	if tb != nil && tb.Failed() {
 		logPath := fmt.Sprintf("%s/%s.log", socketDir, h.inner)
 		if data, err := os.ReadFile(logPath); err == nil {
@@ -175,7 +187,7 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 		return
 	}
 	for _, suffix := range []string{"", ".log"} {
-		_ = exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, h.inner, suffix)).Run()
+		_ = os.Remove(filepath.Join(socketDir, h.inner+suffix))
 	}
 	h.inner = ""
 	h.session = ""
@@ -194,7 +206,7 @@ func (h *AmuxHarness) innerServerPIDs() []string {
 
 func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
-	socketPath := server.SocketPath(h.inner)
+	socketPath := h.innerSocketPath()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for time.Now().Before(deadline) {
@@ -205,6 +217,17 @@ func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
 		}
 		<-ticker.C
 	}
+}
+
+func (h *AmuxHarness) innerSocketPath() string {
+	return filepath.Join(h.innerSocketDirOrDefault(), h.inner)
+}
+
+func (h *AmuxHarness) innerSocketDirOrDefault() string {
+	if h.innerSocketDir != "" {
+		return h.innerSocketDir
+	}
+	return server.SocketDir()
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +700,9 @@ func (h *AmuxHarness) runCmd(args ...string) string {
 	cmdArgs := append([]string{"-s", h.inner}, args...)
 	cmd := exec.CommandContext(ctx, h.innerBin, cmdArgs...)
 	env := upsertEnv(os.Environ(), "HOME", h.outer.home)
+	if h.innerSocketDir != "" {
+		env = upsertEnv(env, proto.SocketDirEnv, h.innerSocketDir)
+	}
 	if h.outer.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
 	}

@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,12 +15,14 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/testenv"
 )
 
 const (
 	sessionLockHelperModeEnv    = "AMUX_SESSION_LOCK_HELPER_MODE"
 	sessionLockHelperSessionEnv = "AMUX_SESSION_LOCK_HELPER_SESSION"
+	sessionLockHelperTimeoutEnv = "AMUX_SESSION_LOCK_HELPER_TIMEOUT"
 )
 
 func TestSessionLockSubprocessHelper(t *testing.T) {
@@ -37,12 +40,61 @@ func TestSessionLockSubprocessHelper(t *testing.T) {
 
 	switch mode {
 	case "hold":
+		timeout, err := sessionLockHelperTimeout()
+		if err != nil {
+			srv.Shutdown()
+			fmt.Fprint(os.Stderr, err.Error())
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stdout, "ready")
-		select {}
+		<-time.After(timeout)
+		srv.Shutdown()
 	default:
 		srv.Shutdown()
 		fmt.Fprintf(os.Stderr, "unknown helper mode %q", mode)
 		os.Exit(2)
+	}
+}
+
+func sessionLockHelperTimeout() (time.Duration, error) {
+	raw := os.Getenv(sessionLockHelperTimeoutEnv)
+	if raw == "" {
+		return 30 * time.Second, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("invalid %s %q", sessionLockHelperTimeoutEnv, raw)
+	}
+	return timeout, nil
+}
+
+func TestSessionLockSubprocessHelperHoldModeExitsWithinTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	session := "s"
+	cmd := testenv.NewCommandContext(ctx, os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
+	cmd.Env = append(testenv.HermeticAmuxEnv(),
+		sessionLockHelperModeEnv+"=hold",
+		sessionLockHelperSessionEnv+"="+session,
+		sessionLockHelperTimeoutEnv+"=100ms",
+		proto.SocketDirEnv+"="+t.TempDir(),
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("helper did not exit within bounded time\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if err != nil {
+		t.Fatalf("helper exited with error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ready") {
+		t.Fatalf("helper stdout = %q, want ready line", stdout.String())
 	}
 }
 
@@ -85,15 +137,25 @@ func TestNewServerWithScrollbackRejectsDuplicateSessionLockWithoutTouchingLockFi
 }
 
 func TestNewServerWithScrollbackRecoversAfterCrashReleasesLock(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: this test sets AMUX_SOCKET_DIR so the parent server and
+	// helper subprocess share the same isolated socket directory.
+	socketDir, err := os.MkdirTemp("", "amux-lock-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(): %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(socketDir); err != nil {
+			t.Fatalf("RemoveAll(%q): %v", socketDir, err)
+		}
+	})
+	t.Setenv(proto.SocketDirEnv, socketDir)
 	session := fmt.Sprintf("session-lock-crash-%d", time.Now().UnixNano())
 	cmd, stderr := startSessionLockHelper(t, "hold", session)
 
 	if err := cmd.Process.Signal(syscall.SIGKILL); err != nil {
 		t.Fatalf("killing helper: %v", err)
 	}
-	err := cmd.Wait()
+	err = cmd.Wait()
 	if err == nil {
 		t.Fatal("helper exited cleanly, want SIGKILL")
 	}
@@ -156,11 +218,21 @@ func TestNewServerWithScrollbackConcurrentStartsYieldSingleWinner(t *testing.T) 
 func startSessionLockHelper(t *testing.T, mode, session string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 
-	cmd := testenv.NewCommand(os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	cmd := testenv.NewCommandContext(ctx, os.Args[0], "-test.run=^TestSessionLockSubprocessHelper$")
 	cmd.Env = append(testenv.HermeticAmuxEnv(),
 		sessionLockHelperModeEnv+"="+mode,
 		sessionLockHelperSessionEnv+"="+session,
+		sessionLockHelperTimeoutEnv+"=30s",
+		proto.SocketDirEnv+"="+SocketDir(),
 	)
+	t.Cleanup(func() {
+		cancel()
+		if cmd.Process != nil && cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("StdoutPipe(): %v", err)

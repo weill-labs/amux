@@ -1,6 +1,12 @@
 package test
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/weill-labs/amux/internal/proto"
+)
 
 func TestPrepareInnerAmuxEnvDefaultsToNoWatch(t *testing.T) {
 	t.Parallel()
@@ -56,10 +62,10 @@ func TestNeedsNestedHarnessStartupLock(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "shared binary defaults to no watch",
+			name:    "shared binary uses startup lock without watch",
 			binPath: amuxBin,
 			envVars: nil,
-			want:    false,
+			want:    true,
 		},
 		{
 			name:    "private watched binary does not need shared lock",
@@ -90,4 +96,48 @@ func TestBuildInnerAmuxLaunchCommand(t *testing.T) {
 	if got != want {
 		t.Fatalf("buildInnerAmuxLaunchCommand() = %q, want %q", got, want)
 	}
+}
+
+func TestNewAmuxHarnessDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	leaked := leakedInnerArtifactsInSharedSocketDir(t, h)
+	shutdownAmuxHarness(t, h)
+	if len(leaked) > 0 {
+		t.Fatalf("inner harness leaked artifacts to shared socket dir: %v", leaked)
+	}
+}
+
+func TestNewAmuxHarnessWithConfigDoesNotWriteInnerArtifactsToSharedSocketDir(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, "")
+
+	leaked := leakedInnerArtifactsInSharedSocketDir(t, h)
+	shutdownAmuxHarness(t, h)
+	if len(leaked) > 0 {
+		t.Fatalf("inner harness with config leaked artifacts to shared socket dir: %v", leaked)
+	}
+}
+
+func leakedInnerArtifactsInSharedSocketDir(t *testing.T, h *AmuxHarness) []string {
+	t.Helper()
+
+	var leaked []string
+	for _, name := range []string{
+		h.inner,
+		h.inner + ".log",
+		h.inner + ".lock",
+		h.inner + ".start.lock",
+	} {
+		path := filepath.Join(proto.DefaultSocketDir(), name)
+		if _, err := os.Stat(path); err == nil {
+			leaked = append(leaked, path)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+	}
+	return leaked
 }

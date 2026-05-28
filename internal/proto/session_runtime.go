@@ -12,9 +12,20 @@ const (
 	DefaultTermRows = 24
 )
 
+const SocketDirEnv = "AMUX_SOCKET_DIR"
+
+// DefaultSocketDir returns the system-level socket directory used when no
+// socket directory override is configured.
+func DefaultSocketDir() string {
+	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+}
+
 // SocketDir returns the directory for amux Unix sockets.
 func SocketDir() string {
-	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	if dir := os.Getenv(SocketDirEnv); dir != "" {
+		return dir
+	}
+	return DefaultSocketDir()
 }
 
 // SocketPath returns the socket path for a session.

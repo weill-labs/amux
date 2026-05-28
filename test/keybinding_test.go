@@ -4,14 +4,12 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 func writeTestConfigFile(t *testing.T, configContent string) string {
@@ -42,28 +40,14 @@ func newAmuxHarnessWithConfig(t *testing.T, configContent string) *AmuxHarness {
 	outer := newServerHarness(t)
 	configPath := writeTestConfigFile(t, configContent)
 	inner := randomTestSessionName(t)
-
-	h := &AmuxHarness{outer: outer, inner: inner, innerBin: amuxBin, tb: t, session: inner}
+	h := newAmuxHarnessHandle(t, outer, inner, amuxBin)
 
 	// Launch inner amux with AMUX_CONFIG set.
-	outer.sendKeys("pane-1", fmt.Sprintf("AMUX_CONFIG=%s %s -s %s", configPath, amuxBin, inner), "Enter")
+	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(amuxBin, inner, "", []string{
+		"AMUX_CONFIG=" + configPath,
+		proto.SocketDirEnv + "=" + h.innerSocketDir,
+	}), "Enter")
 	outer.waitForTimeout("pane-1", "[pane-", "30s")
-
-	t.Cleanup(func() {
-		// Best-effort detach (only works with default prefix).
-		_ = newHermeticAmuxCommand(t, "-s", inner, "list").Run()
-		out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", inner)).Output()
-		for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if pid != "" {
-				_ = exec.Command("kill", pid).Run()
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-		socketDir := server.SocketDir()
-		for _, suffix := range []string{"", ".log"} {
-			_ = exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, inner, suffix)).Run()
-		}
-	})
 
 	return h
 }
@@ -75,7 +59,7 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 	if out := h.runCmd("wait", "idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected inner pane to go idle before unsupported-key feedback test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
-	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	scanner, closer := eventStreamForSocket(t, h.innerSocketPath(), "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
 	defer closer()
 	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
 		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
@@ -98,7 +82,7 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 	if out := h.runCmd("wait", "idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected inner pane to go idle before unsupported-key clear test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
-	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	scanner, closer := eventStreamForSocket(t, h.innerSocketPath(), "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
 	defer closer()
 	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
 		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)

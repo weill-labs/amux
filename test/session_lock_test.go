@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weill-labs/amux/internal/server"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestSessionLockSurvivesHotReload(t *testing.T) {
 	t.Parallel()
 
-	h := newPersistentReloadHarness(t, privateAmuxBin(t))
+	h := newAmuxHarnessWithBin(t, privateAmuxBin(t), "AMUX_EXIT_UNATTACHED=0")
 
 	reloadGen := h.generation()
 	h.runCmd("reload-server")
@@ -26,7 +26,7 @@ func TestSessionLockSurvivesHotReload(t *testing.T) {
 		t.Fatalf("duplicate server probe output = %q, want already-running error for %q", strings.TrimSpace(newServerOut), h.inner)
 	}
 
-	lockPath := filepath.Join(server.SocketDir(), h.inner+".lock")
+	lockPath := filepath.Join(h.innerSocketDirOrDefault(), h.inner+".lock")
 	if err := exec.Command("flock", "-n", lockPath, "true").Run(); err == nil {
 		t.Fatalf("flock probe acquired %s after hot reload; want lock still held", lockPath)
 	}
@@ -46,6 +46,9 @@ func runDuplicateServerProbe(t *testing.T, h *AmuxHarness) string {
 		"AMUX_NO_WATCH=1",
 		"AMUX_DISABLE_META_REFRESH=1",
 	)
+	if h.innerSocketDir != "" {
+		env = upsertEnv(env, proto.SocketDirEnv, h.innerSocketDir)
+	}
 	if h.outer.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
 	}
