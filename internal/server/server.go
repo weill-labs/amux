@@ -846,9 +846,59 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.handleAttach(cc, msg)
 	case MsgTypeCommand:
 		s.handleOneShot(cc, msg)
+	case MsgTypeListPanes:
+		s.handleListPanes(cc, msg)
+	case MsgTypeAttachPane:
+		s.handleAttachPane(cc, msg)
 	default:
 		cc.Close()
 	}
+}
+
+func (s *Server) sessionForProtocolMessage(msg *Message) *Session {
+	if msg != nil && msg.Session != "" {
+		return s.sessions[msg.Session]
+	}
+	return s.firstSession()
+}
+
+func (s *Server) handleListPanes(cc *clientConn, msg *Message) {
+	defer func() {
+		_ = cc.Flush()
+		cc.Close()
+	}()
+
+	sess := s.sessionForProtocolMessage(msg)
+	if sess == nil {
+		cc.sendProtocolError("no session")
+		return
+	}
+	snap, err := sess.queryListPanesSnapshot(cc.context())
+	if err != nil {
+		cc.sendProtocolError(err.Error())
+		return
+	}
+	_ = cc.Send(&Message{Type: MsgTypeLayout, Layout: snap})
+}
+
+func (s *Server) handleAttachPane(cc *clientConn, msg *Message) {
+	sess := s.sessionForProtocolMessage(msg)
+	if sess == nil {
+		cc.sendProtocolError("no session")
+		cc.Close()
+		return
+	}
+
+	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
+	cc.logger = sess.logger.With("client_id", cc.ID)
+	cc.restrictToPane(msg.PaneID)
+
+	if err := sess.enqueueAttachPaneClient(cc, msg.PaneID); err != nil {
+		cc.sendProtocolError(err.Error())
+		cc.Close()
+		return
+	}
+	cc.readLoop(s, sess)
 }
 
 // handleAttach registers an attached client and starts its read loop.

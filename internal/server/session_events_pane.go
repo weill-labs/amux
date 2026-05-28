@@ -52,12 +52,43 @@ func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reas
 	}
 	if removed.sendExit {
 		s.broadcastNow(&Message{Type: MsgTypeExit, Text: "session exited"})
+		s.closeAllScopedPaneClients()
 		s.wantShutdown = true
 		return
 	}
+	s.closeScopedPaneClients(paneID, &Message{Type: MsgTypeExit, Text: "pane exited"})
 	if removed.broadcastLayout {
 		s.broadcastLayoutNow()
 	}
+}
+
+func (s *Session) closeScopedPaneClients(paneID uint32, exitMsg *Message) {
+	for _, cc := range s.ensureClientManager().snapshotClients() {
+		if !cc.isPaneScoped() || !cc.isScopedToPane(paneID) {
+			continue
+		}
+		s.closeScopedPaneClient(cc, exitMsg)
+	}
+}
+
+func (s *Session) closeAllScopedPaneClients() {
+	for _, cc := range s.ensureClientManager().snapshotClients() {
+		if !cc.isPaneScoped() {
+			continue
+		}
+		s.closeScopedPaneClient(cc, nil)
+	}
+}
+
+func (s *Session) closeScopedPaneClient(cc *clientConn, exitMsg *Message) {
+	cc.markDisconnectReason("pane exited")
+	go func() {
+		if exitMsg != nil {
+			_ = cc.Send(exitMsg)
+		}
+		_ = cc.Flush()
+		cc.Close()
+	}()
 }
 
 type clipboardEvent struct {

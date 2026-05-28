@@ -44,6 +44,10 @@ const (
 
 	// Server → Client — retained pane history bootstrap during attach.
 	MsgTypePaneHistory = proto.MsgTypePaneHistory
+
+	// Client → Server — restricted pane subscription support.
+	MsgTypeListPanes  = proto.MsgTypeListPanes
+	MsgTypeAttachPane = proto.MsgTypeAttachPane
 )
 
 // WriteMsg encodes and writes a message to w.

@@ -44,6 +44,7 @@ type clientConn struct {
 	typeKeyQueue       *pacedInputQueue
 	capabilities       proto.ClientCapabilities
 	colorProfile       string
+	scopedPaneID       uint32
 	predictions        map[uint32][]pendingPredictionEpoch
 	logger             *charmlog.Logger
 	bootstrapping      atomic.Bool
@@ -109,8 +110,38 @@ func (cc *clientConn) participatesInSizeNegotiation() bool {
 	return cc != nil && !cc.nonInteractive
 }
 
+func (cc *clientConn) restrictToPane(paneID uint32) {
+	cc.scopedPaneID = paneID
+	cc.nonInteractive = true
+}
+
+func (cc *clientConn) isPaneScoped() bool {
+	return cc != nil && cc.scopedPaneID != 0
+}
+
+func (cc *clientConn) isScopedToPane(paneID uint32) bool {
+	return cc != nil && cc.scopedPaneID == paneID
+}
+
+func (cc *clientConn) allowsServerMessage(msg *Message) bool {
+	if cc == nil || cc.scopedPaneID == 0 || msg == nil {
+		return true
+	}
+	switch msg.Type {
+	case MsgTypePaneOutput:
+		return msg.PaneID == cc.scopedPaneID
+	case MsgTypeCmdResult, MsgTypeExit:
+		return true
+	default:
+		return false
+	}
+}
+
 // Send enqueues a message to the client. Thread-safe.
 func (cc *clientConn) Send(msg *Message) error {
+	if !cc.allowsServerMessage(msg) {
+		return nil
+	}
 	return cc.ensureWriter().send(msg)
 }
 
@@ -166,18 +197,30 @@ func (cc *clientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
 }
 
 func (cc *clientConn) sendBroadcast(msg *Message) {
+	if !cc.allowsServerMessage(msg) {
+		return
+	}
 	cc.ensureWriter().sendBroadcast(msg)
 }
 
 func (cc *clientConn) sendBroadcastSync(msg *Message) {
+	if !cc.allowsServerMessage(msg) {
+		return
+	}
 	cc.ensureWriter().sendBroadcastSync(msg)
 }
 
 func (cc *clientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
+	if !cc.allowsServerMessage(msg) {
+		return
+	}
 	cc.ensureWriter().sendPaneOutput(cc.decoratePaneOutput(msg, paneID), paneID, seq)
 }
 
 func (cc *clientConn) sendPaneMessage(msg *Message) {
+	if !cc.allowsServerMessage(msg) {
+		return
+	}
 	cc.ensureWriter().sendPaneMessage(msg)
 }
 
@@ -355,6 +398,13 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 			return
 		}
 
+		if cc.isPaneScoped() {
+			if !cc.handlePaneScopedMessage(sess, msg) {
+				return
+			}
+			continue
+		}
+
 		switch msg.Type {
 		case MsgTypeInput:
 			sess.enqueueLiveInputWithEpoch(cc, msg.Input, msg.InputEpoch)
@@ -383,6 +433,26 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 			sess.enqueueUIEvent(cc, msg.UIEvent)
 		}
 	}
+}
+
+func (cc *clientConn) handlePaneScopedMessage(sess *Session, msg *Message) bool {
+	if msg.Type != MsgTypeInputPane {
+		errMsg := fmt.Sprintf("restricted pane connection attached to pane %d rejected message type %d", cc.scopedPaneID, msg.Type)
+		cc.sendProtocolError(errMsg)
+		cc.markDisconnectReason(errMsg)
+		return false
+	}
+	if msg.PaneID != cc.scopedPaneID {
+		cc.sendProtocolError(fmt.Sprintf("restricted pane connection attached to pane %d cannot write pane %d", cc.scopedPaneID, msg.PaneID))
+		return true
+	}
+	sess.enqueueLiveInputPaneFromClient(cc, msg.PaneID, msg.PaneData, msg.InputEpoch)
+	return true
+}
+
+func (cc *clientConn) sendProtocolError(message string) {
+	_ = cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: message})
+	_ = cc.Flush()
 }
 
 // handleCommand dispatches CLI commands through the command registry.

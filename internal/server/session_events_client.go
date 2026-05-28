@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/proto"
@@ -41,6 +42,12 @@ type detachClientEvent struct {
 	reason string
 }
 
+type attachPaneClientEvent struct {
+	cc     *clientConn
+	paneID uint32
+	reply  chan error
+}
+
 func (e detachClientEvent) handle(_ context.Context, s *Session) {
 	if !s.hasClient(e.cc) {
 		return
@@ -48,7 +55,21 @@ func (e detachClientEvent) handle(_ context.Context, s *Session) {
 	s.appendConnectionLog(connectionLogEventDetach, e.cc.ID, e.cc.cols, e.cc.rows, e.cc.disconnectReasonValue())
 	s.emitClientDisconnectEvent(e.cc, e.reason)
 	s.logClientDisconnect(e.cc, e.cc.disconnectReasonValue())
+	if e.cc.isPaneScoped() {
+		s.removeClientWithoutLayout(e.cc)
+		return
+	}
 	s.removeClient(e.cc)
+}
+
+func (e attachPaneClientEvent) handle(_ context.Context, s *Session) {
+	if e.paneID == 0 || s.findWindowByPaneID(e.paneID) == nil {
+		e.reply <- fmt.Errorf("pane %d not found", e.paneID)
+		return
+	}
+	s.ensureClientManager().addClient(e.cc)
+	s.appendConnectionLog(connectionLogEventAttach, e.cc.ID, e.cc.cols, e.cc.rows, "")
+	e.reply <- nil
 }
 
 type resizeClientEvent struct {
@@ -149,6 +170,28 @@ func (s *Session) enqueueDetachClient(cc *clientConn, reason string) {
 	s.enqueueEvent(s.context(), detachClientEvent{cc: cc, reason: reason})
 }
 
+func (s *Session) enqueueAttachPaneClient(cc *clientConn, paneID uint32) error {
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
+	reply := make(chan error, 1)
+	if !s.enqueueEvent(ctx, attachPaneClientEvent{cc: cc, paneID: paneID, reply: reply}) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errSessionShuttingDown
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.sessionEventDone:
+		return errSessionShuttingDown
+	}
+}
+
 func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
 	ctx := s.context()
 	if cc != nil {
@@ -181,6 +224,16 @@ func (s *Session) enqueueLiveInputPaneFromClient(cc *clientConn, paneID uint32, 
 		ctx = cc.context()
 	}
 	return s.enqueueEvent(ctx, liveInputPaneEvent{cc: cc, paneID: paneID, data: append([]byte(nil), data...), epoch: epoch})
+}
+
+func (s *Session) queryListPanesSnapshot(ctx context.Context) (*proto.LayoutSnapshot, error) {
+	return enqueueSessionQueryOnState(ctx, s, func(s *Session) (*proto.LayoutSnapshot, error) {
+		snap := s.snapshotLayout(s.snapshotIdleState())
+		if snap == nil {
+			return nil, fmt.Errorf("no layout")
+		}
+		return snap, nil
+	})
 }
 
 // --- Event subscribe/unsubscribe through the event loop ---

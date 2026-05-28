@@ -138,6 +138,8 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 		{name: "type keys", msg: Message{Type: MsgTypeTypeKeys, Input: []byte("abc")}},
 		{name: "ui event", msg: Message{Type: MsgTypeUIEvent, UIEvent: UIEventDisplayPanesShown}},
 		{name: "pane history", msg: Message{Type: MsgTypePaneHistory, PaneID: 4, History: []string{"one", "two"}}},
+		{name: "list panes", msg: Message{Type: MsgTypeListPanes}},
+		{name: "attach pane", msg: Message{Type: MsgTypeAttachPane, Session: "test-session", PaneID: 4}},
 	}
 
 	for _, tt := range tests {

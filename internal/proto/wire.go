@@ -121,6 +121,10 @@ const (
 
 	// Server → Client — retained pane history bootstrap during attach.
 	MsgTypePaneHistory MsgType = 25
+
+	// Client → Server — restricted pane subscription support.
+	MsgTypeListPanes  MsgType = 26 // list leaf panes
+	MsgTypeAttachPane MsgType = 27 // subscribe to one pane
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
