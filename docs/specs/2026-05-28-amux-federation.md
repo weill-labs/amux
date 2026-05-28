@@ -55,7 +55,7 @@ hetzner-xl                                    hetzner-1
                │                                       │
         local Unix socket                       local Unix socket
                │                                       │
-               └────────── SSH -W tunnel ──────────────┘
+               └─────── SSH (ssh -- nc -U) ─────────────┘
 ```
 
 The federated client is a **client stub running inside the local server process** (architect's framing). It does not render — the local client renders. It does not own the remote pane — the remote server does. It is the adapter between the wire protocol and the local mirror pane's emulator.
