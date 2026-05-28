@@ -35,7 +35,7 @@ The PR's own characterization: *"The per-pane subscription filter cleanly slots 
 
 1. **Federation is amux-to-amux, not SSH-to-shell.** The local server talks to the remote server's wire protocol over an SSH tunnel. The remote pane is owned and managed by the remote `amux` server. The local server holds a *mirror* — no PTY, just an emulator fed by `MsgTypePaneOutput`.
 2. **Restricted mode is a security boundary.** A federated client over an SSH tunnel inherits the local server's wire protocol surface. `MsgTypeAttachPane` enters a restricted connection mode that rejects every command except scoped input forwarding. Already implemented and tested in PR #826.
-3. **Names over IDs.** Pane IDs are session-monotonic counters. They are not stable across remote server restarts. Federation uses pane *names* as the canonical handle on the wire; IDs are an in-session optimization.
+3. **Names over IDs (as the durable handle, not on the wire).** Pane IDs are session-monotonic counters, not stable across remote server restarts, so the *user-facing* handle and the persisted `RemoteRef` use the pane **name**. The wire `MsgTypeAttachPane` is **ID-only** (as shipped in PR #826 — `handleAttachPane` reads `msg.PaneID`). The two are reconciled by a resolve step: before every attach (initial and each reconnect) the `MirrorManager` runs `MsgTypeListPanes`, resolves the stored name to the remote's *current* pane ID, then sends `MsgTypeAttachPane{PaneID}`. This keeps the wire unchanged for attach while names remain the stable handle.
 4. **One subcommand namespace.** Everything federation-related lives under `amux remote <subcommand>`, matching `git remote` conventions. No new top-level verbs.
 5. **Letterbox before negotiate.** v1 ships with a single resize policy: the mirror renders at the remote's geometry; the local cell pads or crops. Explicit `amux remote resize` is the only way to change the remote pane's size, and it affects every client attached to it.
 6. **Fail-stop for hard cases.** Reconnect/backoff, checkpoint restoration of mirrors, and signal forwarding are explicitly bounded for v1. When boundaries are crossed, the mirror dies cleanly with a banner — it does not silently corrupt or buffer.
@@ -110,18 +110,20 @@ MsgTypeListPanes  MsgType = 26 // → server: list leaf panes; server replies vi
 MsgTypeAttachPane MsgType = 27 // → server: subscribe to one pane (enters restricted mode)
 ```
 
-v2 adds **one new field on the Message envelope**:
+v2 needs a per-frame **subscription epoch** so the local emulator can discard stale in-flight frames after a reconnect (codex R2). The naive approach — adding a `SubscriptionEpoch uint64` field to the gob `Message` struct — **does not work for the hot path**, and this is the single most important wire detail in v2:
 
-```go
-// MsgTypePaneOutput / MsgTypePaneHistory / MsgTypeAttachPane carry this.
-// Wraps every byte of remote-origin content so the local emulator can
-// detect and discard stale frames after a reconnect.
-SubscriptionEpoch uint64
+`MsgTypePaneOutput` is *not* gob-encoded in the common case. `WriteMsg` routes it through the compact binary frame `writePaneOutputBinary` (`internal/proto/wire.go:37` and `:227`), whose layout is `[0x01][paneID:4][len:4][data]` — there is no room for an envelope field, and any struct field set on a binary-framed `Message` is silently dropped. The same is true for binary pane-history frames (`internal/proto/wire_pane_history.go`). The existing `SourceEpoch` field is the precedent: it only survives because `WriteMsg` *falls back to gob* whenever `SourceEpoch != 0` (`wire.go:37`), at the cost of losing the compact frame.
+
+v2 therefore defines a **new compact binary frame variant** carrying the epoch inline, rather than forcing gob on high-volume mirror output:
+
+```
+wireFormatPaneOutputEpoch  byte = 0x03   // [0x03][paneID:4][epoch:8][len:4][data]
+wireFormatPaneHistoryEpoch byte = 0x04   // epoch-bearing binary pane-history frame
 ```
 
-The remote server stamps every `MsgTypePaneOutput` with the current epoch. On reconnect, the local server increments its expected epoch, the remote stamps frames with the new epoch, and the local emulator discards any in-flight frames whose epoch is below the threshold. This closes codex's R2 (reconnect replay corruption).
+The remote stamps each mirror frame with the current epoch; on reconnect the local server increments its expected epoch, and the emulator discards frames whose epoch is below the threshold. Forcing gob (the `SourceEpoch` approach) is the documented fallback if the new frame variant proves not worth it, but it regresses the renderer hot path and is **not** the default.
 
-No other wire changes for v1. `MsgTypePaneHistory` already exists and serves the bootstrap.
+This is the one place the spec's earlier "no other wire changes" framing was wrong: the epoch is a real new wire-format addition (two binary discriminators), distinct from the `MsgTypeListPanes`/`MsgTypeAttachPane` gob messages already in PR #826. `MsgTypePaneHistory` itself already exists and serves the bootstrap; only its epoch-bearing variant is new.
 
 ### Restricted mode invariants (already enforced in PR #826)
 
@@ -286,7 +288,7 @@ For each existing per-pane signal, behavior on a mirror:
 | Local echo prediction | **Disabled for mirror panes.** RTT over SSH/Tailscale is too variable to make prediction safe; mispredictions corrupt the emulator state. |
 | Typing into a reconnecting mirror | **Drop with bell + status-line "input dropped".** Never buffer. Buffering an agent's `/exit` and replaying it post-reconnect would be catastrophic. |
 | `amux capture --format json` (local server) | Returns the mirror's local emulator snapshot. |
-| `AgentStatus` in capture JSON | **Forwarded via a new per-pane meta channel** (see below). Otherwise agents that read capture JSON misroute mirrors as idle. |
+| `AgentStatus` in capture JSON | **Forwarded *and* given precedence** (see below). Agent status is not stored in `PaneMeta` — it is computed at capture time from the pane's local process tree (`capture_forward.go`, `server_capture_full.go`). A proxy mirror has no local process, so the default path reports it idle. The mirror must store the remote-forwarded status and the capture path must prefer that stored value for proxy panes. Forwarding alone is insufficient. |
 | `amux respawn pane-91` | **Forbidden** — error. (Already enforced for proxy panes at `commands_layout.go:581`.) |
 | `amux rename pane-91 <name>` | Renames the **local** mirror pane only. The remote pane's name is unchanged. The mirror's remote handle (stored in `RemoteRef.PaneName`) is unaffected. |
 | `amux focus pane-91` | Works normally — focus is a local layout operation. The remote pane's active state is unchanged. |
@@ -299,6 +301,11 @@ The forwarding mechanism for `AgentStatus` and per-pane meta (`PaneMeta.Host`, `
 ```go
 MsgTypePaneMetaUpdate MsgType = 28 // server → restricted client: meta changed for subscribed pane
 ```
+
+Two-part requirement for agent status specifically (codex P2):
+
+1. **Store** the forwarded status on the mirror pane. Unlike git branch / PR (which already live in `PaneMeta` and serialize today), agent status is computed on demand during capture from the local process tree, so there is no existing field to populate — the mirror needs a dedicated slot to hold the last `MsgTypePaneMetaUpdate` agent status.
+2. **Prefer** that stored value in the capture path. `captureAgentStatus` (and the JSON assembly in `capture_forward.go` / `server_capture_full.go`) must, for proxy panes, return the stored remote status instead of inspecting the (nonexistent) local process tree. Without this precedence override, `amux capture --format json` reports every mirror idle and agents misroute work.
 
 Stamped with the subscription epoch like `MsgTypePaneOutput`.
 
@@ -325,7 +332,7 @@ type PaneCheckpoint struct {
 On restore:
 
 1. If `RemoteRef == nil` → existing proxy stub behavior (frozen). This covers checkpoints from before v2.
-2. If `RemoteRef != nil` → `MirrorManager` is notified. It re-dials, re-attaches via `MsgTypeAttachPane{Name: ...}`, expects a fresh `MsgTypePaneHistory` bootstrap, increments epoch.
+2. If `RemoteRef != nil` → `MirrorManager` is notified. It re-dials, runs `MsgTypeListPanes` to resolve `RemoteRef.PaneName` to the remote's current pane ID, re-attaches via `MsgTypeAttachPane{PaneID}` (the wire stays ID-only), expects a fresh epoch-bearing `MsgTypePaneHistory` bootstrap, and increments the epoch.
 
 If reattachment fails (host gone, pane gone, ssh auth changed), the mirror enters `dead`. Banner explains. User decides.
 
@@ -335,14 +342,15 @@ The two-server harness from PR #825 (`newServerHarnessPair`) is the foundation. 
 
 1. **Happy path**: spawn pane on `remote`, attach from `local`, assert PaneOutput flows, assert input arrives at the remote PTY.
 2. **Restricted mode airtightness** (already covered in PR #826's `attach_pane_protocol_test.go`): cannot send `MsgTypeCommand`, cannot send `MsgTypeInputPane` for other panes.
-3. **Reconnect epoch ordering**: in-flight `MsgTypePaneOutput` with stale epoch is discarded after reconnect.
+3. **Reconnect epoch ordering**: in-flight `MsgTypePaneOutput` with stale epoch is discarded after reconnect. Include a wire-level round-trip test that the epoch survives the compact binary frame (`0x03`/`0x04`) — a regression here would silently drop stale-frame protection.
 4. **Letterbox**: local cell larger/smaller than remote geometry produces expected padding/cropping in golden files.
 5. **Checkpoint round-trip**: local server reload preserves mirror; `MirrorManager` rehydrates and reaches `connected`.
 6. **Remote pane killed externally**: local mirror reaches `dead` cleanly.
 7. **Remote server restart**: local mirror reaches `dead`, retry budget exhausted, banner visible.
 8. **Bell, OSC52, mouse forwarding**: each verified in turn.
 9. **Typing during reconnect**: keys dropped, bell raised, status banner shows "input dropped".
-10. **`AgentStatus` forwarding**: `amux capture --format json` on the local mirror returns the remote's agent status.
+10. **`AgentStatus` precedence**: `amux capture --format json` on the local mirror returns the remote's *forwarded* agent status (a busy remote agent shows busy), proving the proxy-pane precedence override beats the default "no local process → idle" computation.
+11. **Attach-by-name resolve**: a mirror configured by name attaches to the correct pane after the remote re-IDs that pane (e.g. across a `MsgTypeListPanes` → resolve → `MsgTypeAttachPane{PaneID}` cycle), confirming the name→ID resolve step.
 
 Per CLAUDE.md, each new test gets `-count=100` before merge.
 
@@ -384,7 +392,7 @@ Each PR independently shippable. After phase 2, mirrors are usable from the comm
 | 2026-05-27 | Drop keys + bell when typing into a reconnecting mirror; never buffer | UX sharp edge. Buffering an agent's `/exit` for replay is catastrophic. |
 | 2026-05-27 | `amux kill` is local-only on mirrors; `--remote` flag for upstream | UX sharp edge + CLAUDE.md "destructive pane actions need confirmation". |
 | 2026-05-28 | Tracer bullet (PR #826) proves scoped subscription doesn't tangle with broadcast | +70 LOC in `client_conn.go`, well under 300 threshold. Cleared the go/no-go premise. |
-| 2026-05-28 | Reconnect uses `SubscriptionEpoch` on every PaneOutput frame | Codex review R2. Closes the in-flight-stale-frame race. |
+| 2026-05-28 | Reconnect uses a per-frame subscription epoch carried in a **new compact binary frame variant** (`0x03`/`0x04`), not a gob `Message` field | Codex review R2, refined by the pane-91 codex review. A struct field is bypassed by `writePaneOutputBinary` on the hot path; the epoch must ride the binary frame (or force gob, the documented fallback). |
 | 2026-05-28 | `MsgTypePaneMetaUpdate = 28` for forwarding per-pane meta (AgentStatus, GitBranch, PR) | Architect #4 + codex hand-waved item. Without this, agents misroute mirrors as idle. |
 | 2026-05-28 | LOC budget ~1630 production + ~800 tests = ~2430 total, realistic vs the original draft's ~2000 | Skeptic R2. Original budget mis-attributed deleted code. |
 | 2026-05-28 | Checkpoint stores `RemoteRef{host, session, pane_name, last_epoch}`; old checkpoints restore as frozen (back-compat) | Architect critical fix. |
@@ -392,6 +400,9 @@ Each PR independently shippable. After phase 2, mirrors are usable from the comm
 | 2026-05-28 | v1 does **not** auto-reconnect a mirror across a remote *server* restart, even when the pane name would still resolve | Review of PR #827 (Claude non-blocking #3). The SSH drop on remote exit is indistinguishable from "remote gone" within the retry-budget window, so the mirror terminates in `dead` and the user re-attaches manually. This is a deliberate v1 simplification, not an ID-stability limitation. |
 | 2026-05-28 | Restricted-mode server→client send list is explicit and grows in v2 (adds PaneHistory, Clipboard, Bell, PaneMetaUpdate) | Review of PR #827 (Claude non-blocking #2). PR #826 sends only PaneOutput + Exit; the four additions are tracked implementation-ticket deliverables so they aren't silently missed. |
 | 2026-05-28 | `MirrorManager` must be constructed before the checkpoint pane-restore loop | Review of PR #827 (Claude open-question #5). Otherwise restore-time mirror notifications are dropped and mirrors stay frozen after hot-reload. |
+| 2026-05-28 | Wire `MsgTypeAttachPane` stays **ID-only**; names are resolved via `MsgTypeListPanes` before each attach | pane-91 codex review (P1). PR #826's `handleAttachPane` reads `msg.PaneID`; the spec's `{Name: ...}` form and "names on the wire" wording contradicted that. `RemoteRef.PaneName` is the durable handle; the resolve step bridges it to the current ID. |
+| 2026-05-28 | Subscription epoch is a real wire-format addition (binary frame variants `0x03`/`0x04`), correcting the earlier "no other wire changes" claim | pane-91 codex review (P1). The gob `Message.SubscriptionEpoch` field is silently dropped by the compact binary PaneOutput/PaneHistory frames; the epoch must be carried inline in a new frame discriminator (or via the `SourceEpoch`-style gob fallback). |
+| 2026-05-28 | Mirror agent status must be **stored on the mirror and preferred in the capture path**, not just forwarded | pane-91 codex review (P2). `captureAgentStatus` computes status from the local process tree; a proxy mirror has none, so forwarding alone still reports idle. The capture path needs a proxy-pane precedence override. |
 
 ## Open questions
 
@@ -404,11 +415,12 @@ Each PR independently shippable. After phase 2, mirrors are usable from the comm
 To be filed after this spec is approved:
 
 - LAB-XXXX: `internal/remote/Link` + `Dialer` interface + config restoration.
-- LAB-XXXX: `internal/server/mirror/MirrorManager` + state machine + checkpoint `RemoteRef`.
-- LAB-XXXX: `amux remote add/list/rm/panes/attach/detach/resize` CLI surface.
+- LAB-XXXX: epoch-bearing binary frame variants (`0x03` PaneOutput, `0x04` PaneHistory) + name→ID resolve helper on `MsgTypeListPanes`. (Wire foundation; the `MirrorManager` ticket depends on it.)
+- LAB-XXXX: `internal/server/mirror/MirrorManager` + state machine + checkpoint `RemoteRef` (constructed before the restore loop).
+- LAB-XXXX: `amux remote add/list/rm/panes/attach/detach/resize` CLI surface (resize via separate non-restricted connection).
 - LAB-XXXX: `spawn --attach host:pane-name` glue.
 - LAB-XXXX: `internal/client/chooser.go` Source interface + remote source.
-- LAB-XXXX: `MsgTypePaneMetaUpdate` + AgentStatus forwarding.
+- LAB-XXXX: `MsgTypePaneMetaUpdate` + AgentStatus **forwarding and capture-path precedence override** for proxy panes.
 - LAB-XXXX: Status line connection-state segment + amber border tint (re-introduce post-LAB-1937).
 
 Each ticket should reference this spec and call out any deviations as blocker comments.
