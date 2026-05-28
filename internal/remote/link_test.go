@@ -93,7 +93,6 @@ func TestLinkConnectSurfacesDialerError(t *testing.T) {
 }
 
 func TestSSHDialerUsesConfiguredCommandAndStreamsProtocol(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("fake ssh shell script requires Unix")
 	}

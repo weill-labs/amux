@@ -111,12 +111,23 @@ type ThemeConfig struct {
 	Icons       *string `toml:"icons"`
 }
 
+type RemoteConfig struct {
+	Hosts map[string]Host `toml:"hosts"`
+}
+
+type Host struct {
+	SSH        string `toml:"ssh"`
+	Session    string `toml:"session"`
+	SocketPath string `toml:"socket_path"`
+}
+
 // Config is the top-level amux configuration.
 type Config struct {
 	ScrollbackLines *int         `toml:"scrollback_lines"`
 	Debug           DebugConfig  `toml:"debug"`
 	Client          ClientConfig `toml:"client"`
 	Theme           ThemeConfig  `toml:"theme"`
+	Remote          RemoteConfig `toml:"remote"`
 }
 
 // DefaultPath returns the default config file path.
@@ -166,6 +177,9 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, err
 	}
 	if _, err := ResolveThemeIcons(cfg.Theme.Icons); err != nil {
+		return nil, err
+	}
+	if err := ValidateRemoteHosts(cfg.Remote.Hosts); err != nil {
 		return nil, err
 	}
 
@@ -302,4 +316,22 @@ func (c *Config) EffectiveThemeIcons() string {
 		return ThemeIconsUnicode
 	}
 	return icons
+}
+
+func ValidateRemoteHosts(hosts map[string]Host) error {
+	for name, host := range hosts {
+		if host.SSH == "" {
+			return fmt.Errorf("remote.hosts.%s.ssh is required", name)
+		}
+		if host.Session == "" {
+			return fmt.Errorf("remote.hosts.%s.session is required", name)
+		}
+		if host.SocketPath == "" {
+			return fmt.Errorf("remote.hosts.%s.socket_path is required", name)
+		}
+		if !filepath.IsAbs(host.SocketPath) {
+			return fmt.Errorf("remote.hosts.%s.socket_path must be absolute", name)
+		}
+	}
+	return nil
 }
