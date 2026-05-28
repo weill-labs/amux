@@ -846,7 +846,6 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 					return
 				}
 				msg = next
-				cr.recordRenderMsgQueueLatency(msg, time.Now())
 			case <-cr.renderStop:
 				return
 			case <-state.renderC:
