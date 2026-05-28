@@ -2,6 +2,7 @@ package client
 
 import (
 	"os"
+	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 )
@@ -22,6 +23,7 @@ func applyLocalRenderResultDirect(cr *ClientRenderer, result localRenderResult) 
 }
 
 func sendRenderMsg(msgCh chan<- *RenderMsg, stop <-chan struct{}, msg *RenderMsg) bool {
+	stampRenderMsgQueuedAt(msg, time.Now())
 	if stop == nil {
 		msgCh <- msg
 		return true

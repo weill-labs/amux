@@ -42,6 +42,26 @@ func TestClientFrameStatsFormatIncludesPercentilesAndRecentFrames(t *testing.T) 
 	}
 }
 
+func TestClientFrameStatsFormatIncludesActorQueueingLatencyPercentiles(t *testing.T) {
+	t.Parallel()
+
+	var stats clientFrameStats
+	stats.record(clientFrameSample{
+		frameDuration:   time.Millisecond,
+		cellsDiffed:     10,
+		ansiBytes:       100,
+		panesComposited: 1,
+	})
+	for i := 1; i <= 5; i++ {
+		stats.recordActorQueueLatency(time.Duration(i) * time.Millisecond)
+	}
+
+	got := stats.format()
+	if !strings.Contains(got, "actor queueing latency: p50 3ms  p95 5ms  p99 5ms") {
+		t.Fatalf("format missing actor queueing latency percentiles:\n%s", got)
+	}
+}
+
 func TestRenderNowRecordsFrameStats(t *testing.T) {
 	t.Parallel()
 
@@ -92,4 +112,44 @@ func TestHandleCaptureRequestDebugFrames(t *testing.T) {
 			t.Fatalf("debug frames output missing %q:\n%s", want, resp.CmdOutput)
 		}
 	}
+}
+
+func TestRenderCoalescedRecordsActorQueueLatency(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.renderFrameInterval = time.Millisecond
+	msgCh := make(chan *RenderMsg, 2)
+	rendered := make(chan struct{}, 1)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			rendered <- struct{}{}
+		})
+		close(done)
+	}()
+
+	if !sendRenderMsg(msgCh, nil, &RenderMsg{
+		Typ:    RenderMsgPaneOutput,
+		PaneID: 1,
+		Data:   []byte("queued output"),
+	}) {
+		t.Fatal("sendRenderMsg returned false")
+	}
+
+	select {
+	case <-rendered:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("queued pane output did not render")
+	}
+
+	snap := cr.frameStats.snapshot()
+	if snap.actorQueueSampleCount == 0 {
+		t.Fatal("actorQueueSampleCount = 0, want queued message latency sample")
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
 }

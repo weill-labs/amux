@@ -527,7 +527,7 @@ func BenchmarkRenderCoalescedForegroundWithNoisyBackground(b *testing.B) {
 	<-done
 
 	if b.N > 0 {
-		b.ReportMetric(float64((foregroundLatency/time.Duration(b.N)).Nanoseconds()), "fg-ns/op")
+		b.ReportMetric(float64((foregroundLatency / time.Duration(b.N)).Nanoseconds()), "fg-ns/op")
 	}
 }
 

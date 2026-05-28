@@ -434,6 +434,9 @@ type RenderMsg struct {
 	Text        string
 	Local       localRenderFunc
 	Reply       chan any
+	QueuedAt    time.Time
+
+	queueLatencyRecorded bool
 }
 
 type localRenderFunc func(*ClientRenderer) localRenderResult
@@ -558,6 +561,21 @@ func collectPaneOutputBatch(first *RenderMsg, msgCh <-chan *RenderMsg) (batch []
 	}
 }
 
+func stampRenderMsgQueuedAt(msg *RenderMsg, now time.Time) {
+	if msg == nil || !msg.QueuedAt.IsZero() {
+		return
+	}
+	msg.QueuedAt = now
+}
+
+func (cr *ClientRenderer) recordRenderMsgQueueLatency(msg *RenderMsg, now time.Time) {
+	if msg == nil || msg.QueuedAt.IsZero() || msg.queueLatencyRecorded {
+		return
+	}
+	msg.queueLatencyRecorded = true
+	cr.frameStats.recordActorQueueLatency(now.Sub(msg.QueuedAt))
+}
+
 func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 	switch msg.Typ {
 	case RenderMsgLayout:
@@ -675,6 +693,32 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 	}
 	effects = append(effects, clientEffect{kind: clientEffectScheduleRender})
 	return effects, totalBytes
+}
+
+func (cr *ClientRenderer) splitPriorityPaneOutputBatch(msgs []*RenderMsg) (priority []*RenderMsg, background []*RenderMsg, ok bool) {
+	if len(msgs) < 2 {
+		return nil, nil, false
+	}
+	activePaneID := cr.renderer.ActivePaneID()
+	if !cr.shouldPrioritizePaneOutput(activePaneID) {
+		return nil, nil, false
+	}
+	for _, msg := range msgs {
+		if msg.PaneID == activePaneID {
+			priority = append(priority, msg)
+		} else {
+			background = append(background, msg)
+		}
+	}
+	return priority, background, len(priority) != 0 && len(background) != 0
+}
+
+func (cr *ClientRenderer) executePaneOutputBatch(state *clientRenderLoopState, batch []*RenderMsg, write func(string)) bool {
+	effects, bytes := cr.handlePaneOutputBatch(batch)
+	if len(effects) != 0 && state.recordPaneOutput(bytes, cr.renderOverflowThreshold()) {
+		cr.RequestFullRedraw()
+	}
+	return cr.executeRenderEffects(state, effects, write)
 }
 
 func (cr *ClientRenderer) handleLocalRenderMsg(state *clientRenderLoopState, msg *RenderMsg, write func(string)) bool {
@@ -802,6 +846,7 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 					return
 				}
 				msg = next
+				cr.recordRenderMsgQueueLatency(msg, time.Now())
 			case <-cr.renderStop:
 				return
 			case <-state.renderC:
@@ -809,6 +854,7 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 				continue
 			}
 		}
+		cr.recordRenderMsgQueueLatency(msg, time.Now())
 
 		if msg.Typ == RenderMsgLocalAction {
 			if cr.handleLocalRenderMsg(state, msg, write) {
@@ -818,12 +864,20 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 		}
 		if msg.Typ == RenderMsgPaneOutput {
 			batch, next, closed := collectPaneOutputBatch(msg, msgCh)
-			pendingMsg = next
-			effects, bytes := cr.handlePaneOutputBatch(batch)
-			if len(effects) != 0 && state.recordPaneOutput(bytes, cr.renderOverflowThreshold()) {
-				cr.RequestFullRedraw()
+			pickup := time.Now()
+			for _, queued := range batch[1:] {
+				cr.recordRenderMsgQueueLatency(queued, pickup)
 			}
-			if cr.executeRenderEffects(state, effects, write) {
+			cr.recordRenderMsgQueueLatency(next, pickup)
+			pendingMsg = next
+			if priority, background, ok := cr.splitPriorityPaneOutputBatch(batch); ok {
+				if cr.executePaneOutputBatch(state, priority, write) {
+					return
+				}
+				if cr.executePaneOutputBatch(state, background, write) {
+					return
+				}
+			} else if cr.executePaneOutputBatch(state, batch, write) {
 				return
 			}
 			if closed {

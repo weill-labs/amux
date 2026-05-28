@@ -22,14 +22,19 @@ type clientFrameSample struct {
 }
 
 type clientFrameStats struct {
-	samples [clientFrameStatsWindowSize]clientFrameSample
-	next    int
-	count   int
+	samples              [clientFrameStatsWindowSize]clientFrameSample
+	next                 int
+	count                int
+	actorQueueLatencies  [clientFrameStatsWindowSize]time.Duration
+	actorQueueNext       int
+	actorQueueSampleSize int
 }
 
 type clientFrameStatsSnapshot struct {
-	sampleCount int
-	samples     []clientFrameSample
+	sampleCount           int
+	samples               []clientFrameSample
+	actorQueueSampleCount int
+	actorQueueLatencies   []time.Duration
 }
 
 func (s *clientFrameStats) record(sample clientFrameSample) {
@@ -40,24 +45,48 @@ func (s *clientFrameStats) record(sample clientFrameSample) {
 	}
 }
 
+func (s *clientFrameStats) recordActorQueueLatency(latency time.Duration) {
+	if latency < 0 {
+		return
+	}
+	s.actorQueueLatencies[s.actorQueueNext] = latency
+	s.actorQueueNext = (s.actorQueueNext + 1) % len(s.actorQueueLatencies)
+	if s.actorQueueSampleSize < len(s.actorQueueLatencies) {
+		s.actorQueueSampleSize++
+	}
+}
+
 func (s *clientFrameStats) snapshot() clientFrameStatsSnapshot {
-	if s.count == 0 {
+	if s.count == 0 && s.actorQueueSampleSize == 0 {
 		return clientFrameStatsSnapshot{}
 	}
 
-	start := s.next - s.count
-	if start < 0 {
-		start += len(s.samples)
+	frameStart := s.next - s.count
+	if frameStart < 0 {
+		frameStart += len(s.samples)
 	}
 
 	out := make([]clientFrameSample, 0, s.count)
 	for i := 0; i < s.count; i++ {
-		idx := (start + i) % len(s.samples)
+		idx := (frameStart + i) % len(s.samples)
 		out = append(out, s.samples[idx])
 	}
+
+	queueStart := s.actorQueueNext - s.actorQueueSampleSize
+	if queueStart < 0 {
+		queueStart += len(s.actorQueueLatencies)
+	}
+
+	queueLatencies := make([]time.Duration, 0, s.actorQueueSampleSize)
+	for i := 0; i < s.actorQueueSampleSize; i++ {
+		idx := (queueStart + i) % len(s.actorQueueLatencies)
+		queueLatencies = append(queueLatencies, s.actorQueueLatencies[idx])
+	}
 	return clientFrameStatsSnapshot{
-		sampleCount: s.count,
-		samples:     out,
+		sampleCount:           s.count,
+		samples:               out,
+		actorQueueSampleCount: s.actorQueueSampleSize,
+		actorQueueLatencies:   queueLatencies,
 	}
 }
 
@@ -100,6 +129,15 @@ func (s *clientFrameStats) format() string {
 		percentileInt(panes, 95),
 		percentileInt(panes, 99),
 	)
+	if len(snap.actorQueueLatencies) == 0 {
+		b.WriteString("actor queueing latency: no samples\n")
+	} else {
+		fmt.Fprintf(&b, "actor queueing latency: p50 %s  p95 %s  p99 %s\n",
+			percentileDuration(snap.actorQueueLatencies, 50),
+			percentileDuration(snap.actorQueueLatencies, 95),
+			percentileDuration(snap.actorQueueLatencies, 99),
+		)
+	}
 
 	recentStart := len(snap.samples) - clientFrameStatsRecentSize
 	if recentStart < 0 {
