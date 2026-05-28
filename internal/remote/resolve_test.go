@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,11 +35,12 @@ func TestResolvePaneIDFromLayout(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		layout  *proto.LayoutSnapshot
-		pane    string
-		wantID  uint32
-		wantErr ResolvePaneIDErrorKind
+		name        string
+		layout      *proto.LayoutSnapshot
+		pane        string
+		wantID      uint32
+		wantErr     ResolvePaneIDErrorKind
+		wantMatches []uint32
 	}{
 		{
 			name: "resolves pane in inactive window",
@@ -79,8 +82,19 @@ func TestResolvePaneIDFromLayout(t *testing.T) {
 			layout: layoutWithWindows(
 				windowWithPanes(paneDef{id: 1, name: "same"}, paneDef{id: 2, name: "same"}),
 			),
-			pane:    "same",
-			wantErr: ResolvePaneIDAmbiguous,
+			pane:        "same",
+			wantErr:     ResolvePaneIDAmbiguous,
+			wantMatches: []uint32{1, 2},
+		},
+		{
+			name: "ambiguous pane across windows",
+			layout: layoutWithWindows(
+				windowWithPanes(paneDef{id: 1, name: "agent"}),
+				windowWithPanes(paneDef{id: 2, name: "agent"}),
+			),
+			pane:        "agent",
+			wantErr:     ResolvePaneIDAmbiguous,
+			wantMatches: []uint32{1, 2},
 		},
 		{
 			name:    "nil layout",
@@ -118,6 +132,10 @@ func TestResolvePaneIDFromLayout(t *testing.T) {
 			}
 			if resolveErr.Name != tt.pane {
 				t.Fatalf("ResolvePaneIDError.Name = %q, want %q", resolveErr.Name, tt.pane)
+			}
+			gotMatches := resolvePaneIDMatchIDs(resolveErr.Matches)
+			if !slices.Equal(gotMatches, tt.wantMatches) {
+				t.Fatalf("ResolvePaneIDError.Matches IDs = %v, want %v", gotMatches, tt.wantMatches)
 			}
 		})
 	}
@@ -246,6 +264,51 @@ func TestResolvePaneIDConnectionErrors(t *testing.T) {
 	})
 }
 
+func TestBindConnDeadlineToContextWaitsForAfterFuncBeforeClearing(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { serverConn.Close() })
+	t.Cleanup(func() { clientConn.Close() })
+
+	conn := newBlockingDeadlineConn(clientConn)
+	ctx, cancel := context.WithCancel(context.Background())
+	cleanup := bindConnDeadlineToContext(ctx, conn)
+
+	cancel()
+	select {
+	case <-conn.enteredNonZero:
+	case <-time.After(time.Second):
+		t.Fatal("deadline callback did not start")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		cleanup()
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("cleanup returned before AfterFunc deadline write finished")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(conn.releaseNonZero)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not return")
+	}
+
+	deadlines := conn.deadlineSnapshot()
+	if len(deadlines) < 2 {
+		t.Fatalf("SetDeadline calls = %d, want at least 2", len(deadlines))
+	}
+	if !deadlines[len(deadlines)-1].IsZero() {
+		t.Fatalf("final deadline = %v, want cleared deadline", deadlines[len(deadlines)-1])
+	}
+}
+
 func resolvePaneIDFromOneShotListServer(t *testing.T, session, name string, layout *proto.LayoutSnapshot) uint32 {
 	t.Helper()
 
@@ -265,7 +328,6 @@ func startResolveListServer(t *testing.T, response *proto.Message) (net.Conn, <-
 	t.Helper()
 
 	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { clientConn.Close() })
 
 	requests := make(chan *proto.Message, 1)
 	done := make(chan struct{})
@@ -301,7 +363,6 @@ func startResolveReadOnlyListServer(t *testing.T) (net.Conn, <-chan *proto.Messa
 	t.Helper()
 
 	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { clientConn.Close() })
 
 	requests := make(chan *proto.Message, 1)
 	release := make(chan struct{})
@@ -343,6 +404,49 @@ func assertListPanesRequest(t *testing.T, got *proto.Message, wantSession string
 	if got.Session != wantSession {
 		t.Fatalf("request session = %q, want %q", got.Session, wantSession)
 	}
+}
+
+func resolvePaneIDMatchIDs(matches []ResolvePaneIDMatch) []uint32 {
+	ids := make([]uint32, 0, len(matches))
+	for _, match := range matches {
+		ids = append(ids, match.ID)
+	}
+	return ids
+}
+
+type blockingDeadlineConn struct {
+	net.Conn
+
+	mu             sync.Mutex
+	deadlines      []time.Time
+	enteredNonZero chan struct{}
+	releaseNonZero chan struct{}
+	enterOnce      sync.Once
+}
+
+func newBlockingDeadlineConn(conn net.Conn) *blockingDeadlineConn {
+	return &blockingDeadlineConn{
+		Conn:           conn,
+		enteredNonZero: make(chan struct{}),
+		releaseNonZero: make(chan struct{}),
+	}
+}
+
+func (c *blockingDeadlineConn) SetDeadline(deadline time.Time) error {
+	if !deadline.IsZero() {
+		c.enterOnce.Do(func() { close(c.enteredNonZero) })
+		<-c.releaseNonZero
+	}
+	c.mu.Lock()
+	c.deadlines = append(c.deadlines, deadline)
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *blockingDeadlineConn) deadlineSnapshot() []time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]time.Time(nil), c.deadlines...)
 }
 
 type paneDef struct {

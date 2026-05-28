@@ -106,13 +106,20 @@ func bindConnDeadlineToContext(ctx context.Context, conn net.Conn) func() {
 			touchedDeadline = true
 		}
 	}
+	afterFuncDone := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
+		defer close(afterFuncDone)
 		_ = conn.SetDeadline(time.Now())
 	})
 	return func() {
-		if !stop() || touchedDeadline {
-			_ = conn.SetDeadline(time.Time{})
+		if stop() {
+			if touchedDeadline {
+				_ = conn.SetDeadline(time.Time{})
+			}
+			return
 		}
+		<-afterFuncDone
+		_ = conn.SetDeadline(time.Time{})
 	}
 }
 
