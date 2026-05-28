@@ -329,16 +329,21 @@ func ValidateRemoteHosts(hosts map[string]Host) error {
 
 	for _, name := range names {
 		host := hosts[name]
-		if strings.TrimSpace(host.SSH) == "" {
+		ssh := strings.TrimSpace(host.SSH)
+		socketPath := strings.TrimSpace(host.SocketPath)
+		if ssh == "" {
 			return fmt.Errorf("remote.hosts.%s.ssh is required", name)
+		}
+		if strings.HasPrefix(ssh, "-") {
+			return fmt.Errorf("remote.hosts.%s.ssh must not start with '-'", name)
 		}
 		if strings.TrimSpace(host.Session) == "" {
 			return fmt.Errorf("remote.hosts.%s.session is required", name)
 		}
-		if strings.TrimSpace(host.SocketPath) == "" {
+		if socketPath == "" {
 			return fmt.Errorf("remote.hosts.%s.socket_path is required", name)
 		}
-		if !filepath.IsAbs(host.SocketPath) {
+		if !filepath.IsAbs(socketPath) {
 			return fmt.Errorf("remote.hosts.%s.socket_path must be absolute", name)
 		}
 	}

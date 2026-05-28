@@ -156,6 +156,7 @@ func TestSSHDialerRejectsMissingRequiredFields(t *testing.T) {
 		want string
 	}{
 		{name: "ssh", host: config.Host{SocketPath: "/tmp/amux-test"}, want: "ssh target is required"},
+		{name: "ssh starts with dash", host: config.Host{SSH: "-o ProxyCommand=malicious", SocketPath: "/tmp/amux-test"}, want: "ssh target must not start with '-'"},
 		{name: "socket", host: config.Host{SSH: "cweill@example.test"}, want: "socket path is required"},
 	}
 
@@ -235,6 +236,49 @@ cat
 	}
 }
 
+func TestCommandConnCloseCancelsOnNormalExit(t *testing.T) {
+	t.Parallel()
+
+	cancelled := false
+	conn := &commandConn{
+		cancel: func() { cancelled = true },
+		stdin:  nopWriteCloser{},
+		stdout: nopReadCloser{},
+		waitCh: closedWait(nil),
+	}
+
+	if err := conn.closeWithTimeout(time.Second, time.Second); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+	if !cancelled {
+		t.Fatal("cancel was not called on normal close")
+	}
+}
+
+func TestCommandConnCloseBoundsWaitAfterKill(t *testing.T) {
+	t.Parallel()
+
+	cancelled := false
+	conn := &commandConn{
+		cancel: func() { cancelled = true },
+		stdin:  nopWriteCloser{},
+		stdout: nopReadCloser{},
+		waitCh: make(chan error),
+	}
+
+	start := time.Now()
+	err := conn.closeWithTimeout(time.Millisecond, time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "waiting for ssh process after kill") {
+		t.Fatalf("Close() = %v, want bounded kill-wait timeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("Close() took %v, want bounded wait", elapsed)
+	}
+	if !cancelled {
+		t.Fatal("cancel was not called on forced close")
+	}
+}
+
 func TestCommandConnNetConnMethods(t *testing.T) {
 	t.Parallel()
 
@@ -273,6 +317,24 @@ func TestAcceptableWaitErr(t *testing.T) {
 	if err := acceptableWaitErr(plainErr); !errors.Is(err, plainErr) {
 		t.Fatalf("acceptableWaitErr(plainErr) = %v, want plainErr", err)
 	}
+}
+
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+
+func (nopWriteCloser) Close() error { return nil }
+
+type nopReadCloser struct{}
+
+func (nopReadCloser) Read([]byte) (int, error) { return 0, errors.New("unexpected read") }
+
+func (nopReadCloser) Close() error { return nil }
+
+func closedWait(err error) <-chan error {
+	ch := make(chan error, 1)
+	ch <- err
+	return ch
 }
 
 type unixSocketDialer struct{}

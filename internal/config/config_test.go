@@ -406,6 +406,16 @@ socket_path = "/tmp/amux-1000/main"
 			wantErr: `remote.hosts.hetzner-1.session is required`,
 		},
 		{
+			name: "ssh starts with dash",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "-o ProxyCommand=malicious"
+session = "main"
+socket_path = "/tmp/amux-1000/main"
+`,
+			wantErr: `remote.hosts.hetzner-1.ssh must not start with '-'`,
+		},
+		{
 			name: "missing socket path",
 			content: `
 [remote.hosts.hetzner-1]
@@ -424,6 +434,16 @@ socket_path = "amux-main"
 `,
 			wantErr: `remote.hosts.hetzner-1.socket_path must be absolute`,
 		},
+		{
+			name: "trimmed absolute socket path",
+			content: `
+[remote.hosts.hetzner-1]
+ssh = "cweill@100.115.94.1"
+session = "main"
+socket_path = " /tmp/amux-1000/main "
+`,
+			wantErr: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -438,6 +458,12 @@ socket_path = "amux-main"
 			}
 
 			_, err := Load(path)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Load() error = %v, want nil", err)
+				}
+				return
+			}
 			if err == nil || err.Error() != tt.wantErr {
 				t.Fatalf("Load() error = %v, want %q", err, tt.wantErr)
 			}

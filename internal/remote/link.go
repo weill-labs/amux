@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,20 +147,30 @@ func (p RetryPolicy) Delay(attempt int) time.Duration {
 
 type SSHDialer struct{}
 
+const (
+	sshCloseGrace = 2 * time.Second
+	sshKillWait   = 500 * time.Millisecond
+)
+
 func (SSHDialer) Dial(ctx context.Context, host config.Host) (net.Conn, error) {
-	if host.SSH == "" {
+	sshTarget := strings.TrimSpace(host.SSH)
+	socketPath := strings.TrimSpace(host.SocketPath)
+	if sshTarget == "" {
 		return nil, errors.New("ssh target is required")
 	}
-	if host.SocketPath == "" {
+	if strings.HasPrefix(sshTarget, "-") {
+		return nil, errors.New("ssh target must not start with '-'")
+	}
+	if socketPath == "" {
 		return nil, errors.New("socket path is required")
 	}
 
 	cmdCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(cmdCtx, "ssh",
 		"-o", "BatchMode=yes",
-		host.SSH,
+		sshTarget,
 		"--",
-		"nc", "-U", host.SocketPath,
+		"nc", "-U", socketPath,
 	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -213,19 +224,42 @@ func (c *commandConn) Write(p []byte) (int, error) {
 }
 
 func (c *commandConn) Close() error {
+	return c.closeWithTimeout(sshCloseGrace, sshKillWait)
+}
+
+func (c *commandConn) closeWithTimeout(grace, killWait time.Duration) error {
 	c.closeOnce.Do(func() {
-		_ = c.stdin.Close()
+		if c.cancel != nil {
+			defer c.cancel()
+		}
+		if c.stdin != nil {
+			_ = c.stdin.Close()
+		}
+		graceTimer := time.NewTimer(grace)
+		defer graceTimer.Stop()
+
 		select {
 		case err := <-c.waitCh:
 			c.closeErr = acceptableWaitErr(err)
-		case <-time.After(2 * time.Second):
-			c.cancel()
+		case <-graceTimer.C:
+			if c.cancel != nil {
+				c.cancel()
+			}
 			if c.cmd != nil && c.cmd.Process != nil {
 				_ = c.cmd.Process.Kill()
 			}
-			c.closeErr = acceptableWaitErr(<-c.waitCh)
+			killTimer := time.NewTimer(killWait)
+			defer killTimer.Stop()
+			select {
+			case err := <-c.waitCh:
+				c.closeErr = acceptableWaitErr(err)
+			case <-killTimer.C:
+				c.closeErr = errors.New("waiting for ssh process after kill: timeout")
+			}
 		}
-		_ = c.stdout.Close()
+		if c.stdout != nil {
+			_ = c.stdout.Close()
+		}
 	})
 	return c.closeErr
 }
