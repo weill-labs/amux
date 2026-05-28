@@ -62,6 +62,25 @@ func TestClientFrameStatsFormatIncludesActorQueueingLatencyPercentiles(t *testin
 	}
 }
 
+func TestClientFrameStatsFormatIncludesQueueLatencyWithoutFrameSamples(t *testing.T) {
+	t.Parallel()
+
+	var stats clientFrameStats
+	stats.recordActorQueueLatency(2 * time.Millisecond)
+
+	got := stats.format()
+	for _, want := range []string{
+		"samples: 0",
+		"frame duration: no samples",
+		"actor queueing latency: p50 2ms  p95 2ms  p99 2ms",
+		"last 100 frame times (oldest -> newest): no samples",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("format missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderNowRecordsFrameStats(t *testing.T) {
 	t.Parallel()
 
@@ -147,6 +166,60 @@ func TestRenderCoalescedRecordsActorQueueLatency(t *testing.T) {
 	snap := cr.frameStats.snapshot()
 	if snap.actorQueueSampleCount == 0 {
 		t.Fatal("actorQueueSampleCount = 0, want queued message latency sample")
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
+func TestRenderCoalescedPendingMsgQueueLatencyIncludesPriorityRenderTime(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23())
+	cr.RenderDiff()
+	cr.renderFrameInterval = time.Hour
+	cr.renderPriorityWindow = time.Hour
+	cr.MarkLocalInput()
+
+	msgCh := make(chan *RenderMsg, 4)
+	sendRenderMsg(msgCh, nil, &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")})
+	sendRenderMsg(msgCh, nil, &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("typed")})
+	reply := make(chan any, 1)
+	sendRenderMsg(msgCh, nil, &RenderMsg{
+		Typ:   RenderMsgLocalAction,
+		Local: func(*ClientRenderer) localRenderResult { return localRenderResult{} },
+		Reply: reply,
+	})
+
+	done := make(chan struct{})
+	firstWrite := true
+	const slowRender = 80 * time.Millisecond
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			if firstWrite {
+				firstWrite = false
+				time.Sleep(slowRender)
+			}
+		})
+		close(done)
+	}()
+
+	select {
+	case <-reply:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("pending local action did not run")
+	}
+
+	var maxLatency time.Duration
+	for _, latency := range cr.frameStats.snapshot().actorQueueLatencies {
+		if latency > maxLatency {
+			maxLatency = latency
+		}
+	}
+	if maxLatency < slowRender/2 {
+		t.Fatalf("max actor queue latency = %v, want it to include slow priority render time %v", maxLatency, slowRender)
 	}
 
 	msgCh <- &RenderMsg{Typ: RenderMsgExit}

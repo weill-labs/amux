@@ -867,7 +867,6 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			for _, queued := range batch[1:] {
 				cr.recordRenderMsgQueueLatency(queued, pickup)
 			}
-			cr.recordRenderMsgQueueLatency(next, pickup)
 			pendingMsg = next
 			if priority, background, ok := cr.splitPriorityPaneOutputBatch(batch); ok {
 				if cr.executePaneOutputBatch(state, priority, write) {

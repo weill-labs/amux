@@ -104,7 +104,7 @@ func (s *clientFrameStats) snapshot() clientFrameStatsSnapshot {
 
 func (s *clientFrameStats) format() string {
 	snap := s.snapshot()
-	if snap.sampleCount == 0 {
+	if snap.sampleCount == 0 && len(snap.actorQueueLatencies) == 0 {
 		return "no frame samples recorded yet"
 	}
 
@@ -121,26 +121,33 @@ func (s *clientFrameStats) format() string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "samples: %d\n", snap.sampleCount)
-	fmt.Fprintf(&b, "frame duration: p50 %s  p95 %s  p99 %s\n",
-		percentileDuration(durations, 50),
-		percentileDuration(durations, 95),
-		percentileDuration(durations, 99),
-	)
-	fmt.Fprintf(&b, "cells diffed: p50 %d  p95 %d  p99 %d\n",
-		percentileInt(cells, 50),
-		percentileInt(cells, 95),
-		percentileInt(cells, 99),
-	)
-	fmt.Fprintf(&b, "ansi bytes emitted: p50 %d  p95 %d  p99 %d\n",
-		percentileInt(ansiBytes, 50),
-		percentileInt(ansiBytes, 95),
-		percentileInt(ansiBytes, 99),
-	)
-	fmt.Fprintf(&b, "panes composited: p50 %d  p95 %d  p99 %d\n",
-		percentileInt(panes, 50),
-		percentileInt(panes, 95),
-		percentileInt(panes, 99),
-	)
+	if snap.sampleCount == 0 {
+		b.WriteString("frame duration: no samples\n")
+		b.WriteString("cells diffed: no samples\n")
+		b.WriteString("ansi bytes emitted: no samples\n")
+		b.WriteString("panes composited: no samples\n")
+	} else {
+		fmt.Fprintf(&b, "frame duration: p50 %s  p95 %s  p99 %s\n",
+			percentileDuration(durations, 50),
+			percentileDuration(durations, 95),
+			percentileDuration(durations, 99),
+		)
+		fmt.Fprintf(&b, "cells diffed: p50 %d  p95 %d  p99 %d\n",
+			percentileInt(cells, 50),
+			percentileInt(cells, 95),
+			percentileInt(cells, 99),
+		)
+		fmt.Fprintf(&b, "ansi bytes emitted: p50 %d  p95 %d  p99 %d\n",
+			percentileInt(ansiBytes, 50),
+			percentileInt(ansiBytes, 95),
+			percentileInt(ansiBytes, 99),
+		)
+		fmt.Fprintf(&b, "panes composited: p50 %d  p95 %d  p99 %d\n",
+			percentileInt(panes, 50),
+			percentileInt(panes, 95),
+			percentileInt(panes, 99),
+		)
+	}
 	if len(snap.actorQueueLatencies) == 0 {
 		b.WriteString("actor queueing latency: no samples\n")
 	} else {
@@ -155,12 +162,16 @@ func (s *clientFrameStats) format() string {
 	if recentStart < 0 {
 		recentStart = 0
 	}
-	b.WriteString("last 100 frame times (oldest -> newest): ")
-	for i, sample := range snap.samples[recentStart:] {
-		if i > 0 {
-			b.WriteString(", ")
+	if snap.sampleCount == 0 {
+		b.WriteString("last 100 frame times (oldest -> newest): no samples")
+	} else {
+		b.WriteString("last 100 frame times (oldest -> newest): ")
+		for i, sample := range snap.samples[recentStart:] {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(sample.frameDuration.String())
 		}
-		b.WriteString(sample.frameDuration.String())
 	}
 	return b.String()
 }
