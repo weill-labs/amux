@@ -32,6 +32,7 @@ func TestClientFrameStatsFormatIncludesPercentilesAndRecentFrames(t *testing.T) 
 		"cells diffed",
 		"ansi bytes emitted",
 		"panes composited",
+		"actor queueing latency",
 		"last 100 frame times (oldest -> newest): 21ms, 22ms",
 		"119ms, 120ms",
 	} {

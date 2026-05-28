@@ -1911,6 +1911,49 @@ func TestRenderCoalescedPrioritizesActivePaneCursorOnlyOutputAfterLocalInput(t *
 	<-done
 }
 
+func TestRenderCoalescedPriorityLaneRendersActiveBeforeQueuedBackground(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23())
+	cr.RenderDiff()
+	cr.renderFrameInterval = time.Hour
+	cr.renderPriorityWindow = time.Hour
+	cr.MarkLocalInput()
+
+	msgCh := make(chan *RenderMsg, 4)
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")}
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("typed")}
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+
+	rendered := make(chan string, 4)
+	done := make(chan struct{})
+	go func() {
+		cr.RenderCoalesced(msgCh, func(frame string) {
+			rendered <- frame
+		})
+		close(done)
+	}()
+
+	select {
+	case frame := <-rendered:
+		if !strings.Contains(frame, "typed") {
+			t.Fatalf("first frame = %q, want active pane output", frame)
+		}
+		if strings.Contains(frame, "background") {
+			t.Fatalf("first frame included queued background output before foreground priority lane:\n%q", frame)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("priority lane did not render the active pane promptly")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("render loop did not exit")
+	}
+}
+
 func TestRenderCoalescedDoesNotPrioritizeBackgroundPaneAfterLocalInput(t *testing.T) {
 	t.Parallel()
 
