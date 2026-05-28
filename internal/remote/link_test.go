@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -41,6 +42,9 @@ func TestDefaultRetryPolicyDelays(t *testing.T) {
 	}
 	if got := (RetryPolicy{}).Delay(3); got != 4*time.Second {
 		t.Fatalf("zero-value Delay(3) = %v, want defaulted 4s", got)
+	}
+	if got := (RetryPolicy{InitialBackoff: 2 * time.Second, MaxBackoff: 3 * time.Second}).Delay(2); got != 3*time.Second {
+		t.Fatalf("capped Delay(2) = %v, want 3s", got)
 	}
 }
 
@@ -99,6 +103,27 @@ func TestLinkConnectSurfacesDialerError(t *testing.T) {
 	}
 }
 
+func TestLinkRejectsSecondConnectWithoutRedialing(t *testing.T) {
+	t.Parallel()
+
+	client, server := net.Pipe()
+	defer server.Close()
+
+	dialer := &countingDialer{conn: client}
+	link := NewLink(config.Host{SSH: "test", Session: "main", SocketPath: "/tmp/amux-test"}, dialer)
+	if err := link.Connect(context.Background()); err != nil {
+		t.Fatalf("first Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = link.Close() })
+
+	if err := link.Connect(context.Background()); err == nil || err.Error() != "remote link already connected" {
+		t.Fatalf("second Connect() error = %v, want already connected", err)
+	}
+	if dialer.calls != 1 {
+		t.Fatalf("dial calls = %d, want 1", dialer.calls)
+	}
+}
+
 func TestLinkClosedState(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +141,9 @@ func TestLinkClosedState(t *testing.T) {
 	}
 	if _, err := link.ReadMsg(); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("ReadMsg before Connect = %v, want net.ErrClosed", err)
+	}
+	if err := link.Close(); err != nil {
+		t.Fatalf("Close before Connect = %v, want nil", err)
 	}
 }
 
@@ -141,6 +169,20 @@ func TestSSHDialerRejectsMissingRequiredFields(t *testing.T) {
 				t.Fatalf("Dial() error = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSSHDialerSurfacesStartError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+
+	_, err := (SSHDialer{}).Dial(context.Background(), config.Host{
+		SSH:        "cweill@example.test",
+		Session:    "main",
+		SocketPath: "/tmp/amux-test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "starting ssh:") {
+		t.Fatalf("Dial() error = %v, want starting ssh error", err)
 	}
 }
 
@@ -193,6 +235,46 @@ cat
 	}
 }
 
+func TestCommandConnNetConnMethods(t *testing.T) {
+	t.Parallel()
+
+	conn := &commandConn{}
+	if got := conn.LocalAddr().Network(); got != "ssh" {
+		t.Fatalf("LocalAddr().Network() = %q, want ssh", got)
+	}
+	if got := conn.LocalAddr().String(); got != "local" {
+		t.Fatalf("LocalAddr().String() = %q, want local", got)
+	}
+	if got := conn.RemoteAddr().String(); got != "remote" {
+		t.Fatalf("RemoteAddr().String() = %q, want remote", got)
+	}
+	if err := conn.SetDeadline(time.Now()); !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("SetDeadline() = %v, want os.ErrInvalid", err)
+	}
+	if err := conn.SetReadDeadline(time.Now()); !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("SetReadDeadline() = %v, want os.ErrInvalid", err)
+	}
+	if err := conn.SetWriteDeadline(time.Now()); !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("SetWriteDeadline() = %v, want os.ErrInvalid", err)
+	}
+}
+
+func TestAcceptableWaitErr(t *testing.T) {
+	t.Parallel()
+
+	if err := acceptableWaitErr(nil); err != nil {
+		t.Fatalf("acceptableWaitErr(nil) = %v, want nil", err)
+	}
+	exitErr := exec.Command("sh", "-c", "exit 7").Run()
+	if err := acceptableWaitErr(exitErr); err != nil {
+		t.Fatalf("acceptableWaitErr(exitErr) = %v, want nil", err)
+	}
+	plainErr := errors.New("wait failed")
+	if err := acceptableWaitErr(plainErr); !errors.Is(err, plainErr) {
+		t.Fatalf("acceptableWaitErr(plainErr) = %v, want plainErr", err)
+	}
+}
+
 type unixSocketDialer struct{}
 
 func (unixSocketDialer) Dial(ctx context.Context, host config.Host) (net.Conn, error) {
@@ -205,6 +287,16 @@ type staticDialer struct {
 }
 
 func (d staticDialer) Dial(context.Context, config.Host) (net.Conn, error) {
+	return d.conn, nil
+}
+
+type countingDialer struct {
+	conn  net.Conn
+	calls int
+}
+
+func (d *countingDialer) Dial(context.Context, config.Host) (net.Conn, error) {
+	d.calls++
 	return d.conn, nil
 }
 
