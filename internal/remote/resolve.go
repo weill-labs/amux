@@ -34,9 +34,6 @@ type ResolvePaneIDError struct {
 }
 
 func (e *ResolvePaneIDError) Error() string {
-	if e == nil {
-		return "pane name resolution failed"
-	}
 	if e.Kind == ResolvePaneIDAmbiguous {
 		parts := make([]string, 0, len(e.Matches))
 		for _, match := range e.Matches {
@@ -122,9 +119,6 @@ func bindConnDeadlineToContext(ctx context.Context, conn net.Conn) func() {
 }
 
 func listPanesLayout(msg *proto.Message) (*proto.LayoutSnapshot, error) {
-	if msg == nil {
-		return nil, fmt.Errorf("list panes: nil response")
-	}
 	if msg.Type == proto.MsgTypeCmdResult && msg.CmdErr != "" {
 		return nil, fmt.Errorf("list panes: %s", msg.CmdErr)
 	}

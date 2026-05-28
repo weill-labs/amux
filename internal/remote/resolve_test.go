@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +47,15 @@ func TestResolvePaneIDFromLayout(t *testing.T) {
 			),
 			pane:   "remote",
 			wantID: 2,
+		},
+		{
+			name: "resolves pane in legacy layout",
+			layout: &proto.LayoutSnapshot{
+				Root:  leafCell(7),
+				Panes: []proto.PaneSnapshot{{ID: 7, Name: "legacy"}},
+			},
+			pane:   "legacy",
+			wantID: 7,
 		},
 		{
 			name: "ignores pane snapshots outside leaf layout",
@@ -180,6 +188,38 @@ func TestResolvePaneIDConnectionErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("nil context uses background", func(t *testing.T) {
+		t.Parallel()
+
+		clientConn, requests := startResolveListServer(t, &proto.Message{
+			Type: proto.MsgTypeLayout,
+			Layout: layoutWithWindows(
+				windowWithPanes(paneDef{id: 11, name: "agent"}),
+			),
+		})
+		got, err := ResolvePaneID(nil, clientConn, "remote-session", "agent")
+		if err != nil {
+			t.Fatalf("ResolvePaneID() error = %v, want nil", err)
+		}
+		if got != 11 {
+			t.Fatalf("ResolvePaneID() ID = %d, want 11", got)
+		}
+		assertListPanesRequest(t, <-requests, "remote-session")
+	})
+
+	t.Run("write error before request", func(t *testing.T) {
+		t.Parallel()
+
+		serverConn, clientConn := net.Pipe()
+		serverConn.Close()
+		clientConn.Close()
+
+		_, err := ResolvePaneID(context.Background(), clientConn, "remote-session", "agent")
+		if err == nil || !strings.Contains(err.Error(), "list panes") {
+			t.Fatalf("ResolvePaneID() error = %v, want list panes write error", err)
+		}
+	})
+
 	t.Run("read error after request", func(t *testing.T) {
 		t.Parallel()
 
@@ -196,7 +236,10 @@ func resolvePaneIDFromOneShotListServer(t *testing.T, session, name string, layo
 	t.Helper()
 
 	clientConn, requests := startResolveListServer(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
-	got, err := ResolvePaneID(context.Background(), clientConn, session, name)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	got, err := ResolvePaneID(ctx, clientConn, session, name)
 	if err != nil {
 		t.Fatalf("ResolvePaneID() error = %v, want nil", err)
 	}
@@ -294,20 +337,4 @@ func rootForLeafIDs(ids ...uint32) proto.CellSnapshot {
 
 func leafCell(id uint32) proto.CellSnapshot {
 	return proto.CellSnapshot{IsLeaf: true, Dir: -1, PaneID: id}
-}
-
-func TestRootForLeafIDsHelper(t *testing.T) {
-	t.Parallel()
-
-	got := rootForLeafIDs(1, 2)
-	want := proto.CellSnapshot{
-		Dir: 1,
-		Children: []proto.CellSnapshot{
-			{IsLeaf: true, Dir: -1, PaneID: 1},
-			{IsLeaf: true, Dir: -1, PaneID: 2},
-		},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("rootForLeafIDs() = %+v, want %+v", got, want)
-	}
 }
