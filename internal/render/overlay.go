@@ -31,6 +31,7 @@ type ChooserOverlay struct {
 type ChooserOverlayRow struct {
 	Text       string
 	Selectable bool
+	Header     bool // window grouping row in tree mode — rendered bold
 }
 
 // TextInputOverlay is a client-local modal prompt rendered above the layout.

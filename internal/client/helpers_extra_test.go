@@ -208,11 +208,12 @@ func TestChooserNavigationCoverageHelpers(t *testing.T) {
 	if !cr.ShowChooser(chooserModeWindow) {
 		t.Fatal("ShowChooser window should succeed")
 	}
+	// j/k must type into the filter query rather than move the selection.
 	if got := cr.HandleChooserInput([]byte("k")); got.bell {
-		t.Fatalf("k should wrap to the last row, got %+v", got)
+		t.Fatalf("k should type into the filter, got %+v", got)
 	}
-	if cmd := cr.selectChooser(); cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "2" {
-		t.Fatalf("selection after k wrap = %+v, want window 2", cmd)
+	if q := cr.chooserQueryValue(); q != "k" {
+		t.Fatalf("chooserQueryValue() after typing k = %q, want %q", q, "k")
 	}
 
 	if !cr.ShowChooser(chooserModeWindow) {

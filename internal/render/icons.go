@@ -18,6 +18,8 @@ type IconSet struct {
 	Issue         string
 	Task          string
 	CopyMode      string
+	ToggleOn      string // modal title-bar radio, selected
+	ToggleOff     string // modal title-bar radio, unselected
 }
 
 // IconSetPreset pairs a validated config name with its renderer glyphs.
@@ -66,6 +68,8 @@ func UnicodeIconSet() IconSet {
 		Issue:         "",
 		Task:          "",
 		CopyMode:      "[copy]",
+		ToggleOn:      "◉",
+		ToggleOff:     "○",
 	}
 }
 
@@ -85,6 +89,8 @@ func ASCIIIconSet() IconSet {
 		Issue:         "I",
 		Task:          "T",
 		CopyMode:      "C",
+		ToggleOn:      "(*)",
+		ToggleOff:     "( )",
 	}
 }
 
@@ -104,6 +110,8 @@ func NerdFontIconSet() IconSet {
 		Issue:         "\uf41b",
 		Task:          "\ueb67",
 		CopyMode:      "\ueac0",
+		ToggleOn:      "\uf192", // nf-fa-dot_circle_o
+		ToggleOff:     "\uf10c", // nf-fa-circle_o
 	}
 }
 

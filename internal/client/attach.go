@@ -1356,7 +1356,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 				// ChooserActive() is an atomic snapshot read. Re-check on the
 				// render loop before mutating chooser state so a queued layout can
 				// hide the chooser first without racing the input goroutine.
-				result := handleChooserInputOnRenderLoop(cr, msgCh, normalizeLocalInput(raw))
+				result := handleChooserInputOnRenderLoop(cr, msgCh, normalizeChooserInput(raw))
 				if !result.handled {
 					// If the chooser disappeared between the snapshot read above and
 					// the render-loop action, drop this key instead of forwarding it

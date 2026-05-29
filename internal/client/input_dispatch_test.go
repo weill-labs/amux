@@ -2430,3 +2430,82 @@ func TestCopyModeCopySelectionAppendsCopyBuffer(t *testing.T) {
 		t.Fatalf("copyBuffer = %q, want %q", got, "hell")
 	}
 }
+
+func TestHandleChooserMouseEventInactivePassesThrough(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	ev := mouse.Event{Action: mouse.Press, Button: mouse.ButtonLeft}
+	if handleChooserMouseEvent(ev, cr, nil, nil) {
+		t.Fatal("mouse event should not be consumed when the chooser is inactive")
+	}
+}
+
+func TestHandleChooserMouseEventWheelAndOutsideClick(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+
+	if !handleChooserMouseEvent(mouse.Event{Button: mouse.ScrollDown}, cr, nil, msgCh) {
+		t.Fatal("wheel events should be consumed while the chooser is open")
+	}
+	if !cr.ChooserActive() {
+		t.Fatal("chooser should remain open after a scroll wheel event")
+	}
+
+	if !handleChooserMouseEvent(mouse.Event{Action: mouse.Press, Button: mouse.ButtonLeft, X: 0, Y: 0}, cr, nil, msgCh) {
+		t.Fatal("clicks should be consumed while the chooser is open")
+	}
+	if cr.ChooserActive() {
+		t.Fatal("a left click outside the modal should dismiss the chooser")
+	}
+}
+
+func TestHandleChooserMouseEventClickRowSendsCommand(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+
+	overlay := cr.chooserOverlay()
+	screenW, screenH := cr.chooserScreenSize()
+	clickX, clickY, found := 0, 0, false
+	for y := 0; y < screenH && !found; y++ {
+		if _, onRow, _ := render.ChooserRowAtPoint(screenW, screenH, overlay, screenW/2, y); onRow {
+			clickX, clickY, found = screenW/2, y, true
+		}
+	}
+	if !found {
+		t.Fatal("expected at least one clickable row in the chooser")
+	}
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	done := make(chan struct{})
+	go func() {
+		handleChooserMouseEvent(mouse.Event{Action: mouse.Press, Button: mouse.ButtonLeft, X: clickX, Y: clickY}, cr, sender, msgCh)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.CmdName != "select-window" {
+		t.Fatalf("clicking a window row sent %q, want select-window", msg.CmdName)
+	}
+	<-done
+	if cr.ChooserActive() {
+		t.Fatal("choosing a row by click should dismiss the chooser")
+	}
+}

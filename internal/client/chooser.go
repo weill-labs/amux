@@ -23,6 +23,7 @@ type chooserItem struct {
 	text        string
 	filterValue string
 	selectable  bool
+	header      bool // window grouping row in tree mode
 	command     string
 	args        []string
 }
@@ -160,14 +161,9 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 		case tea.KeyPgDown:
 			result = cr.pageChooser(1)
 		case tea.KeyRunes:
-			if len(msg.Runes) == 1 && msg.Runes[0] == 'j' {
-				result = cr.moveChooser(1)
-				continue
-			}
-			if len(msg.Runes) == 1 && msg.Runes[0] == 'k' {
-				result = cr.moveChooser(-1)
-				continue
-			}
+			// j/k are intentionally NOT movement keys: they must be typeable
+			// into the filter query. Use Ctrl+J/Ctrl+K (mapped to Down/Up by
+			// normalizeChooserInput) or the arrow keys to move the selection.
 			if len(msg.Runes) == 1 && msg.Runes[0] == 'q' && cr.chooserQueryValue() == "" {
 				cr.HideChooser()
 				return chooserCommand{}
@@ -302,6 +298,19 @@ func (cr *ClientRenderer) applyChooserQueryKey(msg tea.KeyMsg) {
 	})
 }
 
+// selectChooserRowAt moves the selection to absRow (an index into the visible
+// rows) and confirms it — used for click-to-choose.
+func (cr *ClientRenderer) selectChooserRowAt(absRow int) chooserCommand {
+	cr.updateChooserSelection(func(model *list.Model) chooserCommand {
+		if absRow < 0 || absRow >= len(model.VisibleItems()) {
+			return chooserCommand{bell: true}
+		}
+		model.Select(absRow)
+		return chooserCommand{}
+	})
+	return cr.selectChooser()
+}
+
 func (cr *ClientRenderer) selectChooser() chooserCommand {
 	screenW, screenH := cr.chooserScreenSize()
 	command, result := updateClientStateValue(cr, func(next *clientSnapshot) (chooserCommand, clientUIResult) {
@@ -325,10 +334,12 @@ func (cr *ClientRenderer) selectChooser() chooserCommand {
 func (st *chooserState) rebuild() {
 	items := make([]chooserItem, 0, len(st.windows)*2)
 	for _, ws := range st.windows {
+		treeMode := st.mode == chooserModeTree
 		windowItem := chooserItem{
-			text:        formatChooserWindowRow(ws, ws.ID == st.activeWinID),
-			filterValue: chooserWindowFilterValue(ws, st.mode == chooserModeTree),
+			text:        formatChooserWindowRow(ws, ws.ID == st.activeWinID, treeMode),
+			filterValue: chooserWindowFilterValue(ws, treeMode),
 			selectable:  true,
+			header:      treeMode,
 			command:     "select-window",
 			args:        []string{strconv.Itoa(ws.Index)},
 		}
@@ -411,6 +422,7 @@ func (st *chooserState) overlayRows(screenW, screenH int) ([]render.ChooserOverl
 		rows = append(rows, render.ChooserOverlayRow{
 			Text:       row.text,
 			Selectable: row.selectable,
+			Header:     row.header,
 		})
 	}
 	return rows, model.Index()
@@ -460,12 +472,25 @@ func chooserHasSelectableItems(items []list.Item) bool {
 	return false
 }
 
-func formatChooserWindowRow(ws proto.WindowSnapshot, active bool) string {
+func formatChooserWindowRow(ws proto.WindowSnapshot, active, header bool) string {
+	label := strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + chooserPaneCount(len(ws.Panes)) + ")"
+	if header {
+		// Tree-mode window grouping rows are bold with no marker.
+		return label
+	}
 	marker := " "
 	if active {
-		marker = "*"
+		marker = "●"
 	}
-	return marker + " " + strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + strconv.Itoa(len(ws.Panes)) + " panes)"
+	return marker + " " + label
+}
+
+// chooserPaneCount renders a grammatically correct pane count.
+func chooserPaneCount(n int) string {
+	if n == 1 {
+		return "1 pane"
+	}
+	return strconv.Itoa(n) + " panes"
 }
 
 func chooserWindowName(ws proto.WindowSnapshot) string {
@@ -478,7 +503,7 @@ func chooserWindowName(ws proto.WindowSnapshot) string {
 func formatChooserPaneRow(ps proto.PaneSnapshot, active bool) string {
 	marker := " "
 	if active {
-		marker = "*"
+		marker = "●"
 	}
 	text := "  " + marker + " " + ps.Name
 	if ps.Host != "" && ps.Host != "local" {

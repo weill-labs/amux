@@ -2,7 +2,6 @@ package render
 
 import (
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,12 +10,13 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func TestChooserOverlayLayoutGuardsAndWindowing(t *testing.T) {
+func TestChooserOverlayGuardsAndWindowing(t *testing.T) {
 	t.Parallel()
 
-	t.Run("guards", func(t *testing.T) {
+	t.Run("guards draw nothing", func(t *testing.T) {
 		t.Parallel()
 
+		row := []ChooserOverlayRow{{Text: "a", Selectable: true}}
 		tests := []struct {
 			name    string
 			width   int
@@ -24,9 +24,8 @@ func TestChooserOverlayLayoutGuardsAndWindowing(t *testing.T) {
 			overlay *ChooserOverlay
 		}{
 			{name: "nil overlay", width: 20, height: 10},
-			{name: "non-positive width", width: 0, height: 10, overlay: &ChooserOverlay{Title: "x"}},
-			{name: "tiny width", width: 8, height: 10, overlay: &ChooserOverlay{Title: "x"}},
-			{name: "tiny height", width: 20, height: 4, overlay: &ChooserOverlay{Title: "x"}},
+			{name: "tiny width", width: 8, height: 10, overlay: &ChooserOverlay{Title: "x", Rows: row}},
+			{name: "tiny height", width: 20, height: 4, overlay: &ChooserOverlay{Title: "x", Rows: row}},
 		}
 
 		for _, tt := range tests {
@@ -34,9 +33,10 @@ func TestChooserOverlayLayoutGuardsAndWindowing(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				lines, styles, x, y := chooserOverlayLayout(tt.width, tt.height, tt.overlay)
-				if lines != nil || styles != nil || x != 0 || y != 0 {
-					t.Fatalf("chooserOverlayLayout(%d, %d, %+v) = (%v, %v, %d, %d), want nil layout", tt.width, tt.height, tt.overlay, lines, styles, x, y)
+				grid := NewScreenGrid(tt.width, tt.height)
+				buildChooserOverlayCells(grid, tt.overlay)
+				if got := strings.TrimSpace(gridToText(grid)); got != "" {
+					t.Fatalf("expected nothing drawn, got %q", got)
 				}
 			})
 		}
@@ -45,34 +45,66 @@ func TestChooserOverlayLayoutGuardsAndWindowing(t *testing.T) {
 	t.Run("windows selected row into view", func(t *testing.T) {
 		t.Parallel()
 
-		rows := make([]ChooserOverlayRow, 10)
-		for i := range rows {
-			rows[i] = ChooserOverlayRow{Text: "row-" + string(rune('0'+i)), Selectable: true}
+		start, end := chooserVisibleWindow(10, 8, 5)
+		if start != 5 || end != 10 {
+			t.Fatalf("chooserVisibleWindow(10,8,5) = (%d,%d), want (5,10)", start, end)
 		}
-		overlay := &ChooserOverlay{
-			Title:    "choose-tree",
-			Query:    "pane",
-			Rows:     rows,
-			Selected: 8,
+		if 8 < start || 8 >= end {
+			t.Fatalf("selected row 8 not within window [%d,%d)", start, end)
 		}
+	})
 
-		lines, styles, x, y := chooserOverlayLayout(30, 12, overlay)
-		if len(lines) != 8 {
-			t.Fatalf("len(lines) = %d, want 8", len(lines))
-		}
-		if x <= 0 || y <= 0 {
-			t.Fatalf("layout origin = (%d, %d), want centered positive coordinates", x, y)
-		}
-		if !strings.Contains(lines[2], "row-5") || !strings.Contains(lines[6], "row-9") {
-			t.Fatalf("visible rows = %q .. %q, want rows 5 through 9", lines[2], lines[6])
-		}
-		if styles[5] != chooserRowSelected {
-			t.Fatalf("selected row style = %q, want %q", styles[5], chooserRowSelected)
+	t.Run("no windowing when rows fit", func(t *testing.T) {
+		t.Parallel()
+
+		start, end := chooserVisibleWindow(3, 1, 10)
+		if start != 0 || end != 3 {
+			t.Fatalf("chooserVisibleWindow(3,1,10) = (%d,%d), want (0,3)", start, end)
 		}
 	})
 }
 
-func TestChooserOverlayRenderAndCells(t *testing.T) {
+func TestChooserRowAtPoint(t *testing.T) {
+	t.Parallel()
+
+	overlay := &ChooserOverlay{
+		Title: "choose-window",
+		Rows: []ChooserOverlayRow{
+			{Text: "1:amux (2 panes)", Selectable: true, Header: true},
+			{Text: "  ● pane-1", Selectable: true},
+			{Text: "  pane-2", Selectable: true},
+		},
+		Selected: 1,
+	}
+	const screenW, screenH = 60, 20
+
+	_, bodyTop, ok := chooserChrome(screenH, overlay).computeLayout(screenW, screenH)
+	if !ok {
+		t.Fatal("chooser layout should fit")
+	}
+
+	// Click the second list row (bodyTop is the first row).
+	if absRow, onRow, inside := ChooserRowAtPoint(screenW, screenH, overlay, screenW/2, bodyTop+1); !inside || !onRow || absRow != 1 {
+		t.Fatalf("click row 1 = (abs=%d, onRow=%v, inside=%v), want (1,true,true)", absRow, onRow, inside)
+	}
+
+	// Click the top border: inside the box, but not on a row.
+	if _, onRow, inside := ChooserRowAtPoint(screenW, screenH, overlay, screenW/2, 0); inside && onRow {
+		t.Fatal("a point above the modal should not register as a row")
+	}
+
+	// Click far outside the modal.
+	if _, _, inside := ChooserRowAtPoint(screenW, screenH, overlay, 0, 0); inside {
+		t.Fatal("click at (0,0) should be outside the modal")
+	}
+
+	// nil overlay.
+	if _, _, inside := ChooserRowAtPoint(screenW, screenH, nil, screenW/2, bodyTop); inside {
+		t.Fatal("nil overlay should never be inside")
+	}
+}
+
+func TestChooserOverlayRendersChrome(t *testing.T) {
 	t.Parallel()
 
 	overlay := &ChooserOverlay{
@@ -86,33 +118,20 @@ func TestChooserOverlayRenderAndCells(t *testing.T) {
 		Selected: 2,
 	}
 
-	lines, _, x, y := chooserOverlayLayout(32, 12, overlay)
-	if len(lines) == 0 {
-		t.Fatal("chooserOverlayLayout returned no lines")
-	}
-
-	grid := NewScreenGrid(32, 12)
+	grid := NewScreenGrid(60, 16)
 	buildChooserOverlayCells(grid, overlay)
 	text := gridToText(grid)
-	for _, line := range lines {
-		if !strings.Contains(text, line) {
-			t.Fatalf("grid text missing overlay line %q:\n%s", line, text)
+	for _, want := range []string{"╭", "╮", "╰", "╯", "choose-window", "> pane", "0:main", "1:logs", "esc close"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("chooser grid missing %q:\n%s", want, text)
 		}
-	}
-	if got := grid.Get(x+1, y+2).Char; got != string(lines[2][1]) {
-		t.Fatalf("grid cell at selected row = %q, want %q", got, string(lines[2][1]))
 	}
 
 	var buf strings.Builder
-	renderChooserOverlay(&buf, 32, 12, overlay)
+	renderChooserOverlay(&buf, 60, 16, overlay)
 	rendered := buf.String()
-	for row, line := range lines {
-		if !strings.Contains(rendered, line) {
-			t.Fatalf("rendered overlay missing line %q:\n%s", line, rendered)
-		}
-		if !strings.Contains(rendered, cursorPos(y+row+1, x+1)) {
-			t.Fatalf("rendered overlay missing cursor position for row %d", row)
-		}
+	if !strings.Contains(rendered, "choose-window") || !strings.Contains(rendered, "1:logs") {
+		t.Errorf("rendered chooser missing content:\n%s", rendered)
 	}
 }
 
@@ -381,8 +400,4 @@ func TestCompositorHelpersAndClipLine(t *testing.T) {
 			}
 		})
 	}
-}
-
-func cursorPos(row, col int) string {
-	return "\x1b[" + strconv.Itoa(row) + ";" + strconv.Itoa(col) + "H"
 }

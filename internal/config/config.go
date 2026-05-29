@@ -78,6 +78,8 @@ const (
 	Surface0Hex  = "313244" // Surface 0 — status bar background
 	Surface1Hex  = "45475a" // Surface 1 — pressed status bar background
 	BlueHex      = "89b4fa" // Blue — active tab highlight
+	MauveHex     = "cba6f7" // Mauve — modal accent (selection bar, borders)
+	FooterKeyHex = "858392" // muted gray-mauve — modal footer key names (matches crush)
 	GreenHex     = "a6e3a1" // Green — status indicator
 	YellowHex    = "f9e2af" // Yellow — status indicator
 	RedHex       = "f38ba8" // Red — status indicator

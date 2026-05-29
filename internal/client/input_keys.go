@@ -63,6 +63,46 @@ func normalizeLocalInput(raw []byte) []byte {
 	return out
 }
 
+// normalizeChooserInput is like normalizeLocalInput but maps Ctrl+J/Ctrl+K to
+// Down/Up arrows so they move the chooser selection. Plain j/k are left as text
+// so they can be typed into the filter query. Ctrl+J cannot be distinguished
+// from Enter once folded to a legacy byte (both 0x0A), so the remap happens
+// here at the decoded-event layer where the Ctrl modifier is still explicit
+// (kitty keyboard protocol).
+func normalizeChooserInput(raw []byte) []byte {
+	out := make([]byte, 0, len(raw))
+	for _, decoded := range decodeInputEvents(raw) {
+		if key, ok := decoded.event.(uv.KeyPressEvent); ok {
+			if seq := chooserMoveSequenceForCtrlJK(key); len(seq) > 0 {
+				out = append(out, seq...)
+				continue
+			}
+			if legacy := legacyBytesForKeyPress(key); len(legacy) > 0 {
+				out = append(out, legacy...)
+				continue
+			}
+		}
+		out = append(out, decoded.raw...)
+	}
+	return out
+}
+
+// chooserMoveSequenceForCtrlJK returns the Down/Up arrow escape sequence for
+// Ctrl+J/Ctrl+K, or nil for any other key.
+func chooserMoveSequenceForCtrlJK(key uv.KeyPressEvent) []byte {
+	k := key.Key()
+	if normalizedLegacyKeyMod(k.Mod) != uv.ModCtrl {
+		return nil
+	}
+	switch k.Code {
+	case 'j':
+		return []byte{0x1b, '[', 'B'} // Down
+	case 'k':
+		return []byte{0x1b, '[', 'A'} // Up
+	}
+	return nil
+}
+
 func forwardedBytesForDecodedInput(decoded decodedInputEvent) []byte {
 	if key, ok := decoded.event.(uv.KeyPressEvent); ok {
 		if legacy := legacyPaneBytesForKeyPress(key); len(legacy) > 0 {

@@ -2331,7 +2331,7 @@ func TestChooseTreeFilterAndSelection(t *testing.T) {
 	if len(overlay.Rows) < 2 {
 		t.Fatalf("filtered rows = %+v, want grouped window + pane rows", overlay.Rows)
 	}
-	if overlay.Rows[1].Text != "  * pane-2 @gpu-box train" && overlay.Rows[1].Text != "    pane-2 @gpu-box train" {
+	if overlay.Rows[1].Text != "  ● pane-2 @gpu-box train" && overlay.Rows[1].Text != "    pane-2 @gpu-box train" {
 		t.Fatalf("unexpected filtered pane row: %+v", overlay.Rows[1])
 	}
 
@@ -2349,10 +2349,33 @@ func TestChooseTreeNavigationSelectsPane(t *testing.T) {
 		t.Fatal("ShowChooser tree should succeed")
 	}
 	cr.HandleChooserInput([]byte("pane-3"))
-	cr.HandleChooserInput([]byte("j"))
+	cr.HandleChooserInput([]byte("\x1b[B")) // Down arrow (j now types into the filter)
 	cmd := cr.selectChooser()
 	if cmd.command != "focus" || len(cmd.args) != 1 || cmd.args[0] != "pane-3" {
 		t.Fatalf("pane selection = %+v, want focus pane-3", cmd)
+	}
+}
+
+func TestFormatChooserRowsPolish(t *testing.T) {
+	t.Parallel()
+
+	onePane := proto.WindowSnapshot{Index: 1, Name: "amux", Panes: []proto.PaneSnapshot{{}}}
+	twoPane := proto.WindowSnapshot{Index: 2, Name: "orca", Panes: []proto.PaneSnapshot{{}, {}}}
+
+	if got := formatChooserWindowRow(onePane, true, true); got != "1:amux (1 pane)" {
+		t.Errorf("tree header row = %q, want %q", got, "1:amux (1 pane)")
+	}
+	if got := formatChooserWindowRow(twoPane, true, false); got != "● 2:orca (2 panes)" {
+		t.Errorf("active window-mode row = %q, want %q", got, "● 2:orca (2 panes)")
+	}
+	if got := formatChooserWindowRow(twoPane, false, false); got != "  2:orca (2 panes)" {
+		t.Errorf("inactive window-mode row = %q, want %q", got, "  2:orca (2 panes)")
+	}
+	if got := formatChooserPaneRow(proto.PaneSnapshot{Name: "pane-1"}, true); got != "  ● pane-1" {
+		t.Errorf("active pane row = %q, want %q", got, "  ● pane-1")
+	}
+	if got := formatChooserPaneRow(proto.PaneSnapshot{Name: "pane-2"}, false); got != "    pane-2" {
+		t.Errorf("inactive pane row = %q, want %q", got, "    pane-2")
 	}
 }
 
@@ -2374,7 +2397,7 @@ func TestChooseWindowSupportsHomeAndEndKeys(t *testing.T) {
 	if !cr.ShowChooser(chooserModeWindow) {
 		t.Fatal("ShowChooser window should succeed after reselection")
 	}
-	cr.HandleChooserInput([]byte("j"))
+	cr.HandleChooserInput([]byte("\x1b[B")) // Down arrow (j now types into the filter)
 	if got := cr.HandleChooserInput([]byte("\x1b[H")); got.bell {
 		t.Fatalf("Home key should navigate the chooser, got %+v", got)
 	}
