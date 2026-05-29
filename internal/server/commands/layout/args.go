@@ -2,6 +2,7 @@ package layout
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/weill-labs/amux/internal/mux"
 	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
@@ -24,6 +25,12 @@ type createPaneArgs struct {
 	Name      string
 	Task      string
 	Color     string
+	Attach    *RemoteAttachRef
+}
+
+type RemoteAttachRef struct {
+	Host     string
+	PaneName string
 }
 
 type SplitArgs struct {
@@ -57,6 +64,7 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 			cmdflags.FlagSpec{Name: "--auto", Type: cmdflags.FlagTypeBool},
 			cmdflags.FlagSpec{Name: "--at", Type: cmdflags.FlagTypeString},
 			cmdflags.FlagSpec{Name: "--window", Type: cmdflags.FlagTypeString},
+			cmdflags.FlagSpec{Name: "--attach", Type: cmdflags.FlagTypeString},
 			cmdflags.FlagSpec{Name: "--root", Type: cmdflags.FlagTypeBool},
 			cmdflags.FlagSpec{Name: "--vertical", Type: cmdflags.FlagTypeBool},
 			cmdflags.FlagSpec{Name: "--horizontal", Type: cmdflags.FlagTypeBool},
@@ -77,6 +85,13 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 		parsed.PaneRef = flags.String("--at")
 		parsed.WindowRef = flags.String("--window")
 		parsed.RootLevel = flags.Bool("--root")
+		if flags.Seen("--attach") {
+			attach, err := ParseRemoteAttachRef(flags.String("--attach"))
+			if err != nil {
+				return createPaneArgs{}, err
+			}
+			parsed.Attach = &attach
+		}
 	}
 
 	hasExplicitDir := false
@@ -136,6 +151,16 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	return parsed, nil
 }
 
+func ParseRemoteAttachRef(value string) (RemoteAttachRef, error) {
+	host, paneName, ok := strings.Cut(value, ":")
+	host = strings.TrimSpace(host)
+	paneName = strings.TrimSpace(paneName)
+	if !ok || host == "" || paneName == "" {
+		return RemoteAttachRef{}, fmt.Errorf("spawn --attach requires <host>:<pane-name>")
+	}
+	return RemoteAttachRef{Host: host, PaneName: paneName}, nil
+}
+
 func (m createPaneMode) command() string {
 	if m == createPaneModeSplit {
 		return "split"
@@ -167,12 +192,17 @@ type SpawnArgs struct {
 	Meta      mux.PaneMeta
 	Auto      bool
 	Focus     bool
+	Attach    *RemoteAttachRef
 }
 
 func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 	parsed, err := parseCreatePaneArgs(createPaneModeSpawn, args)
 	if err != nil {
 		return SpawnArgs{}, err
+	}
+	host := mux.DefaultHost
+	if parsed.Attach != nil {
+		host = parsed.Attach.Host
 	}
 	return SpawnArgs{
 		PaneRef:   parsed.PaneRef,
@@ -181,12 +211,13 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 		Dir:       parsed.Dir,
 		Meta: mux.PaneMeta{
 			Name:  parsed.Name,
-			Host:  mux.DefaultHost,
+			Host:  host,
 			Task:  parsed.Task,
 			Color: parsed.Color,
 		},
-		Auto:  parsed.Auto,
-		Focus: parsed.Focus,
+		Auto:   parsed.Auto,
+		Focus:  parsed.Focus,
+		Attach: parsed.Attach,
 	}, nil
 }
 

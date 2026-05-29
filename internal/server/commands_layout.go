@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -61,6 +62,7 @@ type createPaneRequest struct {
 	task      string
 	color     string
 	dir       mux.SplitDir
+	attach    *checkpoint.RemoteRef
 }
 
 type createPaneSnapshot struct {
@@ -108,6 +110,9 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
+	if req.attach != nil {
+		return runCreateMirrorPane(ctx, actorPaneID, command, placement, req, keepFocus, snapshot)
+	}
 
 	meta := mux.PaneMeta{
 		Name:  req.name,
@@ -129,6 +134,37 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 			return cleanupFailedPaneMutationContext(mctx, pane, err)
 		}
 		mctx.startPendingLocalPaneBuild(ctx.Srv, pane, prepared.build)
+		return commandMutationResult{
+			output:          createPaneOutput(command, req.dir, pane),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func runCreateMirrorPane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool, snapshot createPaneSnapshot) commandpkg.Result {
+	ref := *req.attach
+	meta := mux.PaneMeta{
+		Name:  req.name,
+		Host:  ref.Host,
+		Task:  req.task,
+		Color: req.color,
+		Dir:   resolveInheritedPaneDir(ctx.Sess, snapshot.inheritPane),
+	}
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		w, err := resolveCreatePaneWindow(mctx, actorPaneID, placement, snapshot)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		pane, err := mctx.prepareMirrorPane(meta, ref, w.Width, mux.PaneContentHeight(w.Height))
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
+			return cleanupFailedPaneMutationContext(mctx, pane, err)
+		}
+		if err := mctx.trackMirrorPane(pane, ref); err != nil {
+			return cleanupFailedPaneMutationContext(mctx, pane, err)
+		}
 		return commandMutationResult{
 			output:          createPaneOutput(command, req.dir, pane),
 			broadcastLayout: true,
@@ -415,6 +451,13 @@ func createPaneRequestFromSplitArgs(args layoutcmd.SplitArgs) createPaneRequest 
 }
 
 func createPaneRequestFromSpawnArgs(args layoutcmd.SpawnArgs) createPaneRequest {
+	var attach *checkpoint.RemoteRef
+	if args.Attach != nil {
+		attach = &checkpoint.RemoteRef{
+			Host:     args.Attach.Host,
+			PaneName: args.Attach.PaneName,
+		}
+	}
 	return createPaneRequest{
 		paneRef:   args.PaneRef,
 		windowRef: args.WindowRef,
@@ -422,6 +465,7 @@ func createPaneRequestFromSpawnArgs(args layoutcmd.SpawnArgs) createPaneRequest 
 		task:      args.Meta.Task,
 		color:     args.Meta.Color,
 		dir:       args.Dir,
+		attach:    attach,
 	}
 }
 

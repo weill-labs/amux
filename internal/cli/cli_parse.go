@@ -213,6 +213,8 @@ type spawnCLIOptions struct {
 	name           string
 	task           string
 	color          string
+	attach         string
+	attachSet      bool
 }
 
 func ParseSpawnCommandArgs(args []string) (string, []string, error) {
@@ -255,6 +257,13 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 			opts.root = true
 		case "--focus":
 			opts.focus = true
+		case "--attach":
+			if i+1 >= len(args) {
+				return "", nil, errors.New(spawnUsage)
+			}
+			opts.attach = args[i+1]
+			opts.attachSet = true
+			i++
 		case "--name":
 			if i+1 >= len(args) {
 				return "", nil, errors.New(spawnUsage)
@@ -296,6 +305,9 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 		if opts.focus {
 			cmdArgs = append(cmdArgs, "--focus")
 		}
+		if opts.attachSet {
+			cmdArgs = append(cmdArgs, "--attach", opts.attach)
+		}
 		cmdArgs = append(cmdArgs, "--auto")
 		if opts.name != "" {
 			cmdArgs = append(cmdArgs, "--name", opts.name)
@@ -328,6 +340,9 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 
 	if opts.focus {
 		cmdArgs = append(cmdArgs, "--focus")
+	}
+	if opts.attachSet {
+		cmdArgs = append(cmdArgs, "--attach", opts.attach)
 	}
 	if opts.name != "" {
 		cmdArgs = append(cmdArgs, "--name", opts.name)

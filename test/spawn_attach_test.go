@@ -31,8 +31,8 @@ func TestSpawnAttachCreatesMirrorAndForwardsInput(t *testing.T) {
 	if mirrorPane.Host != remoteHost {
 		t.Fatalf("mirror host = %q, want %q", mirrorPane.Host, remoteHost)
 	}
-	if targetPane.Position.X != mirrorPane.Position.X || targetPane.Position.Y >= mirrorPane.Position.Y {
-		t.Fatalf("spawn --horizontal should create mirror below target, target=%+v mirror=%+v", targetPane.Position, mirrorPane.Position)
+	if targetPane.Position.X >= mirrorPane.Position.X || targetPane.Position.Y != mirrorPane.Position.Y {
+		t.Fatalf("spawn --attach should create mirror next to target, target=%+v mirror=%+v", targetPane.Position, mirrorPane.Position)
 	}
 
 	remote.runCmd("send-keys", "pane-1786", "printf FROM_REMOTE", "Enter")

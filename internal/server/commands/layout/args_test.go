@@ -118,6 +118,31 @@ func TestParseSpawnAttachArgs(t *testing.T) {
 	}
 }
 
+func TestParseRemoteAttachRefRejectsInvalidRefs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "missing separator", value: "hetzner-1"},
+		{name: "missing host", value: ":pane-1786"},
+		{name: "missing pane", value: "hetzner-1:"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseRemoteAttachRef(tt.value)
+			if err == nil || err.Error() != "spawn --attach requires <host>:<pane-name>" {
+				t.Fatalf("ParseRemoteAttachRef(%q) error = %v, want attach usage", tt.value, err)
+			}
+		})
+	}
+}
+
 func TestParseSplitArgs(t *testing.T) {
 	t.Parallel()
 

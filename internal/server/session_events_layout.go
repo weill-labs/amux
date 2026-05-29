@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -244,6 +245,18 @@ func (ctx *MutationContext) preparePendingLocalPane(srv *Server, meta mux.PaneMe
 			return pendingLocalPaneResult{}, err
 		}
 		return pendingLocalPaneResult{pane: pane, build: build}, nil
+	})
+}
+
+func (ctx *MutationContext) prepareMirrorPane(meta mux.PaneMeta, ref checkpoint.RemoteRef, cols, rows int) (*mux.Pane, error) {
+	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
+		return sess.prepareMirrorPane(meta, ref, cols, rows)
+	})
+}
+
+func (ctx *MutationContext) trackMirrorPane(pane *mux.Pane, ref checkpoint.RemoteRef) error {
+	return mutationContextDo(ctx, func(sess *Session) error {
+		return sess.trackMirrorPane(pane, ref)
 	})
 }
 
