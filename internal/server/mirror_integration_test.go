@@ -56,6 +56,7 @@ func TestMirrorManagerForwardsPaneMetaWithoutOverwritingHost(t *testing.T) {
 
 	mirrorPane := h.attachMirror(t)
 	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
+	h.waitRemoteScopedClientReady(t)
 
 	mustSessionMutation(t, h.remoteSess, func(sess *Session) {
 		h.remotePane.Meta.Host = mux.DefaultHost
@@ -92,26 +93,61 @@ func TestMirrorManagerForwardsPaneMetaWithoutOverwritingHost(t *testing.T) {
 func TestMirrorManagerCaptureUsesForwardedAgentStatusForProxyPane(t *testing.T) {
 	t.Parallel()
 
-	h := newMirrorIntegrationHarnessWithRemoteShell(t)
-	defer h.cleanup()
+	localSrv, localSess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	dialer := newScriptedMetaDialer(proto.PaneMetaUpdate{
+		GitBranch: "feature/federation",
+		PR:        "826",
+		AgentStatus: proto.PaneAgentStatus{
+			Exited:         false,
+			CurrentCommand: "codex",
+			Idle:           false,
+			LastOutput:     "2026-05-29T12:00:01Z",
+		},
+	})
+	defer dialer.Close()
+	localSess.mirror.Configure(mirrorpkg.Config{
+		Hosts:       mirrorHosts(localSess.Name),
+		Dialer:      dialer,
+		RetryPolicy: mirrorRetryPolicyForTest(),
+	})
 
-	mirrorPane := h.attachMirror(t)
-	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
-
-	if _, err := mirrorPane.Write([]byte("sleep 10\r")); err != nil {
-		t.Fatalf("mirror Write: %v", err)
+	localPane := newTestPane(localSess, 1, "local")
+	localWindow := newTestWindowWithPanes(t, localSess, 1, "local-window", localPane)
+	setSessionLayoutForTest(t, localSess, localWindow.ID, []*mux.Window{localWindow}, localPane)
+	ref := checkpoint.RemoteRef{Host: mirrorRemoteHostName, Session: localSess.Name, PaneName: "remote-agent"}
+	mirrorPane, err := enqueueSessionQueryOnState(localSess.context(), localSess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := sess.prepareMirrorPane(mux.PaneMeta{Name: "mirror-agent"}, ref, 80, 22)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := localWindow.SplitPaneWithOptions(localPane.ID, mux.SplitHorizontal, pane, mux.SplitOptions{}); err != nil {
+			return nil, err
+		}
+		if err := sess.trackMirrorPane(pane, ref); err != nil {
+			return nil, err
+		}
+		sess.broadcastLayoutNow()
+		return pane, nil
+	})
+	if err != nil {
+		t.Fatalf("attach scripted mirror: %v", err)
 	}
+	waitUntil(t, func() bool {
+		status, ok := localSess.mirror.AgentStatus(mirrorPane.ID)
+		return ok && !status.Exited && status.CurrentCommand == "codex"
+	})
 
 	var got proto.CapturePane
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		got = captureJSONPaneFromCommand(t, h.localSrv, h.localSess, mirrorPane.ID)
-		if !got.Exited && got.CurrentCommand != "" {
+		got = captureJSONPaneFromCommand(t, localSrv, localSess, mirrorPane.ID)
+		if !got.Exited && !got.Idle && got.CurrentCommand == "codex" {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("mirror capture agent status = exited=%t current_command=%q idle=%t, want busy forwarded status", got.Exited, got.CurrentCommand, got.Idle)
+	t.Fatalf("mirror capture agent status = exited=%t current_command=%q idle=%t, want busy codex forwarded status", got.Exited, got.CurrentCommand, got.Idle)
 }
 
 func TestMirrorManagerRemotePaneKilledGoesDead(t *testing.T) {
@@ -271,52 +307,6 @@ func newMirrorIntegrationHarness(t *testing.T) *mirrorIntegrationHarness {
 	}
 }
 
-func newMirrorIntegrationHarnessWithRemoteShell(t *testing.T) *mirrorIntegrationHarness {
-	t.Helper()
-
-	remoteSrv, remoteSess, remoteCleanup := newCommandTestSession(t)
-	var remotePane *mux.Pane
-	remotePane, err := enqueueSessionQueryOnState(remoteSess.context(), remoteSess, func(sess *Session) (*mux.Pane, error) {
-		return sess.createPaneWithMeta(remoteSrv, mux.PaneMeta{
-			Name:  "remote-agent",
-			Color: config.AccentColor(0),
-		}, 80, 23)
-	})
-	if err != nil {
-		remoteCleanup()
-		t.Fatalf("create remote pane: %v", err)
-	}
-	remotePane.Start()
-	remoteWindow := newTestWindowWithPanes(t, remoteSess, 1, "remote-window", remotePane)
-	setSessionLayoutForTest(t, remoteSess, remoteWindow.ID, []*mux.Window{remoteWindow}, remotePane)
-
-	localSrv, localSess, localCleanup := newCommandTestSession(t)
-	localPane := newTestPane(localSess, 1, "local")
-	localWindow := newTestWindowWithPanes(t, localSess, 1, "local-window", localPane)
-	setSessionLayoutForTest(t, localSess, localWindow.ID, []*mux.Window{localWindow}, localPane)
-
-	dialer := &serverDialer{srv: remoteSrv}
-	localSess.mirror.Configure(mirrorpkg.Config{
-		Hosts:       mirrorHosts(remoteSess.Name),
-		Dialer:      dialer,
-		RetryPolicy: mirrorRetryPolicyForTest(),
-	})
-
-	return &mirrorIntegrationHarness{
-		localSrv:   localSrv,
-		localSess:  localSess,
-		remoteSrv:  remoteSrv,
-		remoteSess: remoteSess,
-		remotePane: remotePane,
-		dialer:     dialer,
-		cleanup: func() {
-			localSess.mirror.Close()
-			remoteCleanup()
-			localCleanup()
-		},
-	}
-}
-
 func (h *mirrorIntegrationHarness) hosts() map[string]config.Host {
 	return mirrorHosts(h.remoteSess.Name)
 }
@@ -367,6 +357,20 @@ func (h *mirrorIntegrationHarness) waitMirrorState(t *testing.T, paneID uint32, 
 		t.Fatalf("mirror state = %s, want %s (last error %q)", snap.State, want, snap.LastError)
 	}
 	t.Fatalf("mirror %d missing, want state %s", paneID, want)
+}
+
+func (h *mirrorIntegrationHarness) waitRemoteScopedClientReady(t *testing.T) {
+	t.Helper()
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, h.remoteSess, func(sess *Session) bool {
+			for _, cc := range sess.ensureClientManager().snapshotClients() {
+				if cc.isScopedToPane(h.remotePane.ID) && !cc.isBootstrapping() {
+					return true
+				}
+			}
+			return false
+		})
+	})
 }
 
 func captureJSONPaneFromCommand(t *testing.T, srv *Server, sess *Session, paneID uint32) proto.CapturePane {
@@ -456,5 +460,72 @@ func (d *serverDialer) closeAll() {
 	d.mu.Unlock()
 	for _, conn := range conns {
 		_ = conn.Close()
+	}
+}
+
+type scriptedMetaDialer struct {
+	update proto.PaneMetaUpdate
+	dials  atomic.Int32
+	done   chan struct{}
+}
+
+func newScriptedMetaDialer(update proto.PaneMetaUpdate) *scriptedMetaDialer {
+	return &scriptedMetaDialer{
+		update: update,
+		done:   make(chan struct{}),
+	}
+}
+
+func (d *scriptedMetaDialer) Dial(_ context.Context, _ config.Host) (net.Conn, error) {
+	serverConn, clientConn := net.Pipe()
+	switch d.dials.Add(1) {
+	case 1:
+		go d.serveListPanes(serverConn)
+	default:
+		go d.serveAttachPane(serverConn)
+	}
+	return clientConn, nil
+}
+
+func (d *scriptedMetaDialer) Close() {
+	close(d.done)
+}
+
+func (d *scriptedMetaDialer) serveListPanes(conn net.Conn) {
+	defer conn.Close()
+	msg, err := proto.ReadMsg(conn)
+	if err != nil || msg.Type != proto.MsgTypeListPanes {
+		return
+	}
+	_ = proto.WriteMsg(conn, &proto.Message{
+		Type: proto.MsgTypeLayout,
+		Layout: &proto.LayoutSnapshot{
+			SessionName: msg.Session,
+			Root: proto.CellSnapshot{
+				X: 0, Y: 0, W: 80, H: 23, IsLeaf: true, Dir: -1, PaneID: 42,
+			},
+			Panes: []proto.PaneSnapshot{{
+				ID:   42,
+				Name: "remote-agent",
+				Host: mux.DefaultHost,
+			}},
+		},
+	})
+}
+
+func (d *scriptedMetaDialer) serveAttachPane(conn net.Conn) {
+	defer conn.Close()
+	msg, err := proto.ReadMsg(conn)
+	if err != nil || msg.Type != proto.MsgTypeAttachPane || msg.PaneID != 42 {
+		return
+	}
+	_ = proto.WriteMsg(conn, &proto.Message{
+		Type:           proto.MsgTypePaneMetaUpdate,
+		PaneID:         42,
+		PaneMetaUpdate: &d.update,
+	})
+	select {
+	case <-d.done:
+	case <-time.After(5 * time.Second):
 	}
 }
