@@ -736,6 +736,24 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
+			name:       "version long flag dispatch",
+			args:       []string{"--version"},
+			wantExit:   0,
+			wantStdout: "version\n",
+			wantCalls: []cliCall{
+				{kind: "version"},
+			},
+		},
+		{
+			name:       "version short flag dispatch",
+			args:       []string{"-V"},
+			wantExit:   0,
+			wantStdout: "version\n",
+			wantCalls: []cliCall{
+				{kind: "version"},
+			},
+		},
+		{
 			name:     "spawn focus dispatches parsed command",
 			args:     []string{"spawn", "--focus"},
 			wantExit: 0,
@@ -876,6 +894,27 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantExit:       1,
 			wantUsageCalls: 1,
 			wantStderr:     "amux: unknown command \"dashboard\"\n",
+		},
+		{
+			name:           "capture-pane suggests capture",
+			args:           []string{"capture-pane"},
+			wantExit:       1,
+			wantUsageCalls: 1,
+			wantStderr:     "amux: unknown command \"capture-pane\"\ndid you mean `amux capture`?\n",
+		},
+		{
+			name:           "pipe-pane suggests capture",
+			args:           []string{"pipe-pane"},
+			wantExit:       1,
+			wantUsageCalls: 1,
+			wantStderr:     "amux: unknown command \"pipe-pane\"\ndid you mean `amux capture`?\n",
+		},
+		{
+			name:           "pane suggests capture",
+			args:           []string{"pane"},
+			wantExit:       1,
+			wantUsageCalls: 1,
+			wantStderr:     "amux: unknown command \"pane\"\ndid you mean `amux capture`?\n",
 		},
 		{
 			name:       "send-keys usage error stays in dispatch layer",

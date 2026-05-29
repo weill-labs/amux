@@ -77,6 +77,9 @@ func runCLI(runtime Runtime, rawArgs []string) int {
 	if MaybePrintCommandHelp(runtime.Stdout, args) {
 		return 0
 	}
+	if isVersionFlag(args[0]) {
+		return commands["version"](invocation, nil)
+	}
 	if args[0] == "help" || isHelpFlag(args[0]) {
 		runtime.PrintUsage()
 		return 0
@@ -85,10 +88,26 @@ func runCLI(runtime Runtime, rawArgs []string) int {
 	handler, ok := commands[args[0]]
 	if !ok {
 		fmt.Fprintf(runtime.Stderr, "amux: unknown command %q\n", args[0])
+		if hint, ok := tmuxCompatCommandHint(args[0]); ok {
+			fmt.Fprintf(runtime.Stderr, "did you mean `%s`?\n", hint)
+		}
 		runtime.PrintUsage()
 		return 1
 	}
 	return handler(invocation, args[1:])
+}
+
+func isVersionFlag(arg string) bool {
+	return arg == "--version" || arg == "-V"
+}
+
+func tmuxCompatCommandHint(command string) (string, bool) {
+	switch command {
+	case "capture-pane", "pipe-pane", "pane":
+		return "amux capture", true
+	default:
+		return "", false
+	}
 }
 
 func (inv invocation) runDefaultSession() int {
