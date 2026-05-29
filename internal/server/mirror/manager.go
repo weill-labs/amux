@@ -559,10 +559,6 @@ func (m *Manager) isTerminal(paneID uint32, owner *mirrorState) bool {
 	return ms == nil || (owner != nil && ms != owner) || ms.state == StateDetached || ms.state == StateDead
 }
 
-func (m *Manager) recordAttemptError(paneID uint32, err error) {
-	m.recordAttemptErrorForOwner(paneID, nil, err)
-}
-
 func (m *Manager) recordAttemptErrorForOwner(paneID uint32, owner *mirrorState, err error) {
 	if err == nil {
 		return
