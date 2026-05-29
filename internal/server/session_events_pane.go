@@ -38,6 +38,9 @@ func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reas
 	if removed.pane == nil {
 		return
 	}
+	if s.mirror != nil {
+		s.mirror.Detach(paneID)
+	}
 	s.appendPaneLog(paneLogEventExit, removed.pane, reason)
 	s.emitEvent(Event{
 		Type:     EventPaneExit,

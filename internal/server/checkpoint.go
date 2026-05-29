@@ -78,6 +78,11 @@ func (s *Server) Reload(execPath string) error {
 			if p.IsProxy() {
 				pc.PtmxFd = -1
 				pc.PID = 0
+				if sess.mirror != nil {
+					if ref, ok := sess.mirror.RemoteRef(p.ID); ok {
+						pc.RemoteRef = ref
+					}
+				}
 			} else {
 				pc.PtmxFd = p.PtmxFd()
 				pc.PID = p.ProcessPid()
@@ -255,11 +260,12 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 		onExit := sess.paneExitCallback()
 
 		if pc.IsProxy {
-			// Restore proxy pane with frozen content. The remote backing is gone
-			// after the "remote" feature removal, so writes are dropped.
+			writeOverride := func(data []byte) (int, error) { return len(data), nil }
+			if pc.RemoteRef != nil {
+				writeOverride = sess.mirrorWriteOverride(pc.ID)
+			}
 			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, pc.Meta, pc.Cols, pc.Rows, sess.scrollbackLinesForHost(pc.Meta.Host),
-				onOutput, onExit,
-				func(data []byte) (int, error) { return len(data), nil },
+				onOutput, onExit, writeOverride,
 			))
 		} else {
 			var restoreErr error
@@ -283,6 +289,17 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 		pane.ReplayScreen(pc.Screen)
 		paneMap[pc.ID] = pane
 		sess.Panes = append(sess.Panes, pane)
+		if pc.RemoteRef != nil {
+			if err := sess.trackMirrorPane(pane, *pc.RemoteRef); err != nil {
+				sess.logger.Warn("restored mirror tracking failed",
+					"event", "checkpoint_restore",
+					"checkpoint_kind", "reload",
+					"pane_id", pane.ID,
+					"pane_name", pane.Meta.Name,
+					"error", err,
+				)
+			}
+		}
 	}
 
 	if len(sess.Panes) == 0 {

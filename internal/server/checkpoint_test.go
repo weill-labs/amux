@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestClearCloexecReturnsErrnoOnInvalidFD(t *testing.T) {
@@ -193,5 +195,86 @@ func TestServerShutdownPreservesCrashCheckpointForCrashRestore(t *testing.T) {
 	}
 	if len(restoredSess.Panes) != 2 {
 		t.Fatalf("restored panes = %d, want 2", len(restoredSess.Panes))
+	}
+}
+
+func TestBuildCrashCheckpointPreservesMirrorRemoteRef(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("mirror-crash-checkpoint")
+	defer stopSessionBackgroundLoops(t, sess)
+
+	ref := checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}
+	mustSessionMutation(t, sess, func(sess *Session) {
+		pane := newProxyPane(1, mux.PaneMeta{Name: "mirror", Host: "remote", Color: config.AccentColor(0)}, 80, 23,
+			sess.paneOutputCallback(), sess.paneExitCallback(), sess.mirrorWriteOverride(1),
+		)
+		win := mux.NewWindow(pane, 80, 24)
+		win.ID = 1
+		win.Name = "window-1"
+		seedSessionPanesForTest(sess, pane)
+		sess.Windows = []*mux.Window{win}
+		sess.ActiveWindowID = win.ID
+		if err := sess.trackMirrorPane(pane, ref); err != nil {
+			t.Fatalf("trackMirrorPane: %v", err)
+		}
+	})
+
+	cp := sess.buildCrashCheckpoint()
+	if cp == nil || len(cp.PaneStates) != 1 {
+		t.Fatalf("crash checkpoint = %+v, want one pane state", cp)
+	}
+	if got := cp.PaneStates[0].RemoteRef; got == nil || *got != ref {
+		t.Fatalf("RemoteRef = %+v, want %+v", got, ref)
+	}
+}
+
+func TestCrashRestoreTracksMirrorRemoteRef(t *testing.T) {
+	t.Parallel()
+
+	sessionName := fmt.Sprintf("mirror-crash-restore-%d", time.Now().UnixNano())
+	ref := checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}
+	cp := &checkpoint.CrashCheckpoint{
+		Version:       checkpoint.CrashVersion,
+		SessionName:   sessionName,
+		Counter:       1,
+		WindowCounter: 1,
+		Layout: proto.LayoutSnapshot{
+			SessionName:  sessionName,
+			Width:        80,
+			Height:       24,
+			ActivePaneID: 1,
+			Root: proto.CellSnapshot{
+				X: 0, Y: 0, W: 80, H: 24, IsLeaf: true, Dir: -1, PaneID: 1,
+			},
+			Panes: []proto.PaneSnapshot{{
+				ID:    1,
+				Name:  "mirror",
+				Host:  "remote",
+				Color: config.AccentColor(0),
+			}},
+		},
+		PaneStates: []checkpoint.CrashPaneState{{
+			ID:        1,
+			Meta:      mux.PaneMeta{Name: "mirror", Host: "remote", Color: config.AccentColor(0)},
+			Cols:      80,
+			Rows:      23,
+			Screen:    "cached remote screen",
+			IsProxy:   true,
+			RemoteRef: &ref,
+		}},
+		Timestamp: time.Now(),
+	}
+
+	restored, err := NewServerFromCrashCheckpointWithScrollback(sessionName, cp, "", mux.DefaultScrollbackLines)
+	if err != nil {
+		t.Fatalf("NewServerFromCrashCheckpointWithScrollback: %v", err)
+	}
+	defer restored.Shutdown()
+
+	restoredSess := restored.firstSession()
+	got, ok := restoredSess.mirror.RemoteRef(1)
+	if !ok || got == nil || *got != ref {
+		t.Fatalf("RemoteRef = (%+v, %v), want %+v true", got, ok, ref)
 	}
 }

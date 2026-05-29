@@ -66,6 +66,7 @@ func TestCrashRoundTrip(t *testing.T) {
 				Screen:    "$ echo test\ntest",
 				CreatedAt: now,
 				IsProxy:   true,
+				RemoteRef: &RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
 			},
 		},
 		Timestamp: now,
@@ -136,6 +137,9 @@ func TestCrashRoundTrip(t *testing.T) {
 		}
 		if got.IsProxy != want.IsProxy {
 			t.Errorf("PaneStates[%d].IsProxy = %v, want %v", i, got.IsProxy, want.IsProxy)
+		}
+		if !reflect.DeepEqual(got.RemoteRef, want.RemoteRef) {
+			t.Errorf("PaneStates[%d].RemoteRef = %+v, want %+v", i, got.RemoteRef, want.RemoteRef)
 		}
 		if got.Cwd != want.Cwd {
 			t.Errorf("PaneStates[%d].Cwd = %q, want %q", i, got.Cwd, want.Cwd)

@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
 
 // waitUndoStackEmpty polls the session event loop until the undo stack is empty
@@ -162,5 +165,91 @@ func TestUndoGracePeriodExpiry(t *testing.T) {
 	res = runTestCommand(t, srv, sess, "undo")
 	if res.cmdErr == "" || !strings.Contains(res.cmdErr, "no closed pane") {
 		t.Fatalf("undo after expiry should fail, got output=%q err=%q", res.output, res.cmdErr)
+	}
+}
+
+func TestSoftClosePaneDetachesMirrorDuringUndoWindow(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	ref := checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}
+	pane1 := newTestPane(sess, 1, "pane-1")
+	pane2 := newProxyPane(2, mux.PaneMeta{Name: "mirror", Host: "remote", Color: config.AccentColor(0)}, 80, 23,
+		sess.paneOutputCallback(), sess.paneExitCallback(), sess.mirrorWriteOverride(2),
+	)
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		if err := sess.trackMirrorPane(pane2, ref); err != nil {
+			t.Fatalf("trackMirrorPane: %v", err)
+		}
+		sess.softClosePane(pane2.ID)
+	})
+
+	got := mustSessionQuery(t, sess, func(sess *Session) struct {
+		snap mirrorpkg.Snapshot
+		ok   bool
+	} {
+		snap, ok := sess.mirror.Snapshot(pane2.ID)
+		return struct {
+			snap mirrorpkg.Snapshot
+			ok   bool
+		}{snap: snap, ok: ok}
+	})
+	if !got.ok {
+		t.Fatal("mirror snapshot missing")
+	}
+	snap := got.snap
+	if snap.State != mirrorpkg.StateDetached {
+		t.Fatalf("mirror state after soft close = %s, want %s", snap.State, mirrorpkg.StateDetached)
+	}
+}
+
+func TestUndoClosePaneRetracksSoftClosedMirror(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	ref := checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}
+	pane1 := newTestPane(sess, 1, "pane-1")
+	pane2 := newProxyPane(2, mux.PaneMeta{Name: "mirror", Host: "remote", Color: config.AccentColor(0)}, 80, 23,
+		sess.paneOutputCallback(), sess.paneExitCallback(), sess.mirrorWriteOverride(2),
+	)
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		if err := sess.trackMirrorPane(pane2, ref); err != nil {
+			t.Fatalf("trackMirrorPane: %v", err)
+		}
+		sess.softClosePane(pane2.ID)
+		if _, err := sess.undoClosePane(); err != nil {
+			t.Fatalf("undoClosePane: %v", err)
+		}
+	})
+
+	got := mustSessionQuery(t, sess, func(sess *Session) struct {
+		snap mirrorpkg.Snapshot
+		ok   bool
+	} {
+		snap, ok := sess.mirror.Snapshot(pane2.ID)
+		return struct {
+			snap mirrorpkg.Snapshot
+			ok   bool
+		}{snap: snap, ok: ok}
+	})
+	if !got.ok {
+		t.Fatal("mirror snapshot missing")
+	}
+	snap := got.snap
+	if snap.State == mirrorpkg.StateDetached {
+		t.Fatalf("mirror state after undo = %s, want retracked mirror", snap.State)
+	}
+	if snap.RemoteRef != ref {
+		t.Fatalf("RemoteRef = %+v, want %+v", snap.RemoteRef, ref)
 	}
 }

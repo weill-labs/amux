@@ -213,6 +213,7 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 			exitBootstrapError(logger, sessionName, "creating server failed", err)
 		}
 	}
+	s.ConfigureMirrors(cfg.Remote.Hosts, nil)
 
 	// Must be set before event loops can observe Env (e.g., exit-unattached).
 	s.Env = server.ReadServerEnv()

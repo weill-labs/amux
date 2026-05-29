@@ -54,12 +54,18 @@ func TestRoundTrip(t *testing.T) {
 				Screen: "hello world",
 			},
 			{
-				ID:     2,
-				Meta:   proto.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
-				PtmxFd: 7,
-				PID:    5678,
-				Cols:   39,
-				Rows:   22,
+				ID:      2,
+				Meta:    proto.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
+				PtmxFd:  -1,
+				PID:     0,
+				Cols:    39,
+				Rows:    22,
+				IsProxy: true,
+				RemoteRef: &RemoteRef{
+					Host:     "remote",
+					Session:  "main",
+					PaneName: "pane-1786",
+				},
 				History: []string{
 					"remote-old-1",
 				},
@@ -135,6 +141,9 @@ func TestRoundTrip(t *testing.T) {
 		}
 		if got.Screen != want.Screen {
 			t.Errorf("Pane[%d].Screen = %q, want %q", i, got.Screen, want.Screen)
+		}
+		if !reflect.DeepEqual(got.RemoteRef, want.RemoteRef) {
+			t.Errorf("Pane[%d].RemoteRef = %+v, want %+v", i, got.RemoteRef, want.RemoteRef)
 		}
 		gotPRs, gotIssues := metaCollections(t, got.Meta)
 		wantPRs, wantIssues := metaCollections(t, want.Meta)

@@ -45,7 +45,12 @@ type detachClientEvent struct {
 type attachPaneClientEvent struct {
 	cc     *clientConn
 	paneID uint32
-	reply  chan error
+	reply  chan attachPaneClientResult
+}
+
+type attachPaneClientResult struct {
+	snapshot attachPaneSnapshot
+	err      error
 }
 
 func (e detachClientEvent) handle(_ context.Context, s *Session) {
@@ -63,13 +68,24 @@ func (e detachClientEvent) handle(_ context.Context, s *Session) {
 }
 
 func (e attachPaneClientEvent) handle(_ context.Context, s *Session) {
-	if e.paneID == 0 || s.findWindowByPaneID(e.paneID) == nil {
-		e.reply <- fmt.Errorf("pane %d not found", e.paneID)
+	pane := s.findPaneByID(e.paneID)
+	if e.paneID == 0 || pane == nil || s.findWindowByPaneID(e.paneID) == nil {
+		e.reply <- attachPaneClientResult{err: fmt.Errorf("pane %d not found", e.paneID)}
 		return
 	}
 	s.ensureClientManager().addClient(e.cc)
 	s.appendConnectionLog(connectionLogEventAttach, e.cc.ID, e.cc.cols, e.cc.rows, "")
-	e.reply <- nil
+	history, screen, seq, historyVersion, historyCache := pane.StyledHistoryScreenSnapshotWithCache()
+	e.reply <- attachPaneClientResult{
+		snapshot: attachPaneSnapshot{
+			paneID:         pane.ID,
+			styledHistory:  history,
+			historyVersion: historyVersion,
+			historyCache:   historyCache,
+			screen:         []byte(screen),
+			outputSeq:      seq,
+		},
+	}
 }
 
 type resizeClientEvent struct {
@@ -170,25 +186,25 @@ func (s *Session) enqueueDetachClient(cc *clientConn, reason string) {
 	s.enqueueEvent(s.context(), detachClientEvent{cc: cc, reason: reason})
 }
 
-func (s *Session) enqueueAttachPaneClient(cc *clientConn, paneID uint32) error {
+func (s *Session) enqueueAttachPaneClient(cc *clientConn, paneID uint32) attachPaneClientResult {
 	ctx := s.context()
 	if cc != nil {
 		ctx = cc.context()
 	}
-	reply := make(chan error, 1)
+	reply := make(chan attachPaneClientResult, 1)
 	if !s.enqueueEvent(ctx, attachPaneClientEvent{cc: cc, paneID: paneID, reply: reply}) {
 		if err := ctx.Err(); err != nil {
-			return err
+			return attachPaneClientResult{err: err}
 		}
-		return errSessionShuttingDown
+		return attachPaneClientResult{err: errSessionShuttingDown}
 	}
 	select {
-	case err := <-reply:
-		return err
+	case res := <-reply:
+		return res
 	case <-ctx.Done():
-		return ctx.Err()
+		return attachPaneClientResult{err: ctx.Err()}
 	case <-s.sessionEventDone:
-		return errSessionShuttingDown
+		return attachPaneClientResult{err: errSessionShuttingDown}
 	}
 }
 

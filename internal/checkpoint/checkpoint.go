@@ -38,6 +38,14 @@ type PaneCheckpoint struct {
 	Screen       string    // RenderScreen() ANSI output for replay
 	CreatedAt    time.Time // Pane creation time (preserved across reloads)
 	IsProxy      bool      // true for remote proxy panes (no PTY/process)
+	RemoteRef    *RemoteRef
+}
+
+// RemoteRef is the durable handle for a mirror pane across hot reload.
+type RemoteRef struct {
+	Host     string
+	Session  string
+	PaneName string
 }
 
 // ServerCheckpoint captures the full server state for reload.
