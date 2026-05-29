@@ -44,6 +44,7 @@ type CrashPaneState struct {
 	Command      string         `json:"current_command,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
 	IsProxy      bool           `json:"is_proxy"`
+	RemoteRef    *RemoteRef     `json:"remote_ref,omitempty"`
 	Cwd          string         `json:"cwd,omitempty"`
 }
 

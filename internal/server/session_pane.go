@@ -387,6 +387,9 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	delete(s.terminalEventState, paneID)
 	s.ensureIdleTracker().StopPane(paneID)
 	s.prunePaneEventSubs(pane.Meta.Name)
+	if s.mirror != nil {
+		s.mirror.Detach(paneID)
+	}
 
 	s.ensureUndoManager().trackSoftClosedPane(pane, s.enqueueUndoExpiry)
 
@@ -403,6 +406,13 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 
 	// Re-add to Session.Panes so it's visible again.
 	s.Panes = append(s.Panes, pane)
+	if s.mirror != nil && pane.IsProxy() {
+		if ref, ok := s.mirror.RemoteRef(pane.ID); ok && ref != nil {
+			if err := s.trackMirrorPane(pane, *ref); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	// Re-insert into the active window.
 	w := s.activeWindow()

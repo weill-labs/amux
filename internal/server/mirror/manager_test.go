@@ -18,13 +18,7 @@ import (
 func TestManagerDropsStaleGenerationFrames(t *testing.T) {
 	t.Parallel()
 
-	pane := mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{Name: "mirror", Host: "remote"}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
-		return len(data), nil
-	})
-	t.Cleanup(func() {
-		_ = pane.Close()
-		_ = pane.WaitClosed()
-	})
+	pane := newMirrorTestPane(t, 1)
 
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
@@ -70,13 +64,7 @@ func TestManagerDropsStaleGenerationFrames(t *testing.T) {
 func TestManagerRetryBudgetEndsDead(t *testing.T) {
 	t.Parallel()
 
-	pane := mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{Name: "mirror", Host: "remote"}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
-		return len(data), nil
-	})
-	t.Cleanup(func() {
-		_ = pane.Close()
-		_ = pane.WaitClosed()
-	})
+	pane := newMirrorTestPane(t, 1)
 
 	mgr := NewManager(Config{
 		Hosts: map[string]config.Host{
@@ -104,7 +92,7 @@ func TestManagerRetryBudgetEndsDead(t *testing.T) {
 func TestManagerAttachDialUsesAttemptTimeout(t *testing.T) {
 	t.Parallel()
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	dialer := &blockingAttachDialer{}
 	mgr := NewManager(Config{
 		Hosts: map[string]config.Host{
@@ -130,16 +118,48 @@ func TestManagerAttachDialUsesAttemptTimeout(t *testing.T) {
 	}
 }
 
+func TestManagerAttachCommandErrorIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	pane := newMirrorTestPane(t, 2)
+	dialer := &attachCommandErrorDialer{cmdErr: "attach failed"}
+	mgr := NewManager(Config{
+		Hosts: map[string]config.Host{
+			"remote": {SSH: "ignored", Session: "main", SocketPath: "/tmp/amux-test"},
+		},
+		Dialer:        dialer,
+		AttachTimeout: time.Second,
+	})
+	t.Cleanup(mgr.Close)
+
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = &mirrorState{
+		pane:  pane,
+		ref:   checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+		state: StateConnecting,
+	}
+	mgr.mu.Unlock()
+
+	connected, terminal := mgr.attachAndRead(pane.ID, StateConnecting)
+	if !connected || !terminal {
+		t.Fatalf("attachAndRead = (%v, %v), want connected terminal after command error", connected, terminal)
+	}
+	if got := dialer.calls.Load(); got != 2 {
+		t.Fatalf("dial calls = %d, want resolve and attach only", got)
+	}
+	if !pane.ScreenContains("[attach failed]") {
+		t.Fatal("pane screen missing command error marker")
+	}
+	snap, ok := mgr.Snapshot(pane.ID)
+	if !ok || snap.State != StateDead {
+		t.Fatalf("snapshot = (%+v, %v), want dead mirror", snap, ok)
+	}
+}
+
 func TestManagerDetachReportsDetachedState(t *testing.T) {
 	t.Parallel()
 
-	pane := mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{Name: "mirror", Host: "remote"}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
-		return len(data), nil
-	})
-	t.Cleanup(func() {
-		_ = pane.Close()
-		_ = pane.WaitClosed()
-	})
+	pane := newMirrorTestPane(t, 1)
 
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
@@ -181,7 +201,7 @@ func TestManagerNilReceiversAndTrackValidation(t *testing.T) {
 	if err := mgr.Track(nil, checkpoint.RemoteRef{Host: "remote", PaneName: "agent"}); err == nil || err.Error() != "mirror pane is nil" {
 		t.Fatalf("nil pane Track error = %v, want mirror pane is nil", err)
 	}
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	tests := []struct {
 		name string
 		ref  checkpoint.RemoteRef
@@ -204,7 +224,7 @@ func TestManagerNilReceiversAndTrackValidation(t *testing.T) {
 func TestManagerConfigureStartsDeferredMirror(t *testing.T) {
 	t.Parallel()
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
 	ref := checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}
@@ -247,7 +267,7 @@ func TestManagerCloseClosesTrackedLinks(t *testing.T) {
 func TestManagerDetachClosesActiveLink(t *testing.T) {
 	t.Parallel()
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	link, _ := connectedTestLink(t)
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
@@ -329,7 +349,7 @@ func TestManagerRemoteRefAndSnapshotMisses(t *testing.T) {
 		t.Fatalf("missing Snapshot = (%+v, %v), want zero false", snap, ok)
 	}
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	ref := checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}
 	if err := mgr.Track(pane, ref); err != nil {
 		t.Fatalf("Track: %v", err)
@@ -343,7 +363,7 @@ func TestManagerRemoteRefAndSnapshotMisses(t *testing.T) {
 func TestManagerPrepareAttemptStopsWhenHostMissing(t *testing.T) {
 	t.Parallel()
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
 	if err := mgr.Track(pane, checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"}); err != nil {
@@ -366,7 +386,7 @@ func TestManagerPrepareAttemptStopsWhenHostMissing(t *testing.T) {
 func TestManagerApplyMessageHistoryExitAndCommandError(t *testing.T) {
 	t.Parallel()
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
 	mgr.mu.Lock()
@@ -408,10 +428,40 @@ func TestManagerApplyMessageHistoryExitAndCommandError(t *testing.T) {
 	}
 }
 
+func TestManagerMarkDeadIsIdempotentAfterApplyMessageExit(t *testing.T) {
+	t.Parallel()
+
+	pane := newMirrorTestPane(t, 2)
+	mgr := NewManager(Config{})
+	t.Cleanup(mgr.Close)
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = &mirrorState{
+		pane:       pane,
+		ref:        checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+		state:      StateConnected,
+		generation: 1,
+	}
+	mgr.mu.Unlock()
+
+	if err := mgr.applyMessage(pane.ID, 1, &proto.Message{Type: proto.MsgTypeExit}); !errors.Is(err, errRemotePaneExited) {
+		t.Fatalf("apply exit = %v, want errRemotePaneExited", err)
+	}
+	screenAfterApply, _ := pane.ScreenSnapshot()
+
+	mgr.markDead(pane.ID, "remote pane exited")
+	screenAfterMarkDead, _ := pane.ScreenSnapshot()
+	if screenAfterMarkDead != screenAfterApply {
+		t.Fatal("markDead wrote to pane when state was already StateDead")
+	}
+	if !pane.ScreenContains("[remote pane exited]") {
+		t.Fatal("pane screen missing remote pane exited marker")
+	}
+}
+
 func TestManagerHistoryRefreshReplacesAfterBootstrap(t *testing.T) {
 	t.Parallel()
 
-	pane := newMirrorTestPane(t)
+	pane := newMirrorTestPane(t, 1)
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
 	mgr.mu.Lock()
@@ -461,9 +511,9 @@ func paneOutput(text string) *proto.Message {
 	return &proto.Message{Type: proto.MsgTypePaneOutput, PaneData: []byte(text)}
 }
 
-func newMirrorTestPane(t *testing.T) *mux.Pane {
+func newMirrorTestPane(t *testing.T, id uint32) *mux.Pane {
 	t.Helper()
-	pane := mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{Name: "mirror", Host: "remote"}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
+	pane := mux.NewProxyPaneWithScrollback(id, mux.PaneMeta{Name: "mirror", Host: "remote"}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})
 	t.Cleanup(func() {
@@ -527,6 +577,33 @@ func (d *blockingAttachDialer) Dial(ctx context.Context, _ config.Host) (net.Con
 	}
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+type attachCommandErrorDialer struct {
+	calls  atomic.Int32
+	cmdErr string
+}
+
+func (d *attachCommandErrorDialer) Dial(_ context.Context, _ config.Host) (net.Conn, error) {
+	call := d.calls.Add(1)
+	serverConn, clientConn := net.Pipe()
+	if call == 1 {
+		go serveResolvePane(serverConn, 42, "agent")
+	} else {
+		go serveAttachCommandError(serverConn, d.cmdErr)
+	}
+	return clientConn, nil
+}
+
+func serveAttachCommandError(conn net.Conn, cmdErr string) {
+	defer conn.Close()
+	if _, err := proto.NewReader(conn).ReadMsg(); err != nil {
+		return
+	}
+	_ = proto.NewWriter(conn).WriteMsg(&proto.Message{
+		Type:   proto.MsgTypeCmdResult,
+		CmdErr: cmdErr,
+	})
 }
 
 func serveResolvePane(conn net.Conn, paneID uint32, paneName string) {

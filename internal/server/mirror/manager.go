@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
@@ -351,6 +350,9 @@ func (m *Manager) attachAndRead(paneID uint32, state State) (connected bool, ter
 	}
 	if err != nil {
 		m.recordAttemptError(paneID, err)
+		if m.isTerminal(paneID) {
+			return true, true
+		}
 	}
 	return true, false
 }
@@ -429,9 +431,6 @@ func (m *Manager) readLoop(paneID uint32, generation uint64, link *remote.Link) 
 	for {
 		msg, err := link.ReadMsg()
 		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return err
-			}
 			return err
 		}
 		if err := m.applyMessage(paneID, generation, msg); err != nil {
@@ -509,7 +508,7 @@ func (m *Manager) markDead(paneID uint32, message string) {
 	var pane *mux.Pane
 	m.mu.Lock()
 	ms := m.mirrors[paneID]
-	if ms == nil || ms.state == StateDetached {
+	if ms == nil || ms.state == StateDetached || ms.state == StateDead {
 		m.mu.Unlock()
 		return
 	}
@@ -525,6 +524,13 @@ func (m *Manager) markDead(paneID uint32, message string) {
 	if pane != nil && message != "" {
 		pane.FeedOutput([]byte("\r\n[" + message + "]\r\n"))
 	}
+}
+
+func (m *Manager) isTerminal(paneID uint32) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ms := m.mirrors[paneID]
+	return ms == nil || ms.state == StateDetached || ms.state == StateDead
 }
 
 func (m *Manager) recordAttemptError(paneID uint32, err error) {
