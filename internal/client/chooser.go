@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/weill-labs/amux/internal/bubblesutil"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
@@ -24,6 +25,11 @@ type chooserItem struct {
 	filterValue string
 	selectable  bool
 	header      bool // window grouping row in tree mode
+	icon        string
+	iconColor   string
+	textColor   string
+	desc        string
+	rule        bool
 	command     string
 	args        []string
 }
@@ -333,28 +339,14 @@ func (cr *ClientRenderer) selectChooser() chooserCommand {
 
 func (st *chooserState) rebuild() {
 	items := make([]chooserItem, 0, len(st.windows)*2)
+	treeMode := st.mode == chooserModeTree
 	for _, ws := range st.windows {
-		treeMode := st.mode == chooserModeTree
-		windowItem := chooserItem{
-			text:        formatChooserWindowRow(ws, ws.ID == st.activeWinID, treeMode),
-			filterValue: chooserWindowFilterValue(ws, treeMode),
-			selectable:  true,
-			header:      treeMode,
-			command:     "select-window",
-			args:        []string{strconv.Itoa(ws.Index)},
-		}
-		items = append(items, windowItem)
-		if st.mode != chooserModeTree {
+		items = append(items, chooserWindowItem(ws, ws.ID == st.activeWinID, treeMode))
+		if !treeMode {
 			continue
 		}
 		for _, ps := range ws.Panes {
-			items = append(items, chooserItem{
-				text:        formatChooserPaneRow(ps, ps.ID == ws.ActivePaneID),
-				filterValue: chooserPaneFilterValue(ps),
-				selectable:  true,
-				command:     "focus",
-				args:        []string{ps.Name},
-			})
+			items = append(items, chooserPaneItem(ps, ps.ID == ws.ActivePaneID))
 		}
 	}
 	st.items = items
@@ -423,6 +415,11 @@ func (st *chooserState) overlayRows(screenW, screenH int) ([]render.ChooserOverl
 			Text:       row.text,
 			Selectable: row.selectable,
 			Header:     row.header,
+			Icon:       row.icon,
+			IconColor:  row.iconColor,
+			TextColor:  row.textColor,
+			Desc:       row.desc,
+			Rule:       row.rule,
 		})
 	}
 	return rows, model.Index()
@@ -472,17 +469,60 @@ func chooserHasSelectableItems(items []list.Item) bool {
 	return false
 }
 
-func formatChooserWindowRow(ws proto.WindowSnapshot, active, header bool) string {
-	label := strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + chooserPaneCount(len(ws.Panes)) + ")"
-	if header {
-		// Tree-mode window grouping rows are bold with no marker.
-		return label
+// chooserWindowItem builds the row for a window. In tree mode it is a bold
+// section header with a trailing rule; in window mode it is a plain selectable
+// row, marked with a status dot when it is the active window.
+func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool) chooserItem {
+	item := chooserItem{
+		text:        strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + chooserPaneCount(len(ws.Panes)) + ")",
+		filterValue: chooserWindowFilterValue(ws, treeMode),
+		selectable:  true,
+		command:     "select-window",
+		args:        []string{strconv.Itoa(ws.Index)},
 	}
-	marker := " "
-	if active {
-		marker = "●"
+	switch {
+	case treeMode:
+		item.header = true
+		item.rule = true
+	case active:
+		item.icon = render.DefaultIconSet().PaneActive
+		item.iconColor = config.BlueHex
 	}
-	return marker + " " + label
+	return item
+}
+
+// chooserPaneItem builds the row for a pane: a colored status icon, the pane
+// name in its assigned color, and a dim branch/task suffix.
+func chooserPaneItem(ps proto.PaneSnapshot, active bool) chooserItem {
+	icons := render.DefaultIconSet()
+	icon := icons.PaneBusy
+	switch {
+	case ps.Lead:
+		icon = icons.PaneLead
+	case active:
+		icon = icons.PaneActive
+	case ps.Idle:
+		icon = icons.PaneIdle
+	}
+	iconColor := ps.Color
+	if ps.Idle && !active && !ps.Lead {
+		iconColor = config.DimColorHex
+	}
+	desc := ps.GitBranch
+	if desc == "" {
+		desc = ps.Task
+	}
+	return chooserItem{
+		text:        ps.Name,
+		filterValue: chooserPaneFilterValue(ps),
+		selectable:  true,
+		icon:        icon,
+		iconColor:   iconColor,
+		textColor:   ps.Color,
+		desc:        desc,
+		command:     "focus",
+		args:        []string{ps.Name},
+	}
 }
 
 // chooserPaneCount renders a grammatically correct pane count.
@@ -498,19 +538,4 @@ func chooserWindowName(ws proto.WindowSnapshot) string {
 		return ws.Name + "Z"
 	}
 	return ws.Name
-}
-
-func formatChooserPaneRow(ps proto.PaneSnapshot, active bool) string {
-	marker := " "
-	if active {
-		marker = "●"
-	}
-	text := "  " + marker + " " + ps.Name
-	if ps.Host != "" && ps.Host != "local" {
-		text += " @" + ps.Host
-	}
-	if ps.Task != "" {
-		text += " " + ps.Task
-	}
-	return text
 }

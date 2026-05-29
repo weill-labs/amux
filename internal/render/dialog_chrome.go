@@ -1,6 +1,7 @@
 package render
 
 import (
+	"image/color"
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -68,11 +69,19 @@ const (
 	dialogRowHeader
 )
 
-// dialogRow is one content line. desc is an optional dimmed suffix.
+// dialogRow is one content line. icon is an optional leading glyph (with its
+// own color), text is the main label (optionally colored), desc is a dimmed
+// suffix, and rule fills the trailing width with a horizontal line (section
+// headers). Per-row colors are suppressed on the selected row so the accent
+// bar stays legible.
 type dialogRow struct {
-	text string
-	desc string
-	kind dialogRowKind
+	text      string
+	desc      string
+	kind      dialogRowKind
+	icon      string
+	iconColor color.Color
+	textColor color.Color
+	rule      bool
 }
 
 // dialogToggle is the radio-style mode selector embedded in the title bar.
@@ -248,15 +257,15 @@ func (d dialogChrome) place(g *ScreenGrid, st dialogStyles) dialogRect {
 	d.drawTopBorder(g, rect, st)
 	cy := rect.Y + 1
 	if d.showQuery {
-		d.drawContentRow(g, rect, cy, "> "+d.query, "", st.text, st)
+		d.drawContentRow(g, rect, cy, dialogRow{text: "> " + d.query}, st.text, st)
 		cy++
 	}
 	if d.subtitle != "" {
-		d.drawContentRow(g, rect, cy, d.subtitle, "", st.dim, st)
+		d.drawContentRow(g, rect, cy, dialogRow{text: d.subtitle}, st.dim, st)
 		cy++
 	}
 	if spaceBeforeList {
-		d.drawContentRow(g, rect, cy, "", "", st.text, st)
+		d.drawContentRow(g, rect, cy, dialogRow{}, st.text, st)
 		cy++
 	}
 	bodyTop := cy
@@ -272,12 +281,12 @@ func (d dialogChrome) place(g *ScreenGrid, st dialogStyles) dialogRect {
 		case dialogRowHeader:
 			rowStyle = st.header
 		}
-		d.drawContentRow(g, rect, cy, row.text, row.desc, rowStyle, st)
+		d.drawContentRow(g, rect, cy, row, rowStyle, st)
 		cy++
 	}
 	d.drawScrollbar(g, rect, bodyTop, len(d.rows), st)
 	if spaceAfterList {
-		d.drawContentRow(g, rect, cy, "", "", st.text, st)
+		d.drawContentRow(g, rect, cy, dialogRow{}, st.text, st)
 		cy++
 	}
 	if len(d.footer) > 0 {
@@ -336,10 +345,14 @@ func (d dialogChrome) contentWidth() int {
 }
 
 func rowDisplay(r dialogRow) string {
-	if r.desc != "" {
-		return r.text + "  " + r.desc
+	s := r.text
+	if r.icon != "" {
+		s = r.icon + " " + s
 	}
-	return r.text
+	if r.desc != "" {
+		s += "  " + r.desc
+	}
+	return s
 }
 
 func (d dialogChrome) drawTopBorder(g *ScreenGrid, rect dialogRect, st dialogStyles) {
@@ -376,18 +389,41 @@ func (d dialogChrome) drawBottomBorder(g *ScreenGrid, rect dialogRect, st dialog
 // drawContentRow draws one interior row: vertical borders, a full-width
 // background fill (so accent bars reach edge to edge), the padded text, and an
 // optional dimmed description suffix.
-func (d dialogChrome) drawContentRow(g *ScreenGrid, rect dialogRect, y int, text, desc string, rowStyle uv.Style, st dialogStyles) {
+func (d dialogChrome) drawContentRow(g *ScreenGrid, rect dialogRect, y int, row dialogRow, rowStyle uv.Style, st dialogStyles) {
 	right := rect.X + rect.W - 1
 	g.Set(rect.X, y, ScreenCell{Char: "│", Width: 1, Style: st.border})
 	g.Set(right, y, ScreenCell{Char: "│", Width: 1, Style: st.border})
 	for x := rect.X + 1; x < right; x++ {
 		g.Set(x, y, ScreenCell{Char: " ", Width: 1, Style: rowStyle})
 	}
-	// One-space gutter after the left border, then the text.
-	endX := placeRunes(g, rect.X+2, y, right, text, rowStyle)
-	if desc != "" {
-		descStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: rowStyle.Bg}
-		placeRunes(g, endX+2, y, right, desc, descStyle)
+
+	// Per-row colors clash with the accent selection bar, so suppress them when
+	// this row is selected.
+	selected := row.kind == dialogRowSelected
+	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: rowStyle.Bg}
+
+	// One-space gutter after the left border, then an optional colored icon.
+	x := rect.X + 2
+	if row.icon != "" {
+		iconStyle := rowStyle
+		if row.iconColor != nil && !selected {
+			iconStyle.Fg = row.iconColor
+		}
+		x = placeRunes(g, x, y, right, row.icon+" ", iconStyle)
+	}
+
+	textStyle := rowStyle
+	if row.textColor != nil && !selected {
+		textStyle.Fg = row.textColor
+	}
+	endX := placeRunes(g, x, y, right, row.text, textStyle)
+
+	if row.rule {
+		for rx := endX + 1; rx < right-1; rx++ {
+			g.Set(rx, y, ScreenCell{Char: "─", Width: 1, Style: dimStyle})
+		}
+	} else if row.desc != "" {
+		placeRunes(g, endX+2, y, right, row.desc, dimStyle)
 	}
 }
 

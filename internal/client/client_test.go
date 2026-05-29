@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -2331,7 +2332,7 @@ func TestChooseTreeFilterAndSelection(t *testing.T) {
 	if len(overlay.Rows) < 2 {
 		t.Fatalf("filtered rows = %+v, want grouped window + pane rows", overlay.Rows)
 	}
-	if overlay.Rows[1].Text != "  ● pane-2 @gpu-box train" && overlay.Rows[1].Text != "    pane-2 @gpu-box train" {
+	if overlay.Rows[1].Text != "pane-2" || overlay.Rows[1].Desc != "train" {
 		t.Fatalf("unexpected filtered pane row: %+v", overlay.Rows[1])
 	}
 
@@ -2362,20 +2363,28 @@ func TestFormatChooserRowsPolish(t *testing.T) {
 	onePane := proto.WindowSnapshot{Index: 1, Name: "amux", Panes: []proto.PaneSnapshot{{}}}
 	twoPane := proto.WindowSnapshot{Index: 2, Name: "orca", Panes: []proto.PaneSnapshot{{}, {}}}
 
-	if got := formatChooserWindowRow(onePane, true, true); got != "1:amux (1 pane)" {
-		t.Errorf("tree header row = %q, want %q", got, "1:amux (1 pane)")
+	// Tree-mode window: bold header with a rule, grammatically correct count.
+	if got := chooserWindowItem(onePane, true, true); got.text != "1:amux (1 pane)" || !got.header || !got.rule {
+		t.Errorf("tree window item = %+v, want text %q, header+rule", got, "1:amux (1 pane)")
 	}
-	if got := formatChooserWindowRow(twoPane, true, false); got != "● 2:orca (2 panes)" {
-		t.Errorf("active window-mode row = %q, want %q", got, "● 2:orca (2 panes)")
+	// Window-mode active window: status dot, no rule.
+	if got := chooserWindowItem(twoPane, true, false); got.text != "2:orca (2 panes)" || got.icon == "" || got.rule {
+		t.Errorf("active window item = %+v, want text %q with an icon and no rule", got, "2:orca (2 panes)")
 	}
-	if got := formatChooserWindowRow(twoPane, false, false); got != "  2:orca (2 panes)" {
-		t.Errorf("inactive window-mode row = %q, want %q", got, "  2:orca (2 panes)")
+	// Window-mode inactive: no icon.
+	if got := chooserWindowItem(twoPane, false, false); got.icon != "" {
+		t.Errorf("inactive window item should have no icon, got %q", got.icon)
 	}
-	if got := formatChooserPaneRow(proto.PaneSnapshot{Name: "pane-1"}, true); got != "  ● pane-1" {
-		t.Errorf("active pane row = %q, want %q", got, "  ● pane-1")
+
+	// Active pane: colored icon + name + dim branch.
+	active := chooserPaneItem(proto.PaneSnapshot{Name: "pane-1", Color: "f5e0dc", GitBranch: "main"}, true)
+	if active.text != "pane-1" || active.icon == "" || active.iconColor != "f5e0dc" || active.textColor != "f5e0dc" || active.desc != "main" {
+		t.Errorf("active pane item = %+v, want name pane-1, colored icon/text, desc main", active)
 	}
-	if got := formatChooserPaneRow(proto.PaneSnapshot{Name: "pane-2"}, false); got != "    pane-2" {
-		t.Errorf("inactive pane row = %q, want %q", got, "    pane-2")
+	// Idle inactive pane: dim icon.
+	idle := chooserPaneItem(proto.PaneSnapshot{Name: "pane-2", Idle: true}, false)
+	if idle.iconColor != config.DimColorHex {
+		t.Errorf("idle pane icon color = %q, want dim %q", idle.iconColor, config.DimColorHex)
 	}
 }
 

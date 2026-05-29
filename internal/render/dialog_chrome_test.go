@@ -148,6 +148,48 @@ func TestDialogChromeToggleRendered(t *testing.T) {
 	}
 }
 
+// TestDialogChromeIconColorAndRule verifies a content row renders a colored
+// leading icon, a colored name, a dim desc, and that a rule row fills the
+// trailing width with ─.
+func TestDialogChromeIconColorAndRule(t *testing.T) {
+	t.Parallel()
+
+	mauve := hexToColor(config.MauveHex)
+	chrome := dialogChrome{
+		title:     "Choose Window",
+		showQuery: true,
+		rows: []dialogRow{
+			{text: "amux", kind: dialogRowHeader, rule: true},
+			{text: "pane-1", desc: "main", icon: "●", iconColor: mauve, textColor: mauve},
+		},
+		footer: []footerHint{{key: "esc", label: "close"}},
+	}
+
+	g := NewScreenGrid(60, 16)
+	rect := chrome.place(g, defaultDialogStyles())
+	body := gridRectToText(g, rect.X, rect.Y, rect.W, rect.H)
+
+	for _, want := range []string{"amux", "──", "● pane-1", "main"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered chrome missing %q:\n%s", want, body)
+		}
+	}
+
+	// The icon cell should carry its own color.
+	iconFound := false
+	for y := rect.Y; y < rect.Y+rect.H && !iconFound; y++ {
+		for x := rect.X; x < rect.X+rect.W; x++ {
+			if c := g.Get(x, y); c.Char == "●" && c.Style.Fg == mauve {
+				iconFound = true
+				break
+			}
+		}
+	}
+	if !iconFound {
+		t.Error("expected a ● icon cell painted with its iconColor")
+	}
+}
+
 // TestDialogChromeListSpacers verifies blank separator rows sit between the
 // query/header and the list, and between the list and the footer.
 func TestDialogChromeListSpacers(t *testing.T) {

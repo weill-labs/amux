@@ -21,7 +21,13 @@ func chooserChrome(screenH int, overlay *ChooserOverlay) dialogChrome {
 	rows := make([]dialogRow, 0, end-start)
 	for i := start; i < end; i++ {
 		src := overlay.Rows[i]
-		row := dialogRow{text: src.Text, kind: dialogRowNormal}
+		row := dialogRow{text: src.Text, desc: src.Desc, icon: src.Icon, rule: src.Rule, kind: dialogRowNormal}
+		if src.IconColor != "" {
+			row.iconColor = hexToColor(src.IconColor)
+		}
+		if src.TextColor != "" {
+			row.textColor = hexToColor(src.TextColor)
+		}
 		switch {
 		case i == overlay.Selected && src.Selectable:
 			row.kind = dialogRowSelected
