@@ -73,21 +73,58 @@ func TestMirrorManagerForwardsPaneMetaWithoutOverwritingHost(t *testing.T) {
 		sess.broadcastLayoutNow()
 	})
 
+	// Read the mirror pane's meta on the local session's event loop — the same
+	// goroutine that applies forwarded updates — so reads never race the writer.
 	waitUntil(t, func() bool {
-		return mirrorPane.Meta.GitBranch == "feature/federation" &&
-			mirrorPane.Meta.PR == "826" &&
-			len(mirrorPane.Meta.TrackedPRs) == 1 &&
-			len(mirrorPane.Meta.TrackedIssues) == 1
+		m := h.snapshotMirrorPaneMeta(t, mirrorPane.ID)
+		return m.GitBranch == "feature/federation" &&
+			m.PR == "826" &&
+			len(m.TrackedPRs) == 1 &&
+			len(m.TrackedIssues) == 1
 	})
-	if mirrorPane.Meta.Host != mirrorRemoteHostName {
-		t.Fatalf("mirror Host = %q, want %q", mirrorPane.Meta.Host, mirrorRemoteHostName)
+	m := h.snapshotMirrorPaneMeta(t, mirrorPane.ID)
+	if m.Host != mirrorRemoteHostName {
+		t.Fatalf("mirror Host = %q, want %q", m.Host, mirrorRemoteHostName)
 	}
-	if mirrorPane.Meta.TrackedPRs[0].Number != 826 {
-		t.Fatalf("TrackedPRs = %+v, want PR 826", mirrorPane.Meta.TrackedPRs)
+	if m.TrackedPRs[0].Number != 826 {
+		t.Fatalf("TrackedPRs = %+v, want PR 826", m.TrackedPRs)
 	}
-	if mirrorPane.Meta.TrackedIssues[0].ID != "LAB-1963" {
-		t.Fatalf("TrackedIssues = %+v, want LAB-1963", mirrorPane.Meta.TrackedIssues)
+	if m.TrackedIssues[0].ID != "LAB-1963" {
+		t.Fatalf("TrackedIssues = %+v, want LAB-1963", m.TrackedIssues)
 	}
+}
+
+// mirrorPaneMetaSnapshot is a race-free copy of the mirror pane meta fields the
+// forwarding test asserts on.
+type mirrorPaneMetaSnapshot struct {
+	Host          string
+	GitBranch     string
+	PR            string
+	TrackedPRs    []proto.TrackedPR
+	TrackedIssues []proto.TrackedIssue
+}
+
+// snapshotMirrorPaneMeta reads the mirror pane's meta on the local session's
+// event loop, synchronizing with applyForwardedPaneMetaUpdate.
+func (h *mirrorIntegrationHarness) snapshotMirrorPaneMeta(t *testing.T, paneID uint32) mirrorPaneMetaSnapshot {
+	t.Helper()
+	snap, err := enqueueSessionQueryOnState(h.localSess.context(), h.localSess, func(sess *Session) (mirrorPaneMetaSnapshot, error) {
+		p := sess.findPaneByID(paneID)
+		if p == nil {
+			return mirrorPaneMetaSnapshot{}, errors.New("mirror pane not found")
+		}
+		return mirrorPaneMetaSnapshot{
+			Host:          p.Meta.Host,
+			GitBranch:     p.Meta.GitBranch,
+			PR:            p.Meta.PR,
+			TrackedPRs:    proto.CloneTrackedPRs(p.Meta.TrackedPRs),
+			TrackedIssues: proto.CloneTrackedIssues(p.Meta.TrackedIssues),
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot mirror pane meta: %v", err)
+	}
+	return snap
 }
 
 func TestMirrorManagerCaptureUsesForwardedAgentStatusForProxyPane(t *testing.T) {
