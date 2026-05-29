@@ -57,8 +57,7 @@ func findMissingParallelCalls(root string) ([]parallelFinding, error) {
 			return err
 		}
 		if info.IsDir() {
-			switch path {
-			case ".git", "vendor":
+			if skipAuditDir(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
