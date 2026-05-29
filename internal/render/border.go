@@ -134,12 +134,9 @@ func markBorders(bm *borderMap, cell *mux.LayoutCell) {
 	}
 }
 
-// renderBorders draws all border cells with junction characters and per-cell coloring.
+// renderBordersWithProfileAndTints draws all border cells with junction
+// characters and per-cell coloring, optionally tinting specific panes' borders.
 // Iterates the sparse position list instead of scanning the full w*h grid.
-func renderBordersWithProfile(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string, profile termenv.Profile) {
-	renderBordersWithProfileAndTints(buf, bm, root, activePaneID, activeColor, nil, profile)
-}
-
 func renderBordersWithProfileAndTints(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string, paneTints map[uint32]string, profile termenv.Profile) {
 	lastColor := ""
 	dimColor := fgHexSequence(config.DimColorHex, profile)

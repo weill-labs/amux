@@ -6,19 +6,30 @@ type paneCommand struct {
 	stop bool
 }
 
+// paneActorChannels bundles the actor's command and done channels so they can
+// be swapped together behind a single atomic pointer. Readers load the pointer
+// once and use a consistent pair, never racing start/stop.
+type paneActorChannels struct {
+	commands chan paneCommand
+	done     chan struct{}
+}
+
 func (p *Pane) startActor() {
-	if p.actorCommands != nil {
+	if p.actorChans.Load() != nil {
 		return
 	}
 	p.actorClosing.Store(false)
-	p.actorCommands = make(chan paneCommand)
-	p.actorDone = make(chan struct{})
-	go p.actorLoop()
+	c := &paneActorChannels{
+		commands: make(chan paneCommand),
+		done:     make(chan struct{}),
+	}
+	p.actorChans.Store(c)
+	go p.actorLoop(c)
 }
 
-func (p *Pane) actorLoop() {
-	defer close(p.actorDone)
-	for cmd := range p.actorCommands {
+func (p *Pane) actorLoop(c *paneActorChannels) {
+	defer close(c.done)
+	for cmd := range c.commands {
 		if cmd.run != nil {
 			cmd.run()
 		}
@@ -30,77 +41,62 @@ func (p *Pane) actorLoop() {
 }
 
 func (p *Pane) stopActor() {
-	ch := p.actorCommands
-	done := p.actorDone
-	if ch == nil {
+	c := p.actorChans.Load()
+	if c == nil {
 		return
 	}
 	if !p.actorClosing.CompareAndSwap(false, true) {
-		if done != nil {
-			<-done
-		}
-		p.actorCommands = nil
+		<-c.done
+		p.actorChans.Store(nil)
 		return
 	}
 	stopDone := make(chan struct{})
-	ch <- paneCommand{done: stopDone, stop: true}
+	c.commands <- paneCommand{done: stopDone, stop: true}
 	<-stopDone
-	if done != nil {
-		<-done
-	}
-	p.actorCommands = nil
+	<-c.done
+	p.actorChans.Store(nil)
 }
 
 func (p *Pane) withActor(run func()) {
-	ch := p.actorCommands
-	doneCh := p.actorDone
-	if ch == nil {
+	c := p.actorChans.Load()
+	if c == nil {
 		run()
 		return
 	}
 	if p.actorClosing.Load() {
-		if doneCh != nil {
-			<-doneCh
-		}
+		<-c.done
 		run()
 		return
 	}
 	done := make(chan struct{})
 	defer func() {
 		if recover() != nil {
-			if doneCh != nil {
-				<-doneCh
-			}
+			<-c.done
 			run()
 		}
 	}()
 	select {
-	case ch <- paneCommand{run: run, done: done}:
+	case c.commands <- paneCommand{run: run, done: done}:
 		<-done
-	case <-doneCh:
+	case <-c.done:
 		run()
 	}
 }
 
 func paneActorValue[T any](p *Pane, run func() T) (value T) {
-	ch := p.actorCommands
-	doneCh := p.actorDone
-	if ch == nil {
+	c := p.actorChans.Load()
+	if c == nil {
 		return run()
 	}
 	if p.actorClosing.Load() {
-		if doneCh != nil {
-			<-doneCh
-		}
+		<-c.done
 		return run()
 	}
 	done := make(chan struct{})
 	value = *new(T)
 	defer func() {
 		if recover() != nil {
-			if doneCh != nil {
-				<-doneCh
-			}
+			<-c.done
 			value = run()
 		}
 	}()
@@ -111,9 +107,9 @@ func paneActorValue[T any](p *Pane, run func() T) (value T) {
 		done: done,
 	}
 	select {
-	case ch <- cmd:
+	case c.commands <- cmd:
 		<-done
-	case <-doneCh:
+	case <-c.done:
 		value = run()
 	}
 	return value

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -74,7 +75,7 @@ func cmdRemote(ctx *CommandContext) {
 
 func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) == 0 {
-		return commandpkg.Result{Err: fmt.Errorf(remoteCommandUsage)}
+		return commandpkg.Result{Err: errors.New(remoteCommandUsage)}
 	}
 	switch ctx.Args[0] {
 	case "add":
@@ -92,7 +93,7 @@ func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 	case "resize":
 		return runRemoteResize(ctx)
 	default:
-		return commandpkg.Result{Err: fmt.Errorf(remoteCommandUsage)}
+		return commandpkg.Result{Err: errors.New(remoteCommandUsage)}
 	}
 }
 
@@ -120,7 +121,7 @@ func runRemoteAdd(ctx *CommandContext) commandpkg.Result {
 
 func runRemoteList(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 1 {
-		return commandpkg.Result{Err: fmt.Errorf(remoteListUsage)}
+		return commandpkg.Result{Err: errors.New(remoteListUsage)}
 	}
 	cfg, err := loadRemoteConfig()
 	if err != nil {
@@ -144,7 +145,7 @@ func runRemoteList(ctx *CommandContext) commandpkg.Result {
 
 func runRemoteRm(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
-		return commandpkg.Result{Err: fmt.Errorf(remoteRmUsage)}
+		return commandpkg.Result{Err: errors.New(remoteRmUsage)}
 	}
 	name := ctx.Args[1]
 	cfg, err := loadRemoteConfig()
@@ -163,7 +164,7 @@ func runRemoteRm(ctx *CommandContext) commandpkg.Result {
 
 func runRemotePanes(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
-		return commandpkg.Result{Err: fmt.Errorf(remotePanesUsage)}
+		return commandpkg.Result{Err: errors.New(remotePanesUsage)}
 	}
 	host, err := lookupRemoteHost(ctx.Args[1])
 	if err != nil {
@@ -179,11 +180,11 @@ func runRemotePanes(ctx *CommandContext) commandpkg.Result {
 
 func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
-		return commandpkg.Result{Err: fmt.Errorf(remoteAttachUsage)}
+		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
 	}
 	hostName, paneName, ok := strings.Cut(ctx.Args[1], ":")
 	if !ok || hostName == "" || paneName == "" {
-		return commandpkg.Result{Err: fmt.Errorf(remoteAttachUsage)}
+		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
 	}
 	host, err := lookupRemoteHost(hostName)
 	if err != nil {
@@ -225,7 +226,7 @@ func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 
 func runRemoteDetach(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
-		return commandpkg.Result{Err: fmt.Errorf(remoteDetachUsage)}
+		return commandpkg.Result{Err: errors.New(remoteDetachUsage)}
 	}
 	target, err := queryRemoteMirrorTarget(ctx, ctx.Args[1])
 	if err != nil {
@@ -253,7 +254,7 @@ func runRemoteDetach(ctx *CommandContext) commandpkg.Result {
 
 func runRemoteResize(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
-		return commandpkg.Result{Err: fmt.Errorf(remoteResizeUsage)}
+		return commandpkg.Result{Err: errors.New(remoteResizeUsage)}
 	}
 	target, err := queryRemoteMirrorTarget(ctx, ctx.Args[1])
 	if err != nil {
@@ -324,39 +325,39 @@ func runRemoteKill(ctx *CommandContext, opts killCommandArgs) commandpkg.Result 
 
 func parseRemoteAddArgs(args []string) (remoteAddArgs, error) {
 	if len(args) < 5 {
-		return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+		return remoteAddArgs{}, errors.New(remoteAddUsage)
 	}
 	parsed := remoteAddArgs{name: args[0]}
 	if parsed.name == "" || strings.HasPrefix(parsed.name, "-") {
-		return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+		return remoteAddArgs{}, errors.New(remoteAddUsage)
 	}
 	parsed.host.Session = DefaultSessionName
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--ssh":
 			if i+1 >= len(args) {
-				return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+				return remoteAddArgs{}, errors.New(remoteAddUsage)
 			}
 			parsed.host.SSH = args[i+1]
 			i++
 		case "--socket":
 			if i+1 >= len(args) {
-				return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+				return remoteAddArgs{}, errors.New(remoteAddUsage)
 			}
 			parsed.host.SocketPath = args[i+1]
 			i++
 		case "--session":
 			if i+1 >= len(args) {
-				return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+				return remoteAddArgs{}, errors.New(remoteAddUsage)
 			}
 			parsed.host.Session = args[i+1]
 			i++
 		default:
-			return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+			return remoteAddArgs{}, errors.New(remoteAddUsage)
 		}
 	}
 	if parsed.host.SSH == "" || parsed.host.SocketPath == "" || parsed.host.Session == "" {
-		return remoteAddArgs{}, fmt.Errorf(remoteAddUsage)
+		return remoteAddArgs{}, errors.New(remoteAddUsage)
 	}
 	return parsed, nil
 }
