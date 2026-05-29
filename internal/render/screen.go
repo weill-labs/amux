@@ -365,7 +365,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		c.cachedBorderRoot = root
 		c.cachedBorderH = layoutHeight
 	}
-	buildBorderCells(g, c.cachedBorderMap, activePaneID, activeColorHex)
+	buildBorderCellsWithTints(g, c.cachedBorderMap, activePaneID, activeColorHex, paneBorderTintMap(panes))
 
 	if overlay.DropIndicator != nil {
 		buildDropIndicatorCells(g, overlay.DropIndicator)
@@ -398,6 +398,24 @@ type paneComposite struct {
 	isActive    bool
 	pressed     bool
 	copyOverlay *proto.ViewportOverlay
+}
+
+func paneBorderTintMap(panes []paneComposite) map[uint32]string {
+	var tints map[uint32]string
+	for _, pane := range panes {
+		if pane.pd == nil {
+			continue
+		}
+		tint := paneBorderTintColorHex(pane.pd)
+		if tint == "" {
+			continue
+		}
+		if tints == nil {
+			tints = make(map[uint32]string)
+		}
+		tints[pane.pd.ID()] = tint
+	}
+	return tints
 }
 
 func (c *Compositor) composePane(g *ScreenGrid, layoutHeight int, pane paneComposite) {
@@ -902,6 +920,7 @@ type paneStatusGridPalette struct {
 	dim           uv.Style
 	text          uv.Style
 	yellow        uv.Style
+	peach         uv.Style
 	green         uv.Style
 	red           uv.Style
 	completedMeta uv.Style
@@ -922,6 +941,7 @@ func newPaneStatusGridPalette(colorHex string, bg color.Color) paneStatusGridPal
 		dim:           dimStyle,
 		text:          uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg},
 		yellow:        uv.Style{Fg: hexToColor(config.YellowHex), Bg: bg},
+		peach:         uv.Style{Fg: hexToColor(config.PeachHex), Bg: bg},
 		green:         uv.Style{Fg: hexToColor(config.GreenHex), Bg: bg},
 		red:           uv.Style{Fg: hexToColor(config.RedHex), Bg: bg},
 		completedMeta: completedMetaStyle,
@@ -940,6 +960,8 @@ func (p paneStatusGridPalette) style(role paneStatusSegmentRole) uv.Style {
 		return p.text
 	case paneStatusSegmentYellow:
 		return p.yellow
+	case paneStatusSegmentPeach:
+		return p.peach
 	case paneStatusSegmentGreen:
 		return p.green
 	case paneStatusSegmentRed:
@@ -1033,6 +1055,10 @@ func screenCellFromStyledStatusCell(cell styledStatusCell) ScreenCell {
 
 // buildBorderCells writes border characters into the grid with proper colors.
 func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeColorHex string) {
+	buildBorderCellsWithTints(g, bm, activePaneID, activeColorHex, nil)
+}
+
+func buildBorderCellsWithTints(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeColorHex string, paneTints map[uint32]string) {
 	activeColorFg := hexToColor(activeColorHex)
 	dimFgColor := hexToColor(config.DimColorHex)
 
@@ -1050,6 +1076,9 @@ func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeC
 		fg := dimFgColor
 		if borderAdjacentToActive(bc.left, bc.right, x, y, isJunction, activePaneID) {
 			fg = activeColorFg
+		}
+		if tint := borderAdjacentTintColorHex(bc.left, bc.right, x, y, isJunction, paneTints); tint != "" {
+			fg = hexToColor(tint)
 		}
 
 		g.Set(x, y, ScreenCell{Char: ch, Width: 1, Style: uv.Style{Fg: fg}})

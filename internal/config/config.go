@@ -82,6 +82,7 @@ const (
 	FooterKeyHex = "858392" // muted gray-mauve — modal footer key names (matches crush)
 	GreenHex     = "a6e3a1" // Green — status indicator
 	YellowHex    = "f9e2af" // Yellow — status indicator
+	PeachHex     = "fab387" // Peach — reconnecting mirror indicator
 	RedHex       = "f38ba8" // Red — status indicator
 )
 

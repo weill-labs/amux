@@ -130,21 +130,24 @@ func TestNerdFontIconSetUsesPublishedGlyphs(t *testing.T) {
 	t.Parallel()
 
 	want := IconSet{
-		PaneIdle:      "\uebb5", // nf-cod-circle_large
-		PaneActive:    "\uebb4", // nf-cod-circle_large_filled
-		PaneBusy:      "\ueb31", // nf-cod-pulse
-		PaneLead:      "\ueb59", // nf-cod-star_full
-		PaneEscalated: "\uea6c", // nf-cod-warning
-		PaneStuck:     "\ueaaf", // nf-cod-bug
-		PaneNameOpen:  "[",
-		PaneNameClose: "]",
-		RemoteHost:    "\ueb50", // nf-cod-server
-		PR:            "\uf407", // nf-oct-git_pull_request
-		Issue:         "\uf41b", // nf-oct-issue_opened
-		Task:          "\ueb67", // nf-cod-tasklist
-		CopyMode:      "\ueac0", // nf-cod-clippy
-		ToggleOn:      "\uf192", // nf-fa-dot_circle_o
-		ToggleOff:     "\uf10c", // nf-fa-circle_o
+		PaneIdle:           "\uebb5", // nf-cod-circle_large
+		PaneActive:         "\uebb4", // nf-cod-circle_large_filled
+		PaneBusy:           "\ueb31", // nf-cod-pulse
+		PaneLead:           "\ueb59", // nf-cod-star_full
+		PaneEscalated:      "\uea6c", // nf-cod-warning
+		PaneStuck:          "\ueaaf", // nf-cod-bug
+		PaneNameOpen:       "[",
+		PaneNameClose:      "]",
+		RemoteHost:         "\ueb50", // nf-cod-server
+		RemoteConnected:    "\uebb4", // nf-cod-circle_large_filled
+		RemoteReconnecting: "\uea6c", // nf-cod-warning
+		RemoteDisconnected: "\ueaaf", // nf-cod-bug
+		PR:                 "\uf407", // nf-oct-git_pull_request
+		Issue:              "\uf41b", // nf-oct-issue_opened
+		Task:               "\ueb67", // nf-cod-tasklist
+		CopyMode:           "\ueac0", // nf-cod-clippy
+		ToggleOn:           "\uf192", // nf-fa-dot_circle_o
+		ToggleOff:          "\uf10c", // nf-fa-circle_o
 	}
 	if got := NerdFontIconSet(); got != want {
 		t.Fatalf("NerdFontIconSet() = %#v, want %#v", got, want)
@@ -255,19 +258,22 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 
 	ascii := ASCIIIconSet()
 	for name, value := range map[string]string{
-		"PaneIdle":      ascii.PaneIdle,
-		"PaneActive":    ascii.PaneActive,
-		"PaneBusy":      ascii.PaneBusy,
-		"PaneLead":      ascii.PaneLead,
-		"PaneEscalated": ascii.PaneEscalated,
-		"PaneStuck":     ascii.PaneStuck,
-		"PaneNameOpen":  ascii.PaneNameOpen,
-		"PaneNameClose": ascii.PaneNameClose,
-		"RemoteHost":    ascii.RemoteHost,
-		"PR":            ascii.PR,
-		"Issue":         ascii.Issue,
-		"Task":          ascii.Task,
-		"CopyMode":      ascii.CopyMode,
+		"PaneIdle":           ascii.PaneIdle,
+		"PaneActive":         ascii.PaneActive,
+		"PaneBusy":           ascii.PaneBusy,
+		"PaneLead":           ascii.PaneLead,
+		"PaneEscalated":      ascii.PaneEscalated,
+		"PaneStuck":          ascii.PaneStuck,
+		"PaneNameOpen":       ascii.PaneNameOpen,
+		"PaneNameClose":      ascii.PaneNameClose,
+		"RemoteHost":         ascii.RemoteHost,
+		"RemoteConnected":    ascii.RemoteConnected,
+		"RemoteReconnecting": ascii.RemoteReconnecting,
+		"RemoteDisconnected": ascii.RemoteDisconnected,
+		"PR":                 ascii.PR,
+		"Issue":              ascii.Issue,
+		"Task":               ascii.Task,
+		"CopyMode":           ascii.CopyMode,
 	} {
 		if len(value) != 1 {
 			t.Fatalf("ASCIIIconSet().%s = %q, want single-character fallback", name, value)
@@ -303,17 +309,20 @@ func TestIconSetPresetsAndHelpers(t *testing.T) {
 
 func iconSetFieldMap(icons IconSet) map[string]string {
 	return map[string]string{
-		"PaneIdle":      icons.PaneIdle,
-		"PaneActive":    icons.PaneActive,
-		"PaneBusy":      icons.PaneBusy,
-		"PaneLead":      icons.PaneLead,
-		"PaneEscalated": icons.PaneEscalated,
-		"PaneStuck":     icons.PaneStuck,
-		"RemoteHost":    icons.RemoteHost,
-		"PR":            icons.PR,
-		"Issue":         icons.Issue,
-		"Task":          icons.Task,
-		"CopyMode":      icons.CopyMode,
+		"PaneIdle":           icons.PaneIdle,
+		"PaneActive":         icons.PaneActive,
+		"PaneBusy":           icons.PaneBusy,
+		"PaneLead":           icons.PaneLead,
+		"PaneEscalated":      icons.PaneEscalated,
+		"PaneStuck":          icons.PaneStuck,
+		"RemoteHost":         icons.RemoteHost,
+		"RemoteConnected":    icons.RemoteConnected,
+		"RemoteReconnecting": icons.RemoteReconnecting,
+		"RemoteDisconnected": icons.RemoteDisconnected,
+		"PR":                 icons.PR,
+		"Issue":              icons.Issue,
+		"Task":               icons.Task,
+		"CopyMode":           icons.CopyMode,
 	}
 }
 

@@ -212,6 +212,7 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 	}
 
 	// Render each pane's status line and content
+	var paneTints map[uint32]string
 	root.Walk(func(cell *mux.LayoutCell) {
 		pid := cell.CellPaneID()
 		if pid == 0 {
@@ -222,6 +223,12 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 			return
 		}
 		paneCount++
+		if tint := paneBorderTintColorHex(pd); tint != "" {
+			if paneTints == nil {
+				paneTints = make(map[uint32]string)
+			}
+			paneTints[pid] = tint
+		}
 
 		isActive := pid == activePaneID
 		pressed := overlay.IsPanePressed(pid)
@@ -242,7 +249,7 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 		c.cachedBorderRoot = root
 		c.cachedBorderH = layoutHeight
 	}
-	renderBordersWithProfile(&buf, c.cachedBorderMap, root, activePaneID, activeColor, c.colorProfile)
+	renderBordersWithProfileAndTints(&buf, c.cachedBorderMap, root, activePaneID, activeColor, paneTints, c.colorProfile)
 
 	if overlay.DropIndicator != nil {
 		renderDropIndicator(&buf, overlay.DropIndicator)

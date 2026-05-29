@@ -16,6 +16,7 @@ type catppuccinMochaLipGlossPalette struct {
 	blue     lipgloss.Color
 	green    lipgloss.Color
 	yellow   lipgloss.Color
+	peach    lipgloss.Color
 	red      lipgloss.Color
 }
 
@@ -27,6 +28,7 @@ func newCatppuccinMochaLipGlossPalette() catppuccinMochaLipGlossPalette {
 		blue:     hexToLipGlossColor(config.BlueHex),
 		green:    hexToLipGlossColor(config.GreenHex),
 		yellow:   hexToLipGlossColor(config.YellowHex),
+		peach:    hexToLipGlossColor(config.PeachHex),
 		red:      hexToLipGlossColor(config.RedHex),
 	}
 }
@@ -41,6 +43,7 @@ type statusBarStyles struct {
 	idle          lipgloss.Style
 	busy          lipgloss.Style
 	warning       lipgloss.Style
+	reconnecting  lipgloss.Style
 	success       lipgloss.Style
 	error         lipgloss.Style
 	completedMeta lipgloss.Style
@@ -73,6 +76,7 @@ func newStatusBarStylesPressed(accentHex string, pressed bool) statusBarStyles {
 		idle:          dim,
 		busy:          busy,
 		warning:       base.Foreground(palette.yellow),
+		reconnecting:  base.Foreground(palette.peach),
 		success:       base.Foreground(palette.green),
 		error:         base.Foreground(palette.red),
 		completedMeta: dim.Strikethrough(true),
@@ -91,6 +95,8 @@ func (s statusBarStyles) pane(role paneStatusSegmentRole) lipgloss.Style {
 		return s.busy
 	case paneStatusSegmentYellow:
 		return s.warning
+	case paneStatusSegmentPeach:
+		return s.reconnecting
 	case paneStatusSegmentGreen:
 		return s.success
 	case paneStatusSegmentRed:
