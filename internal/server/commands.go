@@ -184,6 +184,7 @@ var commandRegistry = map[string]CommandHandler{
 	"rename":              cmdRename,
 	"capture":             cmdCapture,
 	"debug-frames":        cmdDebugFrames,
+	"remote":              cmdRemote,
 	"spawn":               cmdSpawn,
 	"zoom":                cmdZoom,
 	"reset":               cmdReset,

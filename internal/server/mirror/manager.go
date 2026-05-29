@@ -262,6 +262,28 @@ func (m *Manager) AgentStatus(paneID uint32) (proto.PaneAgentStatus, bool) {
 	return ms.agentStatus, true
 }
 
+func (m *Manager) Snapshots() []Snapshot {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Snapshot, 0, len(m.mirrors))
+	for _, ms := range m.mirrors {
+		if ms == nil {
+			continue
+		}
+		out = append(out, Snapshot{
+			State:        ms.state,
+			Generation:   ms.generation,
+			RemotePaneID: ms.remotePaneID,
+			RemoteRef:    ms.ref,
+			LastError:    ms.lastErr,
+		})
+	}
+	return out
+}
+
 func (m *Manager) startLocked(ms *mirrorState) {
 	if ms == nil || ms.running || ms.state == StateDetached || ms.state == StateDead {
 		return

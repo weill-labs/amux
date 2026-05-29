@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -156,6 +157,39 @@ func Load(path string) (*Config, error) {
 	}
 
 	return parseConfig(data)
+}
+
+// Save writes cfg to path as TOML, creating the parent directory when needed.
+func Save(path string, cfg *Config) error {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+		return fmt.Errorf("encoding config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.toml")
+	if err != nil {
+		return fmt.Errorf("creating config temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("writing config temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing config temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("replacing config: %w", err)
+	}
+	return nil
 }
 
 func parseConfig(data []byte) (*Config, error) {

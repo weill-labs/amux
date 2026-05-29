@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	killArgsUsage              = "[--cleanup] [--timeout <duration>] [pane]"
+	killArgsUsage              = "[--cleanup] [--remote] [--timeout <duration>] [pane]"
 	copyModeUsage              = "usage: copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]"
 	defaultCopyModeWaitTimeout = 5 * time.Second
 )
@@ -52,6 +52,7 @@ func (e *killArgError) Error() string { return e.msg }
 type KillArgs struct {
 	PaneRef string
 	Cleanup bool
+	Remote  bool
 	Timeout time.Duration
 }
 
@@ -275,6 +276,7 @@ func FormatKillCommandError(err error, command string) string {
 func ParseKillCommandArgs(args []string) (KillArgs, error) {
 	flags, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
 		{Name: "--cleanup", Type: cmdflags.FlagTypeBool},
+		{Name: "--remote", Type: cmdflags.FlagTypeBool},
 		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: 5 * time.Second},
 	})
 	if err != nil {
@@ -286,12 +288,16 @@ func ParseKillCommandArgs(args []string) (KillArgs, error) {
 	}
 	opts := KillArgs{
 		Cleanup: flags.Bool("--cleanup"),
+		Remote:  flags.Bool("--remote"),
 		Timeout: flags.Duration("--timeout"),
 	}
 	if len(positionals) == 1 {
 		opts.PaneRef = positionals[0]
 	}
 	if flags.Seen("--timeout") && !opts.Cleanup {
+		return KillArgs{}, newKillUsageError()
+	}
+	if opts.Cleanup && opts.Remote {
 		return KillArgs{}, newKillUsageError()
 	}
 	return opts, nil

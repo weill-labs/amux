@@ -45,15 +45,15 @@ func (e *ResolvePaneIDError) Error() string {
 	return fmt.Sprintf("pane name %q not found", e.Name)
 }
 
-// ResolvePaneID asks a remote amux server for its current leaf panes and
-// resolves name to the current pane ID. Callers should provide a fresh
-// connection because MsgTypeListPanes is a one-shot request.
-func ResolvePaneID(ctx context.Context, conn net.Conn, session, name string) (uint32, error) {
+// ListPanes asks a remote amux server for its current leaf panes. Callers
+// should provide a fresh connection because MsgTypeListPanes is a one-shot
+// request.
+func ListPanes(ctx context.Context, conn net.Conn, session string) (*proto.LayoutSnapshot, error) {
 	if conn == nil {
-		return 0, fmt.Errorf("resolve pane name %q: nil connection", name)
+		return nil, fmt.Errorf("list panes: nil connection")
 	}
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	cleanupDeadline := bindConnDeadlineToContext(ctx, conn)
@@ -64,20 +64,29 @@ func ResolvePaneID(ctx context.Context, conn net.Conn, session, name string) (ui
 		Session: session,
 	}); err != nil {
 		if ctxErr := contextErrorAfterConnIO(ctx, err); ctxErr != nil {
-			return 0, ctxErr
+			return nil, ctxErr
 		}
-		return 0, fmt.Errorf("list panes: %w", err)
+		return nil, fmt.Errorf("list panes: %w", err)
 	}
 
 	msg, err := proto.NewReader(conn).ReadMsg()
 	if err != nil {
 		if ctxErr := contextErrorAfterConnIO(ctx, err); ctxErr != nil {
-			return 0, ctxErr
+			return nil, ctxErr
 		}
-		return 0, fmt.Errorf("read list panes response: %w", err)
+		return nil, fmt.Errorf("read list panes response: %w", err)
 	}
+	return listPanesLayout(msg)
+}
 
-	layout, err := listPanesLayout(msg)
+// ResolvePaneID asks a remote amux server for its current leaf panes and
+// resolves name to the current pane ID. Callers should provide a fresh
+// connection because MsgTypeListPanes is a one-shot request.
+func ResolvePaneID(ctx context.Context, conn net.Conn, session, name string) (uint32, error) {
+	if conn == nil {
+		return 0, fmt.Errorf("resolve pane name %q: nil connection", name)
+	}
+	layout, err := ListPanes(ctx, conn, session)
 	if err != nil {
 		return 0, err
 	}

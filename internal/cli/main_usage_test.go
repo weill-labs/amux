@@ -501,7 +501,7 @@ func TestMainKillUsageRejectsTimeoutWithoutCleanup(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux kill [--cleanup] [--timeout <duration>] [pane]") {
+	if !strings.Contains(out, "usage: amux kill [--cleanup] [--remote] [--timeout <duration>] [pane]") {
 		t.Fatalf("kill usage output = %q", out)
 	}
 }

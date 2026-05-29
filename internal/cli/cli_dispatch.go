@@ -43,6 +43,7 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, sessionCLICommands())
 	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
+	addCLICommands(commands, remoteCLICommands())
 	addCLICommands(commands, doctorCLICommands())
 	commands["reload-server"] = func(inv invocation, args []string) int {
 		return inv.runSessionCommand("reload-server", PrependReloadExecPathArg(reload.ResolveExecutable, args))

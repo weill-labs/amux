@@ -20,6 +20,7 @@ const (
 type killCommandArgs struct {
 	paneRef string
 	cleanup bool
+	remote  bool
 	timeout time.Duration
 }
 
@@ -368,6 +369,7 @@ func (ctx layoutCommandContext) Kill(actorPaneID uint32, args layoutcmd.KillArgs
 	return runKill(ctx.CommandContext, actorPaneID, killCommandArgs{
 		paneRef: args.PaneRef,
 		cleanup: args.Cleanup,
+		remote:  args.Remote,
 		timeout: args.Timeout,
 	})
 }
@@ -714,6 +716,9 @@ func cmdReset(ctx *CommandContext) {
 }
 
 func runKill(ctx *CommandContext, actorPaneID uint32, opts killCommandArgs) commandpkg.Result {
+	if opts.remote {
+		return runRemoteKill(ctx, opts)
+	}
 	target, err := ctx.Sess.queryKillTargetContext(ctx.context(), actorPaneID, opts.paneRef)
 	if err != nil {
 		return commandpkg.Result{Err: err}

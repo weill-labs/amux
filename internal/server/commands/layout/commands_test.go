@@ -418,6 +418,39 @@ func TestKillParsesArgsAndDelegates(t *testing.T) {
 	}
 }
 
+func TestKillParsesRemoteFlag(t *testing.T) {
+	t.Parallel()
+
+	ctx := &fakeLayoutContext{
+		killResult: commandpkg.Result{Output: "killed remote\n"},
+	}
+
+	got := Kill(ctx, 9, []string{"--remote", "pane-7"})
+	wantArgs := KillArgs{
+		PaneRef: "pane-7",
+		Remote:  true,
+		Timeout: 5 * time.Second,
+	}
+
+	if !ctx.killCalled {
+		t.Fatal("Kill() did not call context")
+	}
+	if !reflect.DeepEqual(ctx.killArgs, wantArgs) {
+		t.Fatalf("kill args = %+v, want %+v", ctx.killArgs, wantArgs)
+	}
+	if got.Output != "killed remote\n" {
+		t.Fatalf("result output = %q, want %q", got.Output, "killed remote\n")
+	}
+}
+
+func TestKillRejectsCleanupWithRemote(t *testing.T) {
+	t.Parallel()
+
+	if _, err := ParseKillCommandArgs([]string{"--cleanup", "--remote", "pane-7"}); err == nil {
+		t.Fatal("ParseKillCommandArgs(--cleanup --remote) error = nil, want usage error")
+	}
+}
+
 func TestCopyModeParsesArgsAndDelegates(t *testing.T) {
 	t.Parallel()
 

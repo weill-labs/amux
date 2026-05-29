@@ -606,7 +606,7 @@ func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
 			{
 				name:       "timeout requires cleanup",
 				args:       []string{"--timeout", "1s"},
-				wantSubstr: "usage: kill [--cleanup] [--timeout <duration>] [pane]",
+				wantSubstr: "usage: kill [--cleanup] [--remote] [--timeout <duration>] [pane]",
 			},
 			{
 				name:       "invalid timeout",
@@ -616,7 +616,7 @@ func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
 			{
 				name:       "extra pane argument",
 				args:       []string{"pane-1", "pane-2"},
-				wantSubstr: "usage: kill [--cleanup] [--timeout <duration>] [pane]",
+				wantSubstr: "usage: kill [--cleanup] [--remote] [--timeout <duration>] [pane]",
 			},
 			{
 				name:       "unknown flag",
