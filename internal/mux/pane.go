@@ -85,12 +85,13 @@ type Pane struct {
 	runtimePID      int
 	runtimeShellCmd string
 
-	ptmx          *os.File
-	cmd           *exec.Cmd
-	process       *os.Process // set for restored panes (where cmd is nil)
-	emulator      TerminalEmulator
-	actorCommands chan paneCommand
-	actorDone     chan struct{}
+	ptmx     *os.File
+	cmd      *exec.Cmd
+	process  *os.Process // set for restored panes (where cmd is nil)
+	emulator TerminalEmulator
+	// actorChans holds the command/done channels behind an atomic pointer so
+	// readers (withActor/paneActorValue) never race start/stop swapping them.
+	actorChans    atomic.Pointer[paneActorChannels]
 	readLoopDone  chan struct{}
 	drainLoopDone chan struct{}
 	waitLoopDone  chan struct{}

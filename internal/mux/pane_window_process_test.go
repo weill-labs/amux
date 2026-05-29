@@ -346,10 +346,8 @@ func TestProxyPaneFeedOutputSnapshotsAndClose(t *testing.T) {
 	if err := p.WaitClosed(); err != nil {
 		t.Fatalf("WaitClosed() = %v, want nil", err)
 	}
-	select {
-	case <-p.actorDone:
-	default:
-		t.Fatal("actor goroutine should stop on Close")
+	if p.actorChans.Load() != nil {
+		t.Fatal("actor channels should be cleared on Close")
 	}
 	if p.OutputSeq() != 1 {
 		t.Fatalf("OutputSeq() after Close = %d, want 1", p.OutputSeq())
@@ -370,8 +368,8 @@ func TestPaneActorHelpersFallBackAfterActorChannelClose(t *testing.T) {
 	p.baseHistory.Store(&paneBaseHistory{})
 	p.startActor()
 
-	close(p.actorCommands)
-	<-p.actorDone
+	close(p.actorChans.Load().commands)
+	<-p.actorChans.Load().done
 
 	p.ReplayScreen("hello")
 	if !p.ScreenContains("hello") {
@@ -397,7 +395,7 @@ func TestPaneActorHelpersWaitForActorShutdownBeforeFallback(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		p.actorCommands <- paneCommand{
+		p.actorChans.Load().commands <- paneCommand{
 			run: func() {
 				close(running)
 				<-release
@@ -406,7 +404,7 @@ func TestPaneActorHelpersWaitForActorShutdownBeforeFallback(t *testing.T) {
 		}
 	}()
 	<-running
-	close(p.actorCommands)
+	close(p.actorChans.Load().commands)
 
 	fallbackDone := make(chan struct{})
 	go func() {
@@ -422,7 +420,7 @@ func TestPaneActorHelpersWaitForActorShutdownBeforeFallback(t *testing.T) {
 
 	close(release)
 	<-done
-	<-p.actorDone
+	<-p.actorChans.Load().done
 	<-fallbackDone
 
 	if !p.ScreenContains("hello") {
@@ -441,7 +439,7 @@ func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	p.startActor()
-	actorCommands := p.actorCommands
+	actorCommands := p.actorChans.Load().commands
 
 	running := make(chan struct{})
 	release := make(chan struct{})
