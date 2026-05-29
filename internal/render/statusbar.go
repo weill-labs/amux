@@ -305,7 +305,7 @@ func buildMirrorPaneStatusSegments(cellWidth int, base []paneStatusSegment, pd P
 	metaSegments := fullPaneStatusMetadataSegments(pd, icons)
 	taskText := paneStatusTaskText(pd.Task(), icons)
 
-	tests := []struct {
+	layouts := []struct {
 		includeTask           bool
 		includeMeta           bool
 		includeRemotePaneName bool
@@ -317,14 +317,14 @@ func buildMirrorPaneStatusSegments(cellWidth int, base []paneStatusSegment, pd P
 	}
 
 	var fallback []paneStatusSegment
-	for _, tt := range tests {
+	for _, layout := range layouts {
 		segments := append([]paneStatusSegment(nil), base...)
-		segments = appendMirrorConnectionStatusSegments(segments, pd.Host(), icons, status, tt.includeRemotePaneName)
-		if tt.includeMeta && len(metaSegments) > 0 {
+		segments = appendMirrorConnectionStatusSegments(segments, pd.Host(), icons, status, layout.includeRemotePaneName)
+		if layout.includeMeta && len(metaSegments) > 0 {
 			segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 			segments = append(segments, metaSegments...)
 		}
-		if tt.includeTask && taskText != "" {
+		if layout.includeTask && taskText != "" {
 			segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 			segments = appendPaneStatusSegment(segments, taskText, paneStatusSegmentText)
 		}
@@ -397,13 +397,26 @@ func mirrorConnectionStatusText(status paneMirrorStatus, icons IconSet) string {
 			text += " " + strconv.Itoa(status.reconnectInSeconds) + "s"
 		}
 		return text
-	case mirrorStateDead, mirrorStateGone:
+	case mirrorStateGone:
 		return icons.RemoteDisconnected + " remote pane gone"
+	case mirrorStateDead:
+		if mirrorLastErrorMeansGone(status.lastError) {
+			return icons.RemoteDisconnected + " remote pane gone"
+		}
+		return icons.RemoteDisconnected + " disconnected"
 	case mirrorStateDisconnected:
 		return icons.RemoteDisconnected + " disconnected"
 	default:
 		return ""
 	}
+}
+
+func mirrorLastErrorMeansGone(lastError string) bool {
+	lastError = strings.ToLower(lastError)
+	return strings.Contains(lastError, "pane") &&
+		(strings.Contains(lastError, "exit") ||
+			strings.Contains(lastError, "gone") ||
+			strings.Contains(lastError, "not found"))
 }
 
 func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
