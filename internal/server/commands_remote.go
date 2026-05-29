@@ -172,12 +172,12 @@ func formatRemoteStatus(hosts map[string]config.Host, snaps []mirrorpkg.Snapshot
 	}
 
 	b := strings.Builder{} // local accumulator (not a package-level var)
-	fmt.Fprintf(&b, "%-20s %-14s %-20s %-8s %s\n", "HOST", "HEALTH", "PANE", "REMOTE", "STATE")
+	fmt.Fprintf(&b, "%-20s %-14s %-20s %-10s %s\n", "HOST", "HEALTH", "PANE", "ID", "STATE")
 	for _, name := range sortedRemoteHostNames(hosts) {
 		health := remoteHostHealth(name, snaps)
 		mirrors := byHost[name]
 		if len(mirrors) == 0 {
-			fmt.Fprintf(&b, "%-20s %-14s %-20s %-8s %s\n", name, health, "-", "-", "-")
+			fmt.Fprintf(&b, "%-20s %-14s %-20s %-10s %s\n", name, health, "-", "-", "-")
 			continue
 		}
 		sortMirrorSnapshots(mirrors)
@@ -191,7 +191,7 @@ func formatRemoteStatus(hosts map[string]config.Host, snaps []mirrorpkg.Snapshot
 			if snap.LastError != "" {
 				state = fmt.Sprintf("%s (%s)", state, snap.LastError)
 			}
-			fmt.Fprintf(&b, "%-20s %-14s %-20s %-8s %s\n",
+			fmt.Fprintf(&b, "%-20s %-14s %-20s %-10s %s\n",
 				hostCol, healthCol, snap.RemoteRef.PaneName, remotePaneIDLabel(snap.RemotePaneID), state)
 		}
 	}
