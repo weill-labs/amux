@@ -22,8 +22,7 @@ func TestAmuxSubprocessesUseHermeticHelper(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "testdata":
+			if skipAuditDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
