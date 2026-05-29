@@ -132,15 +132,16 @@ func TestManagerAttachCommandErrorIsTerminal(t *testing.T) {
 	})
 	t.Cleanup(mgr.Close)
 
-	mgr.mu.Lock()
-	mgr.mirrors[pane.ID] = &mirrorState{
+	owner := &mirrorState{
 		pane:  pane,
 		ref:   checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
 		state: StateConnecting,
 	}
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = owner
 	mgr.mu.Unlock()
 
-	connected, terminal := mgr.attachAndRead(pane.ID, StateConnecting)
+	connected, terminal := mgr.attachAndRead(pane.ID, owner, StateConnecting)
 	if !connected || !terminal {
 		t.Fatalf("attachAndRead = (%v, %v), want connected terminal after command error", connected, terminal)
 	}
@@ -370,7 +371,7 @@ func TestManagerPrepareAttemptStopsWhenHostMissing(t *testing.T) {
 		t.Fatalf("Track: %v", err)
 	}
 
-	_, _, ok := mgr.prepareAttempt(pane.ID, StateConnecting)
+	_, _, ok := mgr.prepareAttempt(pane.ID, nil, StateConnecting)
 	if ok {
 		t.Fatal("prepareAttempt ok=true, want false for missing host")
 	}
@@ -455,6 +456,90 @@ func TestManagerMarkDeadIsIdempotentAfterApplyMessageExit(t *testing.T) {
 	}
 	if !pane.ScreenContains("[remote pane exited]") {
 		t.Fatal("pane screen missing remote pane exited marker")
+	}
+}
+
+func TestManagerOldOwnerCannotMutateRetrackedMirror(t *testing.T) {
+	t.Parallel()
+
+	pane := newMirrorTestPane(t, 3)
+	mgr := NewManager(Config{})
+	t.Cleanup(mgr.Close)
+	oldState := &mirrorState{
+		pane:       pane,
+		ref:        checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+		state:      StateReconnecting,
+		generation: 1,
+		running:    true,
+	}
+	newState := &mirrorState{
+		pane:       pane,
+		ref:        oldState.ref,
+		state:      StateConnecting,
+		generation: 1,
+		running:    true,
+	}
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = newState
+	mgr.mu.Unlock()
+
+	mgr.markStopped(pane.ID, oldState)
+	if !newState.running {
+		t.Fatal("old goroutine marked retracked mirror as stopped")
+	}
+	if gen, ok := mgr.markConnectedForOwner(pane.ID, oldState, 42, nil); ok || gen != 0 {
+		t.Fatalf("old owner markConnected = (%d, %v), want 0 false", gen, ok)
+	}
+	if err := mgr.applyMessageForOwner(pane.ID, oldState, 1, paneOutput("old-frame")); err != nil {
+		t.Fatalf("old owner applyMessage: %v", err)
+	}
+	if pane.ScreenContains("old-frame") {
+		t.Fatal("old owner frame was applied to retracked mirror")
+	}
+	mgr.recordAttemptErrorForOwner(pane.ID, oldState, errors.New("old failure"))
+	if newState.lastErr != "" {
+		t.Fatalf("new mirror lastErr = %q, want unchanged", newState.lastErr)
+	}
+}
+
+func TestManagerTerminalMessagesClearStoredLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		msg  *proto.Message
+	}{
+		{name: "exit", msg: &proto.Message{Type: proto.MsgTypeExit}},
+		{name: "command error", msg: &proto.Message{Type: proto.MsgTypeCmdResult, CmdErr: "attach failed"}},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pane := newMirrorTestPane(t, 4)
+			link, _ := connectedTestLink(t)
+			mgr := NewManager(Config{})
+			t.Cleanup(mgr.Close)
+			mgr.mu.Lock()
+			mgr.mirrors[pane.ID] = &mirrorState{
+				pane:       pane,
+				ref:        checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+				state:      StateConnected,
+				generation: 1,
+				link:       link,
+			}
+			mgr.mu.Unlock()
+
+			_ = mgr.applyMessage(pane.ID, 1, tt.msg)
+
+			mgr.mu.Lock()
+			got := mgr.mirrors[pane.ID].link
+			mgr.mu.Unlock()
+			if got != nil {
+				t.Fatal("terminal message left stored link set")
+			}
+		})
 	}
 }
 

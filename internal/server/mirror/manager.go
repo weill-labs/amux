@@ -249,12 +249,12 @@ func (m *Manager) startLocked(ms *mirrorState) {
 	ms.running = true
 	paneID := ms.pane.ID
 	m.wg.Add(1)
-	go m.run(paneID)
+	go m.run(paneID, ms)
 }
 
-func (m *Manager) run(paneID uint32) {
+func (m *Manager) run(paneID uint32, owner *mirrorState) {
 	defer m.wg.Done()
-	defer m.markStopped(paneID)
+	defer m.markStopped(paneID, owner)
 
 	attempt := 0
 	first := true
@@ -262,20 +262,26 @@ func (m *Manager) run(paneID uint32) {
 		if err := m.ctx.Err(); err != nil {
 			return
 		}
+		if !m.isCurrent(paneID, owner) {
+			return
+		}
 		state := StateConnecting
 		if !first {
 			attempt++
 			if attempt > m.retryPolicy.MaxAttempts {
-				m.markDead(paneID, "remote connection retry budget exhausted")
+				m.markDeadForOwner(paneID, owner, "remote connection retry budget exhausted")
 				return
 			}
 			state = StateReconnecting
 			if !m.sleepBeforeRetry(attempt) {
 				return
 			}
+			if !m.isCurrent(paneID, owner) {
+				return
+			}
 		}
 
-		connected, terminal := m.attachAndRead(paneID, state)
+		connected, terminal := m.attachAndRead(paneID, owner, state)
 		if terminal {
 			return
 		}
@@ -286,12 +292,18 @@ func (m *Manager) run(paneID uint32) {
 	}
 }
 
-func (m *Manager) markStopped(paneID uint32) {
+func (m *Manager) markStopped(paneID uint32, owner *mirrorState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if ms := m.mirrors[paneID]; ms != nil {
+	if ms := m.mirrors[paneID]; ms != nil && ms == owner {
 		ms.running = false
 	}
+}
+
+func (m *Manager) isCurrent(paneID uint32, owner *mirrorState) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mirrors[paneID] == owner
 }
 
 func (m *Manager) sleepBeforeRetry(attempt int) bool {
@@ -306,15 +318,15 @@ func (m *Manager) sleepBeforeRetry(attempt int) bool {
 	}
 }
 
-func (m *Manager) attachAndRead(paneID uint32, state State) (connected bool, terminal bool) {
-	host, ref, ok := m.prepareAttempt(paneID, state)
+func (m *Manager) attachAndRead(paneID uint32, owner *mirrorState, state State) (connected bool, terminal bool) {
+	host, ref, ok := m.prepareAttempt(paneID, owner, state)
 	if !ok {
 		return false, true
 	}
 
 	remotePaneID, err := m.resolvePaneID(host, ref)
 	if err != nil {
-		m.recordAttemptError(paneID, err)
+		m.recordAttemptErrorForOwner(paneID, owner, err)
 		return false, false
 	}
 
@@ -323,7 +335,7 @@ func (m *Manager) attachAndRead(paneID uint32, state State) (connected bool, ter
 
 	link := remote.NewLink(host, m.currentDialer())
 	if err := link.Connect(attachCtx); err != nil {
-		m.recordAttemptError(paneID, err)
+		m.recordAttemptErrorForOwner(paneID, owner, err)
 		return false, false
 	}
 	if err := link.WriteMsg(&proto.Message{
@@ -332,36 +344,36 @@ func (m *Manager) attachAndRead(paneID uint32, state State) (connected bool, ter
 		PaneID:  remotePaneID,
 	}); err != nil {
 		_ = link.Close()
-		m.recordAttemptError(paneID, err)
+		m.recordAttemptErrorForOwner(paneID, owner, err)
 		return false, false
 	}
 
-	generation, ok := m.markConnected(paneID, remotePaneID, link)
+	generation, ok := m.markConnectedForOwner(paneID, owner, remotePaneID, link)
 	if !ok {
 		_ = link.Close()
 		return true, true
 	}
 
-	err = m.readLoop(paneID, generation, link)
+	err = m.readLoop(paneID, owner, generation, link)
 	_ = link.Close()
 	if errors.Is(err, errRemotePaneExited) {
-		m.markDead(paneID, "remote pane exited")
+		m.markDeadForOwner(paneID, owner, "remote pane exited")
 		return true, true
 	}
 	if err != nil {
-		m.recordAttemptError(paneID, err)
-		if m.isTerminal(paneID) {
+		m.recordAttemptErrorForOwner(paneID, owner, err)
+		if m.isTerminal(paneID, owner) {
 			return true, true
 		}
 	}
 	return true, false
 }
 
-func (m *Manager) prepareAttempt(paneID uint32, state State) (config.Host, checkpoint.RemoteRef, bool) {
+func (m *Manager) prepareAttempt(paneID uint32, owner *mirrorState, state State) (config.Host, checkpoint.RemoteRef, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ms := m.mirrors[paneID]
-	if ms == nil || ms.state == StateDetached || ms.state == StateDead {
+	if ms == nil || (owner != nil && ms != owner) || ms.state == StateDetached || ms.state == StateDead {
 		return config.Host{}, checkpoint.RemoteRef{}, false
 	}
 	ms.state = state
@@ -395,6 +407,10 @@ func (m *Manager) currentDialer() remote.Dialer {
 }
 
 func (m *Manager) markConnected(paneID, remotePaneID uint32, link *remote.Link) (uint64, bool) {
+	return m.markConnectedForOwner(paneID, nil, remotePaneID, link)
+}
+
+func (m *Manager) markConnectedForOwner(paneID uint32, owner *mirrorState, remotePaneID uint32, link *remote.Link) (uint64, bool) {
 	var (
 		pane    *mux.Pane
 		oldLink *remote.Link
@@ -402,7 +418,7 @@ func (m *Manager) markConnected(paneID, remotePaneID uint32, link *remote.Link) 
 	)
 	m.mu.Lock()
 	ms := m.mirrors[paneID]
-	if ms == nil || ms.state == StateDetached || ms.state == StateDead {
+	if ms == nil || (owner != nil && ms != owner) || ms.state == StateDetached || ms.state == StateDead {
 		m.mu.Unlock()
 		return 0, false
 	}
@@ -427,19 +443,23 @@ func (m *Manager) markConnected(paneID, remotePaneID uint32, link *remote.Link) 
 	return gen, true
 }
 
-func (m *Manager) readLoop(paneID uint32, generation uint64, link *remote.Link) error {
+func (m *Manager) readLoop(paneID uint32, owner *mirrorState, generation uint64, link *remote.Link) error {
 	for {
 		msg, err := link.ReadMsg()
 		if err != nil {
 			return err
 		}
-		if err := m.applyMessage(paneID, generation, msg); err != nil {
+		if err := m.applyMessageForOwner(paneID, owner, generation, msg); err != nil {
 			return err
 		}
 	}
 }
 
 func (m *Manager) applyMessage(paneID uint32, generation uint64, msg *proto.Message) error {
+	return m.applyMessageForOwner(paneID, nil, generation, msg)
+}
+
+func (m *Manager) applyMessageForOwner(paneID uint32, owner *mirrorState, generation uint64, msg *proto.Message) error {
 	if msg == nil {
 		return nil
 	}
@@ -451,7 +471,7 @@ func (m *Manager) applyMessage(paneID uint32, generation uint64, msg *proto.Mess
 	)
 	m.mu.Lock()
 	ms := m.mirrors[paneID]
-	if ms == nil || generation != ms.generation {
+	if ms == nil || (owner != nil && ms != owner) || generation != ms.generation {
 		m.mu.Unlock()
 		return nil
 	}
@@ -472,11 +492,13 @@ func (m *Manager) applyMessage(paneID uint32, generation uint64, msg *proto.Mess
 	case proto.MsgTypeExit:
 		ms.state = StateDead
 		ms.lastErr = "remote pane exited"
+		ms.link = nil
 		pane = ms.pane
 	case proto.MsgTypeCmdResult:
 		if msg.CmdErr != "" {
 			ms.state = StateDead
 			ms.lastErr = msg.CmdErr
+			ms.link = nil
 			pane = ms.pane
 		}
 	default:
@@ -505,10 +527,14 @@ func (m *Manager) applyMessage(paneID uint32, generation uint64, msg *proto.Mess
 }
 
 func (m *Manager) markDead(paneID uint32, message string) {
+	m.markDeadForOwner(paneID, nil, message)
+}
+
+func (m *Manager) markDeadForOwner(paneID uint32, owner *mirrorState, message string) {
 	var pane *mux.Pane
 	m.mu.Lock()
 	ms := m.mirrors[paneID]
-	if ms == nil || ms.state == StateDetached || ms.state == StateDead {
+	if ms == nil || (owner != nil && ms != owner) || ms.state == StateDetached || ms.state == StateDead {
 		m.mu.Unlock()
 		return
 	}
@@ -526,20 +552,24 @@ func (m *Manager) markDead(paneID uint32, message string) {
 	}
 }
 
-func (m *Manager) isTerminal(paneID uint32) bool {
+func (m *Manager) isTerminal(paneID uint32, owner *mirrorState) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ms := m.mirrors[paneID]
-	return ms == nil || ms.state == StateDetached || ms.state == StateDead
+	return ms == nil || (owner != nil && ms != owner) || ms.state == StateDetached || ms.state == StateDead
 }
 
 func (m *Manager) recordAttemptError(paneID uint32, err error) {
+	m.recordAttemptErrorForOwner(paneID, nil, err)
+}
+
+func (m *Manager) recordAttemptErrorForOwner(paneID uint32, owner *mirrorState, err error) {
 	if err == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if ms := m.mirrors[paneID]; ms != nil && ms.state != StateDetached && ms.state != StateDead {
+	if ms := m.mirrors[paneID]; ms != nil && (owner == nil || ms == owner) && ms.state != StateDetached && ms.state != StateDead {
 		ms.lastErr = err.Error()
 	}
 }
