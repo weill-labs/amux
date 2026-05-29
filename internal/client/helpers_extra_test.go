@@ -121,8 +121,8 @@ func TestChooserHelpersAndInputBranches(t *testing.T) {
 	}
 
 	overlay := cr.chooserOverlay()
-	if overlay == nil || overlay.Title != "choose-tree" {
-		t.Fatalf("chooserOverlay = %+v, want choose-tree overlay", overlay)
+	if overlay == nil || overlay.Title != "Choose" || overlay.Toggle == nil || overlay.Toggle.Selected != 0 {
+		t.Fatalf("chooserOverlay = %+v, want Choose overlay with Tree toggle selected", overlay)
 	}
 
 	if cmd := cr.HandleChooserInput([]byte{0x1b, '[', 'B'}); cmd.bell || cmd.command != "" {

@@ -39,16 +39,23 @@ func chooserChrome(screenH int, overlay *ChooserOverlay) dialogChrome {
 		rows = append(rows, row)
 	}
 
+	footer := []footerHint{
+		{key: "↑/↓", label: "choose"},
+		{key: "enter", label: "open"},
+		{key: "esc", label: "close"},
+	}
+	if overlay.Toggle != nil {
+		footer = append([]footerHint{{key: "tab", label: "switch"}}, footer...)
+	}
 	chrome := dialogChrome{
 		title:     overlay.Title,
 		showQuery: true,
 		query:     overlay.Query,
 		rows:      rows,
-		footer: []footerHint{
-			{key: "↑/↓", label: "choose"},
-			{key: "enter", label: "open"},
-			{key: "esc", label: "close"},
-		},
+		footer:    footer,
+	}
+	if overlay.Toggle != nil {
+		chrome.toggle = newDialogToggle(overlay.Toggle.Selected, overlay.Toggle.Options...)
 	}
 	if len(overlay.Rows) > len(rows) {
 		chrome.scroll = &dialogScroll{total: len(overlay.Rows), offset: start, visible: len(rows)}

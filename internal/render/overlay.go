@@ -25,6 +25,13 @@ type ChooserOverlay struct {
 	Query    string
 	Rows     []ChooserOverlayRow
 	Selected int
+	Toggle   *ChooserToggle // optional Tree/Window mode selector in the title bar
+}
+
+// ChooserToggle is the title-bar mode selector (e.g. Tree / Window).
+type ChooserToggle struct {
+	Options  []string
+	Selected int
 }
 
 // ChooserOverlayRow is one rendered row in the chooser modal.

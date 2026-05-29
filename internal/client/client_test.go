@@ -2214,12 +2214,12 @@ func TestChooseWindowOverlayDisplayOnly(t *testing.T) {
 	cr.RenderDiff()
 
 	display := cr.CaptureDisplay()
-	if !strings.Contains(display, "choose-window") || !strings.Contains(display, "1:editor") {
+	if !strings.Contains(display, "Choose") || !strings.Contains(display, "1:editor") {
 		t.Fatalf("display capture should include chooser overlay, got:\n%s", display)
 	}
 
 	plain := cr.Capture(true)
-	if strings.Contains(plain, "choose-window") {
+	if strings.Contains(plain, "Choose") {
 		t.Fatalf("plain capture should not include chooser overlay, got:\n%s", plain)
 	}
 }
@@ -2385,6 +2385,37 @@ func TestFormatChooserRowsPolish(t *testing.T) {
 	idle := chooserPaneItem(proto.PaneSnapshot{Name: "pane-2", Idle: true}, false)
 	if idle.iconColor != config.DimColorHex {
 		t.Errorf("idle pane icon color = %q, want dim %q", idle.iconColor, config.DimColorHex)
+	}
+}
+
+func TestChooserTabTogglesTreeWindow(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	if ov := cr.chooserOverlay(); ov.Toggle == nil || ov.Toggle.Selected != 1 {
+		t.Fatalf("window mode toggle = %+v, want Window selected (1)", ov.Toggle)
+	}
+
+	// Tab switches to tree view in place; the toggle reflects it.
+	if cmd := cr.HandleChooserInput([]byte{'\t'}); cmd.bell {
+		t.Fatalf("tab should switch view, got %+v", cmd)
+	}
+	ov := cr.chooserOverlay()
+	if ov.Toggle == nil || ov.Toggle.Selected != 0 {
+		t.Fatalf("after tab, toggle = %+v, want Tree selected (0)", ov.Toggle)
+	}
+	// Tree view groups panes under windows, so it has more rows than window view.
+	if len(ov.Rows) <= 2 {
+		t.Fatalf("tree view rows = %d, want panes grouped under windows", len(ov.Rows))
+	}
+
+	// Tab again returns to window view.
+	cr.HandleChooserInput([]byte{'\t'})
+	if ov := cr.chooserOverlay(); ov.Toggle.Selected != 1 {
+		t.Fatalf("second tab should return to Window view, toggle = %+v", ov.Toggle)
 	}
 }
 

@@ -166,6 +166,8 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 			result = cr.pageChooser(-1)
 		case tea.KeyPgDown:
 			result = cr.pageChooser(1)
+		case tea.KeyTab, tea.KeyShiftTab:
+			cr.toggleChooserMode()
 		case tea.KeyRunes:
 			// j/k are intentionally NOT movement keys: they must be typeable
 			// into the filter query. Use Ctrl+J/Ctrl+K (mapped to Down/Up by
@@ -204,12 +206,36 @@ func (cr *ClientRenderer) chooserOverlayFromSnapshot(state *clientSnapshot) *ren
 	}
 	screenW, screenH := cr.chooserScreenSize()
 	rows, selected := state.ui.chooser.overlayRows(screenW, screenH)
+	toggleSelected := 0
+	if state.ui.chooser.mode == chooserModeWindow {
+		toggleSelected = 1
+	}
 	return &render.ChooserOverlay{
-		Title:    state.ui.chooser.mode.title(),
+		Title:    "Choose",
 		Query:    state.ui.chooser.query.Value,
 		Rows:     rows,
 		Selected: selected,
+		Toggle:   &render.ChooserToggle{Options: []string{"Tree", "Window"}, Selected: toggleSelected},
 	}
+}
+
+// toggleChooserMode flips between tree and window views in place, preserving
+// the filter query.
+func (cr *ClientRenderer) toggleChooserMode() {
+	cr.updateState(func(next *clientSnapshot) clientUIResult {
+		if next.ui.chooser == nil {
+			return clientUIResult{}
+		}
+		next.ui.chooser = cloneChooserState(next.ui.chooser)
+		if next.ui.chooser.mode == chooserModeWindow {
+			next.ui.chooser.mode = chooserModeTree
+		} else {
+			next.ui.chooser.mode = chooserModeWindow
+		}
+		next.ui.chooser.rebuild()
+		next.ui.dirty = true
+		return clientUIResult{}
+	})
 }
 
 func (cr *ClientRenderer) moveChooser(delta int) chooserCommand {
