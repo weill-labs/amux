@@ -117,6 +117,10 @@ func (e liveInputEvent) handle(_ context.Context, s *Session) {
 		e.cc.notePredictionEpoch(pane.ID, e.epoch, e.data)
 	}
 	s.logLiveInputError(pane.ID, pane.Meta.Name, s.enqueueLivePaneInput(pane, e.data))
+	if s.hasScopedPaneClientsNow(pane.ID) {
+		s.broadcastPaneMetaUpdateNow(pane.ID)
+		s.schedulePaneMetaUpdateAfterInput(pane.ID)
+	}
 }
 
 type liveInputPaneEvent struct {
@@ -135,6 +139,10 @@ func (e liveInputPaneEvent) handle(_ context.Context, s *Session) {
 		e.cc.notePredictionEpoch(pane.ID, e.epoch, e.data)
 	}
 	s.logLiveInputError(pane.ID, pane.Meta.Name, s.enqueueLivePaneInput(pane, e.data))
+	if s.hasScopedPaneClientsNow(pane.ID) {
+		s.broadcastPaneMetaUpdateNow(pane.ID)
+		s.schedulePaneMetaUpdateAfterInput(pane.ID)
+	}
 }
 
 func (s *Session) logLiveInputError(paneID uint32, paneName string, err error) {

@@ -18,4 +18,6 @@ func init() {
 	gob.Register(WindowSnapshot{})
 	gob.Register(PaneSnapshot{})
 	gob.Register(CellSnapshot{})
+	gob.Register(PaneMetaUpdate{})
+	gob.Register(PaneAgentStatus{})
 }

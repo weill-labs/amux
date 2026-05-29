@@ -35,6 +35,7 @@ type Config struct {
 	Dialer        remote.Dialer
 	RetryPolicy   remote.RetryPolicy
 	AttachTimeout time.Duration
+	OnMetaUpdate  func(paneID uint32, update proto.PaneMetaUpdate)
 }
 
 type Snapshot struct {
@@ -54,21 +55,24 @@ type Manager struct {
 	dialer        remote.Dialer
 	retryPolicy   remote.RetryPolicy
 	attachTimeout time.Duration
+	onMetaUpdate  func(paneID uint32, update proto.PaneMetaUpdate)
 	mirrors       map[uint32]*mirrorState
 	wg            sync.WaitGroup
 }
 
 type mirrorState struct {
-	pane          *mux.Pane
-	ref           checkpoint.RemoteRef
-	state         State
-	generation    uint64
-	remotePaneID  uint32
-	link          *remote.Link
-	running       bool
-	bootstrapping bool
-	history       []string
-	lastErr       string
+	pane           *mux.Pane
+	ref            checkpoint.RemoteRef
+	state          State
+	generation     uint64
+	remotePaneID   uint32
+	link           *remote.Link
+	running        bool
+	bootstrapping  bool
+	history        []string
+	agentStatus    proto.PaneAgentStatus
+	hasAgentStatus bool
+	lastErr        string
 }
 
 func NewManager(cfg Config) *Manager {
@@ -93,6 +97,9 @@ func (m *Manager) Configure(cfg Config) {
 	m.attachTimeout = cfg.AttachTimeout
 	if m.attachTimeout <= 0 {
 		m.attachTimeout = defaultAttachTimeout
+	}
+	if cfg.OnMetaUpdate != nil {
+		m.onMetaUpdate = cfg.OnMetaUpdate
 	}
 	var start []*mirrorState
 	for _, ms := range m.mirrors {
@@ -240,6 +247,19 @@ func (m *Manager) Snapshot(paneID uint32) (Snapshot, bool) {
 		RemoteRef:    ms.ref,
 		LastError:    ms.lastErr,
 	}, true
+}
+
+func (m *Manager) AgentStatus(paneID uint32) (proto.PaneAgentStatus, bool) {
+	if m == nil {
+		return proto.PaneAgentStatus{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ms := m.mirrors[paneID]
+	if ms == nil || !ms.hasAgentStatus {
+		return proto.PaneAgentStatus{}, false
+	}
+	return ms.agentStatus, true
 }
 
 func (m *Manager) startLocked(ms *mirrorState) {
@@ -430,6 +450,8 @@ func (m *Manager) markConnectedForOwner(paneID uint32, owner *mirrorState, remot
 	ms.state = StateConnected
 	ms.lastErr = ""
 	ms.history = nil
+	ms.agentStatus = proto.PaneAgentStatus{}
+	ms.hasAgentStatus = false
 	ms.bootstrapping = true
 	pane = ms.pane
 	m.mu.Unlock()
@@ -467,7 +489,10 @@ func (m *Manager) applyMessageForOwner(paneID uint32, owner *mirrorState, genera
 		pane         *mux.Pane
 		data         []byte
 		history      []string
+		metaUpdate   proto.PaneMetaUpdate
+		onMetaUpdate func(paneID uint32, update proto.PaneMetaUpdate)
 		applyHistory bool
+		applyMeta    bool
 	)
 	m.mu.Lock()
 	ms := m.mirrors[paneID]
@@ -489,6 +514,14 @@ func (m *Manager) applyMessageForOwner(paneID uint32, owner *mirrorState, genera
 		ms.bootstrapping = false
 		data = append([]byte(nil), msg.PaneData...)
 		pane = ms.pane
+	case proto.MsgTypePaneMetaUpdate:
+		if msg.PaneMetaUpdate != nil {
+			metaUpdate = clonePaneMetaUpdate(*msg.PaneMetaUpdate)
+			ms.agentStatus = metaUpdate.AgentStatus
+			ms.hasAgentStatus = true
+			onMetaUpdate = m.onMetaUpdate
+			applyMeta = true
+		}
 	case proto.MsgTypeExit:
 		ms.state = StateDead
 		ms.lastErr = "remote pane exited"
@@ -511,6 +544,9 @@ func (m *Manager) applyMessageForOwner(paneID uint32, owner *mirrorState, genera
 	if data != nil && pane != nil {
 		pane.FeedOutput(data)
 	}
+	if applyMeta && onMetaUpdate != nil {
+		onMetaUpdate(paneID, metaUpdate)
+	}
 	if msg.Type == proto.MsgTypeExit {
 		if pane != nil {
 			pane.FeedOutput([]byte("\r\n[remote pane exited]\r\n"))
@@ -524,6 +560,12 @@ func (m *Manager) applyMessageForOwner(paneID uint32, owner *mirrorState, genera
 		return fmt.Errorf("%s", msg.CmdErr)
 	}
 	return nil
+}
+
+func clonePaneMetaUpdate(src proto.PaneMetaUpdate) proto.PaneMetaUpdate {
+	src.TrackedPRs = proto.CloneTrackedPRs(src.TrackedPRs)
+	src.TrackedIssues = proto.CloneTrackedIssues(src.TrackedIssues)
+	return src
 }
 
 func (m *Manager) markDead(paneID uint32, message string) {

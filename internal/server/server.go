@@ -510,7 +510,7 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()
-	sess.mirror = mirror.NewManager(mirror.Config{})
+	sess.mirror = mirror.NewManager(mirror.Config{OnMetaUpdate: sess.enqueueMirrorPaneMetaUpdate})
 	sess.input = newInputRouter()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.undo = newUndoManager(undoManagerConfig{})

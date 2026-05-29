@@ -165,6 +165,16 @@ type PaneAgentStatus struct {
 	LastOutput     string // RFC3339 or ""
 }
 
+// PaneMetaUpdate is forwarded to a restricted subscriber for its pane. Host is
+// deliberately absent: mirror panes own their local Host as the remote identity.
+type PaneMetaUpdate struct {
+	GitBranch     string
+	PR            string
+	TrackedPRs    []TrackedPR
+	TrackedIssues []TrackedIssue
+	AgentStatus   PaneAgentStatus
+}
+
 // CapturePos holds a pane's position and size within the layout.
 type CapturePos struct {
 	X      int `json:"x"`

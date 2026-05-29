@@ -125,6 +125,9 @@ const (
 	// Client → Server — restricted pane subscription support.
 	MsgTypeListPanes  MsgType = 26 // list leaf panes
 	MsgTypeAttachPane MsgType = 27 // subscribe to one pane
+
+	// Server → Client — work metadata/status for a restricted pane subscription.
+	MsgTypePaneMetaUpdate MsgType = 28
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -186,6 +189,9 @@ type Message struct {
 	paneHistoryPayloadVersion uint64
 	paneHistoryPayloadRange   paneHistoryPayloadRange
 	paneHistoryPayloadRangeOK bool
+
+	// MsgTypePaneMetaUpdate
+	PaneMetaUpdate *PaneMetaUpdate
 
 	// MsgTypeLayout
 	Layout *LayoutSnapshot

@@ -48,6 +48,9 @@ const (
 	// Client → Server — restricted pane subscription support.
 	MsgTypeListPanes  = proto.MsgTypeListPanes
 	MsgTypeAttachPane = proto.MsgTypeAttachPane
+
+	// Server → Client — work metadata/status for a restricted pane subscription.
+	MsgTypePaneMetaUpdate = proto.MsgTypePaneMetaUpdate
 )
 
 // WriteMsg encodes and writes a message to w.

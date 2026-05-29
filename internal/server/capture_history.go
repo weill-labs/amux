@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
@@ -150,6 +151,19 @@ func (s *Session) captureAgentStatus(panes []*mux.Pane) map[uint32]proto.PaneAge
 		return nil
 	}
 
+	agentStatus := make(map[uint32]proto.PaneAgentStatus, len(panes))
+	var localPanes []*mux.Pane
+	for _, p := range panes {
+		if status, ok := s.forwardedAgentStatusForPane(p); ok {
+			agentStatus[p.ID] = status
+			continue
+		}
+		localPanes = append(localPanes, p)
+	}
+	if len(localPanes) == 0 {
+		return agentStatus
+	}
+
 	// Fetch AgentStatus for all panes concurrently — each call forks
 	// pgrep/ps subprocesses that take 50-200ms, so sequential iteration
 	// over 20+ panes creates multi-second stalls.
@@ -157,41 +171,43 @@ func (s *Session) captureAgentStatus(panes []*mux.Pane) map[uint32]proto.PaneAge
 		paneID uint32
 		status mux.AgentStatus
 	}
-	ch := make(chan agentResult, len(panes))
-	for _, p := range panes {
+	ch := make(chan agentResult, len(localPanes))
+	for _, p := range localPanes {
 		go func(p *mux.Pane) {
 			ch <- agentResult{paneID: p.ID, status: p.AgentStatus()}
 		}(p)
 	}
-	statuses := make(map[uint32]mux.AgentStatus, len(panes))
-	for range panes {
+	statuses := make(map[uint32]mux.AgentStatus, len(localPanes))
+	for range localPanes {
 		r := <-ch
 		statuses[r.paneID] = r.status
 	}
 
 	_, sinceSnap := s.snapshotIdleFull()
 	now := s.clock().Now()
-	agentStatus := make(map[uint32]proto.PaneAgentStatus, len(panes))
-	for _, p := range panes {
-		st := statuses[p.ID]
-		idle := s.paneIdleStatus(p.ID, p.CreatedAt(), now)
-		pas := proto.PaneAgentStatus{
-			Exited:         st.Idle,
-			ExitedSince:    formatRFC3339Time(st.IdleSince),
-			CurrentCommand: st.CurrentCommand,
-			Idle:           idle.idle,
-			IdleSince:      formatRFC3339Time(idle.idleSince),
-			LastOutput:     formatRFC3339Time(idle.lastOutput),
-		}
-		if st.Idle {
-			pas.CurrentCommand = p.ShellName()
-		}
-		if idle.idle {
-			if t, ok := sinceSnap[p.ID]; ok {
-				pas.IdleSince = formatRFC3339Time(t)
-			}
-		}
-		agentStatus[p.ID] = pas
+	for _, p := range localPanes {
+		agentStatus[p.ID] = s.paneAgentStatusFromState(p, statuses[p.ID], sinceSnap, now)
 	}
 	return agentStatus
+}
+
+func (s *Session) paneAgentStatusFromState(p *mux.Pane, st mux.AgentStatus, sinceSnap map[uint32]time.Time, now time.Time) proto.PaneAgentStatus {
+	idle := s.paneIdleStatus(p.ID, p.CreatedAt(), now)
+	pas := proto.PaneAgentStatus{
+		Exited:         st.Idle,
+		ExitedSince:    formatRFC3339Time(st.IdleSince),
+		CurrentCommand: st.CurrentCommand,
+		Idle:           idle.idle,
+		IdleSince:      formatRFC3339Time(idle.idleSince),
+		LastOutput:     formatRFC3339Time(idle.lastOutput),
+	}
+	if st.Idle {
+		pas.CurrentCommand = p.ShellName()
+	}
+	if idle.idle {
+		if t, ok := sinceSnap[p.ID]; ok {
+			pas.IdleSince = formatRFC3339Time(t)
+		}
+	}
+	return pas
 }

@@ -88,6 +88,7 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 	}
 	s.notifyPaneOutputSubs(paneID)
 	s.trackPaneActivity(paneID)
+	s.broadcastPaneMetaUpdateNow(paneID)
 
 	var paneName, host string
 	if p := s.findPaneByID(paneID); p != nil {
@@ -129,6 +130,7 @@ func (s *Session) broadcastLayoutNow() {
 	s.notifyLayoutWaiters(gen)
 
 	s.broadcastNow(&Message{Type: MsgTypeLayout, Layout: snap})
+	s.broadcastScopedPaneMetaUpdatesNow()
 
 	activePaneName := ""
 	if snap.ActivePaneID != 0 {
