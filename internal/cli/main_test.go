@@ -32,6 +32,7 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "targeted spawn active vertical", args: []string{"--vertical"}, wantCmd: "spawn", wantArgs: []string{"--vertical"}},
 		{name: "targeted spawn root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1", "--root", "--vertical"}},
 		{name: "targeted spawn with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}},
+		{name: "targeted spawn with remote attach", args: []string{"--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
 		{name: "auto conflicts with explicit placement", args: []string{"--auto", "--vertical"}, wantErrText: spawnUsage},
 		{name: "window conflicts with explicit pane target", args: []string{"--window", "logs", "--at", "pane-1"}, wantErrText: spawnUsage},
@@ -41,6 +42,7 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "missing name value", args: []string{"--name"}, wantErrText: spawnUsage},
 		{name: "missing task value", args: []string{"--task"}, wantErrText: spawnUsage},
 		{name: "missing color value", args: []string{"--color"}, wantErrText: spawnUsage},
+		{name: "missing attach value", args: []string{"--attach"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
 	}
 
@@ -739,6 +741,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			wantExit: 0,
 			wantCalls: []cliCall{
 				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn", args: []string{"--focus"}},
+			},
+		},
+		{
+			name:     "spawn attach dispatches parsed command",
+			args:     []string{"spawn", "--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn", args: []string{"--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"}},
 			},
 		},
 		{

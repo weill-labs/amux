@@ -90,6 +90,34 @@ func TestParseCreatePaneArgs(t *testing.T) {
 	}
 }
 
+func TestParseSpawnAttachArgs(t *testing.T) {
+	t.Parallel()
+
+	got, err := ParseSpawnArgs([]string{"--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"})
+	if err != nil {
+		t.Fatalf("ParseSpawnArgs: %v", err)
+	}
+
+	attach := reflect.ValueOf(got).FieldByName("Attach")
+	if !attach.IsValid() {
+		t.Fatal("SpawnArgs missing Attach field")
+	}
+	if attach.IsNil() {
+		t.Fatal("SpawnArgs.Attach is nil")
+	}
+
+	ref := attach.Elem()
+	if gotHost := ref.FieldByName("Host").String(); gotHost != "hetzner-1" {
+		t.Fatalf("Attach.Host = %q, want hetzner-1", gotHost)
+	}
+	if gotPane := ref.FieldByName("PaneName").String(); gotPane != "pane-1786" {
+		t.Fatalf("Attach.PaneName = %q, want pane-1786", gotPane)
+	}
+	if got.Meta.Host != "hetzner-1" {
+		t.Fatalf("Meta.Host = %q, want hetzner-1", got.Meta.Host)
+	}
+}
+
 func TestParseSplitArgs(t *testing.T) {
 	t.Parallel()
 

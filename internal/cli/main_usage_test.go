@@ -542,6 +542,18 @@ func TestMainRespawnDispatchesWhenPaneProvided(t *testing.T) {
 	}
 	assertMainCommandConnectError(t, out, "respawn")
 }
+
+func TestMainSpawnUsageIncludesAttach(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "spawn", "--help")
+	if code != 0 {
+		t.Fatalf("spawn --help exit code = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "--attach <host>:<pane-name>") {
+		t.Fatalf("spawn usage output missing --attach:\n%s", out)
+	}
+}
 func TestMainMetaDispatchesWhenSubcommandIsValid(t *testing.T) {
 	t.Parallel()
 
