@@ -1053,11 +1053,8 @@ func screenCellFromStyledStatusCell(cell styledStatusCell) ScreenCell {
 	return ScreenCell{Char: cell.char, Width: cell.width, Style: style}
 }
 
-// buildBorderCells writes border characters into the grid with proper colors.
-func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeColorHex string) {
-	buildBorderCellsWithTints(g, bm, activePaneID, activeColorHex, nil)
-}
-
+// buildBorderCellsWithTints writes border characters into the grid with proper
+// colors, optionally tinting specific panes' borders.
 func buildBorderCellsWithTints(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeColorHex string, paneTints map[uint32]string) {
 	activeColorFg := hexToColor(activeColorHex)
 	dimFgColor := hexToColor(config.DimColorHex)
