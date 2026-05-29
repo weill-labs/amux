@@ -144,6 +144,12 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 
 func runCreateMirrorPane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool, snapshot createPaneSnapshot) commandpkg.Result {
 	ref := *req.attach
+	// Validate the remote host up-front, mirroring `remote attach`. Without
+	// this, an unknown host would create a mirror pane that can never connect
+	// while the command reports success (silent failure).
+	if _, err := lookupRemoteHost(ref.Host); err != nil {
+		return commandpkg.Result{Err: err}
+	}
 	meta := mux.PaneMeta{
 		Name:  req.name,
 		Host:  ref.Host,

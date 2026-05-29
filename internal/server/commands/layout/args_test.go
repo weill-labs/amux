@@ -66,6 +66,12 @@ func TestParseCreatePaneArgs(t *testing.T) {
 			args:    []string{"pane-1"},
 			wantErr: `unknown spawn arg "pane-1"`,
 		},
+		{
+			name:    "spawn rejects --auto with --attach",
+			mode:    createPaneModeSpawn,
+			args:    []string{"--auto", "--attach", "hetzner-1:pane-1786"},
+			wantErr: "spawn --auto cannot be combined with --attach",
+		},
 	}
 
 	for _, tt := range tests {

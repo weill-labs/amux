@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	remoteCommandUsage   = "usage: remote <add|list|rm|panes|attach|detach|resize> ..."
+	remoteCommandUsage   = "usage: remote <add|list|rm|panes|status|attach|detach|resize> ..."
 	remoteAddUsage       = "usage: remote add <name> --ssh <target> --socket <path> [--session <name>]"
 	remoteListUsage      = "usage: remote list"
+	remoteStatusUsage    = "usage: remote status"
 	remoteRmUsage        = "usage: remote rm <name>"
 	remotePanesUsage     = "usage: remote panes <name>"
 	remoteAttachUsage    = "usage: remote attach <name>:<pane-name>"
@@ -82,6 +83,8 @@ func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 		return runRemoteAdd(ctx)
 	case "list":
 		return runRemoteList(ctx)
+	case "status":
+		return runRemoteStatus(ctx)
 	case "rm":
 		return runRemoteRm(ctx)
 	case "panes":
@@ -141,6 +144,71 @@ func runRemoteList(ctx *CommandContext) commandpkg.Result {
 			name, host.SSH, remoteCommandSession(host), host.SocketPath, remoteHostHealth(name, snaps))
 	}
 	return commandpkg.Result{Output: b.String()}
+}
+
+func runRemoteStatus(ctx *CommandContext) commandpkg.Result {
+	if len(ctx.Args) != 1 {
+		return commandpkg.Result{Err: errors.New(remoteStatusUsage)}
+	}
+	cfg, err := loadRemoteConfig()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	if len(cfg.Remote.Hosts) == 0 {
+		return commandpkg.Result{Output: "No remotes.\n"}
+	}
+
+	return commandpkg.Result{Output: formatRemoteStatus(cfg.Remote.Hosts, remoteMirrorSnapshots(ctx))}
+}
+
+// formatRemoteStatus renders the `remote status` table: one block per
+// configured host with its overall health plus a row per active mirror
+// (remote pane name, remote pane ID, connection state). Pure function so the
+// rendering is unit-testable without touching disk config or a live session.
+func formatRemoteStatus(hosts map[string]config.Host, snaps []mirrorpkg.Snapshot) string {
+	byHost := make(map[string][]mirrorpkg.Snapshot)
+	for _, snap := range snaps {
+		byHost[snap.RemoteRef.Host] = append(byHost[snap.RemoteRef.Host], snap)
+	}
+
+	b := strings.Builder{} // local accumulator (not a package-level var)
+	fmt.Fprintf(&b, "%-20s %-14s %-20s %-8s %s\n", "HOST", "HEALTH", "PANE", "REMOTE", "STATE")
+	for _, name := range sortedRemoteHostNames(hosts) {
+		health := remoteHostHealth(name, snaps)
+		mirrors := byHost[name]
+		if len(mirrors) == 0 {
+			fmt.Fprintf(&b, "%-20s %-14s %-20s %-8s %s\n", name, health, "-", "-", "-")
+			continue
+		}
+		sortMirrorSnapshots(mirrors)
+		for i, snap := range mirrors {
+			hostCol, healthCol := name, health
+			if i > 0 {
+				// Repeat host/health only on the first row for readability.
+				hostCol, healthCol = "", ""
+			}
+			state := string(snap.State)
+			if snap.LastError != "" {
+				state = fmt.Sprintf("%s (%s)", state, snap.LastError)
+			}
+			fmt.Fprintf(&b, "%-20s %-14s %-20s %-8s %s\n",
+				hostCol, healthCol, snap.RemoteRef.PaneName, remotePaneIDLabel(snap.RemotePaneID), state)
+		}
+	}
+	return b.String()
+}
+
+func sortMirrorSnapshots(snaps []mirrorpkg.Snapshot) {
+	sort.Slice(snaps, func(i, j int) bool {
+		return snaps[i].RemoteRef.PaneName < snaps[j].RemoteRef.PaneName
+	})
+}
+
+func remotePaneIDLabel(id uint32) string {
+	if id == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", id)
 }
 
 func runRemoteRm(ctx *CommandContext) commandpkg.Result {

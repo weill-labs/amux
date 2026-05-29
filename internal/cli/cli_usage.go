@@ -16,7 +16,7 @@ const (
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	remoteUsage       = "usage: amux remote <add|list|rm|panes|attach|detach|resize> ..."
+	remoteUsage       = "usage: amux remote <add|list|rm|panes|status|attach|detach|resize> ..."
 	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
@@ -207,7 +207,7 @@ Usage:
   amux [-s session] respawn <pane>     Restart a pane shell in place
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
-  amux [-s session] remote <add|list|rm|panes|attach|detach|resize> ...
+  amux [-s session] remote <add|list|rm|panes|status|attach|detach|resize> ...
                                        Manage remote amux hosts and mirror panes
   amux [-s session] equalize [--vertical|--all]
                                        Rebalance root columns, column rows, or both

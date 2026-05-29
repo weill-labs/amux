@@ -92,7 +92,13 @@ func (m *Manager) Configure(cfg Config) {
 	}
 	m.mu.Lock()
 	m.hosts = cloneHosts(cfg.Hosts)
-	m.dialer = cfg.Dialer
+	// Only replace the dialer when one is supplied. A nil dialer means "no
+	// change" so that config-only reconfigures (e.g. remote add/rm passing
+	// ConfigureMirrors(hosts, nil)) do not wipe an injected dialer; a nil
+	// dialer field still falls back to SSHDialer{} via currentDialer().
+	if cfg.Dialer != nil {
+		m.dialer = cfg.Dialer
+	}
 	m.retryPolicy = normalizeRetryPolicy(cfg.RetryPolicy)
 	m.attachTimeout = cfg.AttachTimeout
 	if m.attachTimeout <= 0 {
@@ -163,6 +169,11 @@ func (m *Manager) Track(pane *mux.Pane, ref checkpoint.RemoteRef) error {
 	if _, ok := m.hostForRefLocked(ref); ok {
 		m.startLocked(ms)
 	} else {
+		// Host not configured yet: keep the mirror pending so a later
+		// Configure (e.g. checkpoint restore racing config load) can start
+		// it. User-facing create paths (spawn --attach, remote attach)
+		// validate the host up-front and never reach here with an unknown
+		// host, so this stays a tolerant restore/deferred path.
 		ms.lastErr = fmt.Sprintf("remote host %q is not configured", ref.Host)
 	}
 	return nil

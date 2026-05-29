@@ -84,6 +84,7 @@ func TestRunRemoteCommandUsageErrors(t *testing.T) {
 		{name: "unknown subcommand", args: []string{"bogus"}, want: remoteCommandUsage},
 		{name: "add usage", args: []string{"add"}, want: remoteAddUsage},
 		{name: "list usage", args: []string{"list", "extra"}, want: remoteListUsage},
+		{name: "status usage", args: []string{"status", "extra"}, want: remoteStatusUsage},
 		{name: "rm usage", args: []string{"rm"}, want: remoteRmUsage},
 		{name: "panes usage", args: []string{"panes"}, want: remotePanesUsage},
 		{name: "attach usage", args: []string{"attach"}, want: remoteAttachUsage},
@@ -428,6 +429,52 @@ func TestRemoteHostHealth(t *testing.T) {
 	}
 	if got := remoteHostHealth("one", snaps); got != "connected,dead(2)" {
 		t.Fatalf("remoteHostHealth(one) = %q, want connected,dead(2)", got)
+	}
+}
+
+func TestFormatRemoteStatus(t *testing.T) {
+	t.Parallel()
+
+	hosts := map[string]config.Host{
+		"hetzner-1": {SSH: "host1", SocketPath: "/tmp/a/main"},
+		"hetzner-2": {SSH: "host2", SocketPath: "/tmp/b/main"},
+	}
+	snaps := []mirrorpkg.Snapshot{
+		{RemoteRef: checkpoint.RemoteRef{Host: "hetzner-1", PaneName: "pane-1786"}, RemotePaneID: 1786, State: mirrorpkg.StateConnected},
+		{RemoteRef: checkpoint.RemoteRef{Host: "hetzner-1", PaneName: "L0-meta"}, State: mirrorpkg.StateReconnecting, LastError: "dial timeout"},
+	}
+
+	got := formatRemoteStatus(hosts, snaps)
+
+	// Header present.
+	if !strings.Contains(got, "HOST") || !strings.Contains(got, "STATE") {
+		t.Fatalf("missing header:\n%s", got)
+	}
+	// Mirror rows sorted by remote pane name (L0-meta before pane-1786) with
+	// the remote pane ID and last-error annotation rendered.
+	if idx1, idx2 := strings.Index(got, "L0-meta"), strings.Index(got, "pane-1786"); idx1 < 0 || idx2 < 0 || idx1 > idx2 {
+		t.Fatalf("mirror rows missing or unsorted:\n%s", got)
+	}
+	if !strings.Contains(got, "1786") {
+		t.Fatalf("remote pane id not rendered:\n%s", got)
+	}
+	if !strings.Contains(got, "reconnecting (dial timeout)") {
+		t.Fatalf("state+error not rendered:\n%s", got)
+	}
+	// A host with no active mirrors renders an idle placeholder row.
+	if !strings.Contains(got, "hetzner-2") {
+		t.Fatalf("idle host missing:\n%s", got)
+	}
+}
+
+func TestRemotePaneIDLabel(t *testing.T) {
+	t.Parallel()
+
+	if got := remotePaneIDLabel(0); got != "-" {
+		t.Fatalf("remotePaneIDLabel(0) = %q, want -", got)
+	}
+	if got := remotePaneIDLabel(1786); got != "1786" {
+		t.Fatalf("remotePaneIDLabel(1786) = %q, want 1786", got)
 	}
 }
 

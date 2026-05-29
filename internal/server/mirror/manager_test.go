@@ -331,6 +331,33 @@ func TestManagerConfigureStartsDeferredMirror(t *testing.T) {
 	waitForMirrorState(t, mgr, pane.ID, StateDead)
 }
 
+func TestManagerConfigurePreservesDialerWhenNil(t *testing.T) {
+	t.Parallel()
+
+	injected := failingDialer{err: errors.New("dial failed")}
+	mgr := NewManager(Config{Dialer: injected})
+	t.Cleanup(mgr.Close)
+
+	// A config-only reconfigure (as `remote add`/`rm` does via
+	// ConfigureMirrors(hosts, nil)) passes a nil dialer and must NOT wipe the
+	// injected dialer.
+	mgr.Configure(Config{
+		Hosts: map[string]config.Host{
+			"remote": {SSH: "ignored", Session: "main", SocketPath: "/tmp/amux-test"},
+		},
+	})
+
+	mgr.mu.Lock()
+	got := mgr.dialer
+	mgr.mu.Unlock()
+	if got == nil {
+		t.Fatal("Configure with nil dialer wiped the injected dialer")
+	}
+	if _, ok := got.(failingDialer); !ok {
+		t.Fatalf("dialer = %T, want the injected failingDialer", got)
+	}
+}
+
 func TestManagerCloseClosesTrackedLinks(t *testing.T) {
 	t.Parallel()
 
