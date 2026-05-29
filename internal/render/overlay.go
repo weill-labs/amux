@@ -25,12 +25,25 @@ type ChooserOverlay struct {
 	Query    string
 	Rows     []ChooserOverlayRow
 	Selected int
+	Toggle   *ChooserToggle // optional Tree/Window mode selector in the title bar
+}
+
+// ChooserToggle is the title-bar mode selector (e.g. Tree / Window).
+type ChooserToggle struct {
+	Options  []string
+	Selected int
 }
 
 // ChooserOverlayRow is one rendered row in the chooser modal.
 type ChooserOverlayRow struct {
 	Text       string
 	Selectable bool
+	Header     bool   // window grouping row in tree mode — rendered bold
+	Icon       string // optional leading status glyph
+	IconColor  string // hex for the icon (empty → inherit row color)
+	TextColor  string // hex for the main text (empty → inherit row color)
+	Desc       string // dim trailing metadata (branch, task)
+	Rule       bool   // fill trailing width with a horizontal rule (section header)
 }
 
 // TextInputOverlay is a client-local modal prompt rendered above the layout.

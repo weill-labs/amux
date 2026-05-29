@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -2213,12 +2214,12 @@ func TestChooseWindowOverlayDisplayOnly(t *testing.T) {
 	cr.RenderDiff()
 
 	display := cr.CaptureDisplay()
-	if !strings.Contains(display, "choose-window") || !strings.Contains(display, "1:editor") {
+	if !strings.Contains(display, "Choose") || !strings.Contains(display, "1:editor") {
 		t.Fatalf("display capture should include chooser overlay, got:\n%s", display)
 	}
 
 	plain := cr.Capture(true)
-	if strings.Contains(plain, "choose-window") {
+	if strings.Contains(plain, "Choose") {
 		t.Fatalf("plain capture should not include chooser overlay, got:\n%s", plain)
 	}
 }
@@ -2331,7 +2332,7 @@ func TestChooseTreeFilterAndSelection(t *testing.T) {
 	if len(overlay.Rows) < 2 {
 		t.Fatalf("filtered rows = %+v, want grouped window + pane rows", overlay.Rows)
 	}
-	if overlay.Rows[1].Text != "  * pane-2 @gpu-box train" && overlay.Rows[1].Text != "    pane-2 @gpu-box train" {
+	if overlay.Rows[1].Text != "pane-2" || overlay.Rows[1].Desc != "train" {
 		t.Fatalf("unexpected filtered pane row: %+v", overlay.Rows[1])
 	}
 
@@ -2349,10 +2350,77 @@ func TestChooseTreeNavigationSelectsPane(t *testing.T) {
 		t.Fatal("ShowChooser tree should succeed")
 	}
 	cr.HandleChooserInput([]byte("pane-3"))
-	cr.HandleChooserInput([]byte("j"))
+	cr.HandleChooserInput([]byte("\x1b[B")) // Down arrow (j now types into the filter)
 	cmd := cr.selectChooser()
 	if cmd.command != "focus" || len(cmd.args) != 1 || cmd.args[0] != "pane-3" {
 		t.Fatalf("pane selection = %+v, want focus pane-3", cmd)
+	}
+}
+
+func TestFormatChooserRowsPolish(t *testing.T) {
+	t.Parallel()
+
+	onePane := proto.WindowSnapshot{Index: 1, Name: "amux", Panes: []proto.PaneSnapshot{{}}}
+	twoPane := proto.WindowSnapshot{Index: 2, Name: "orca", Panes: []proto.PaneSnapshot{{}, {}}}
+
+	// Tree-mode window: bold header with a rule, grammatically correct count.
+	if got := chooserWindowItem(onePane, true, true, render.UnicodeIconSet()); got.text != "1:amux (1 pane)" || !got.header || !got.rule {
+		t.Errorf("tree window item = %+v, want text %q, header+rule", got, "1:amux (1 pane)")
+	}
+	// Window-mode active window: status dot, no rule.
+	if got := chooserWindowItem(twoPane, true, false, render.UnicodeIconSet()); got.text != "2:orca (2 panes)" || got.icon == "" || got.rule {
+		t.Errorf("active window item = %+v, want text %q with an icon and no rule", got, "2:orca (2 panes)")
+	}
+	// Window-mode inactive: no icon.
+	if got := chooserWindowItem(twoPane, false, false, render.UnicodeIconSet()); got.icon != "" {
+		t.Errorf("inactive window item should have no icon, got %q", got.icon)
+	}
+
+	// Active pane: colored icon + name + dim branch.
+	active := chooserPaneItem(proto.PaneSnapshot{Name: "pane-1", Color: "f5e0dc", GitBranch: "main"}, true, render.UnicodeIconSet())
+	if active.text != "pane-1" || active.icon == "" || active.iconColor != "f5e0dc" || active.textColor != "f5e0dc" || active.desc != "main" {
+		t.Errorf("active pane item = %+v, want name pane-1, colored icon/text, desc main", active)
+	}
+	// Idle inactive pane: dim icon.
+	idle := chooserPaneItem(proto.PaneSnapshot{Name: "pane-2", Idle: true}, false, render.UnicodeIconSet())
+	if idle.iconColor != config.DimColorHex {
+		t.Errorf("idle pane icon color = %q, want dim %q", idle.iconColor, config.DimColorHex)
+	}
+	// The configured icon set is honored (not hard-coded to Unicode).
+	asciiItem := chooserPaneItem(proto.PaneSnapshot{Name: "pane-3"}, true, render.ASCIIIconSet())
+	if asciiItem.icon != render.ASCIIIconSet().PaneActive {
+		t.Errorf("pane icon = %q, want ASCII active glyph %q", asciiItem.icon, render.ASCIIIconSet().PaneActive)
+	}
+}
+
+func TestChooserTabTogglesTreeWindow(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	if ov := cr.chooserOverlay(); ov.Toggle == nil || ov.Toggle.Selected != 1 {
+		t.Fatalf("window mode toggle = %+v, want Window selected (1)", ov.Toggle)
+	}
+
+	// Tab switches to tree view in place; the toggle reflects it.
+	if cmd := cr.HandleChooserInput([]byte{'\t'}); cmd.bell {
+		t.Fatalf("tab should switch view, got %+v", cmd)
+	}
+	ov := cr.chooserOverlay()
+	if ov.Toggle == nil || ov.Toggle.Selected != 0 {
+		t.Fatalf("after tab, toggle = %+v, want Tree selected (0)", ov.Toggle)
+	}
+	// Tree view groups panes under windows, so it has more rows than window view.
+	if len(ov.Rows) <= 2 {
+		t.Fatalf("tree view rows = %d, want panes grouped under windows", len(ov.Rows))
+	}
+
+	// Tab again returns to window view.
+	cr.HandleChooserInput([]byte{'\t'})
+	if ov := cr.chooserOverlay(); ov.Toggle.Selected != 1 {
+		t.Fatalf("second tab should return to Window view, toggle = %+v", ov.Toggle)
 	}
 }
 
@@ -2374,7 +2442,7 @@ func TestChooseWindowSupportsHomeAndEndKeys(t *testing.T) {
 	if !cr.ShowChooser(chooserModeWindow) {
 		t.Fatal("ShowChooser window should succeed after reselection")
 	}
-	cr.HandleChooserInput([]byte("j"))
+	cr.HandleChooserInput([]byte("\x1b[B")) // Down arrow (j now types into the filter)
 	if got := cr.HandleChooserInput([]byte("\x1b[H")); got.bell {
 		t.Fatalf("Home key should navigate the chooser, got %+v", got)
 	}

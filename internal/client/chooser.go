@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/weill-labs/amux/internal/bubblesutil"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
@@ -23,6 +24,12 @@ type chooserItem struct {
 	text        string
 	filterValue string
 	selectable  bool
+	header      bool // window grouping row in tree mode
+	icon        string
+	iconColor   string
+	textColor   string
+	desc        string
+	rule        bool
 	command     string
 	args        []string
 }
@@ -32,6 +39,7 @@ type chooserState struct {
 	query       bubblesutil.TextInputState
 	windows     []proto.WindowSnapshot
 	activeWinID uint32
+	icons       render.IconSet
 	items       []chooserItem
 	selected    int
 }
@@ -104,6 +112,7 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 		mode:        mode,
 		windows:     windows,
 		activeWinID: activeWinID,
+		icons:       cr.IconSet(),
 	}
 	state.rebuild()
 
@@ -159,15 +168,12 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 			result = cr.pageChooser(-1)
 		case tea.KeyPgDown:
 			result = cr.pageChooser(1)
+		case tea.KeyTab, tea.KeyShiftTab:
+			cr.toggleChooserMode()
 		case tea.KeyRunes:
-			if len(msg.Runes) == 1 && msg.Runes[0] == 'j' {
-				result = cr.moveChooser(1)
-				continue
-			}
-			if len(msg.Runes) == 1 && msg.Runes[0] == 'k' {
-				result = cr.moveChooser(-1)
-				continue
-			}
+			// j/k are intentionally NOT movement keys: they must be typeable
+			// into the filter query. Use Ctrl+J/Ctrl+K (mapped to Down/Up by
+			// normalizeChooserInput) or the arrow keys to move the selection.
 			if len(msg.Runes) == 1 && msg.Runes[0] == 'q' && cr.chooserQueryValue() == "" {
 				cr.HideChooser()
 				return chooserCommand{}
@@ -202,12 +208,36 @@ func (cr *ClientRenderer) chooserOverlayFromSnapshot(state *clientSnapshot) *ren
 	}
 	screenW, screenH := cr.chooserScreenSize()
 	rows, selected := state.ui.chooser.overlayRows(screenW, screenH)
+	toggleSelected := 0
+	if state.ui.chooser.mode == chooserModeWindow {
+		toggleSelected = 1
+	}
 	return &render.ChooserOverlay{
-		Title:    state.ui.chooser.mode.title(),
+		Title:    "Choose",
 		Query:    state.ui.chooser.query.Value,
 		Rows:     rows,
 		Selected: selected,
+		Toggle:   &render.ChooserToggle{Options: []string{"Tree", "Window"}, Selected: toggleSelected},
 	}
+}
+
+// toggleChooserMode flips between tree and window views in place, preserving
+// the filter query.
+func (cr *ClientRenderer) toggleChooserMode() {
+	cr.updateState(func(next *clientSnapshot) clientUIResult {
+		if next.ui.chooser == nil {
+			return clientUIResult{}
+		}
+		next.ui.chooser = cloneChooserState(next.ui.chooser)
+		if next.ui.chooser.mode == chooserModeWindow {
+			next.ui.chooser.mode = chooserModeTree
+		} else {
+			next.ui.chooser.mode = chooserModeWindow
+		}
+		next.ui.chooser.rebuild()
+		next.ui.dirty = true
+		return clientUIResult{}
+	})
 }
 
 func (cr *ClientRenderer) moveChooser(delta int) chooserCommand {
@@ -302,6 +332,23 @@ func (cr *ClientRenderer) applyChooserQueryKey(msg tea.KeyMsg) {
 	})
 }
 
+// selectChooserRowAt moves the selection to absRow (an index into the visible
+// rows) and confirms it — used for click-to-choose.
+func (cr *ClientRenderer) selectChooserRowAt(absRow int) chooserCommand {
+	if cmd := cr.updateChooserSelection(func(model *list.Model) chooserCommand {
+		if absRow < 0 || absRow >= len(model.VisibleItems()) {
+			return chooserCommand{bell: true}
+		}
+		model.Select(absRow)
+		return chooserCommand{}
+	}); cmd.bell {
+		// The row went out of range (e.g. the filter changed under us); ring
+		// the bell instead of confirming whatever happens to be selected.
+		return cmd
+	}
+	return cr.selectChooser()
+}
+
 func (cr *ClientRenderer) selectChooser() chooserCommand {
 	screenW, screenH := cr.chooserScreenSize()
 	command, result := updateClientStateValue(cr, func(next *clientSnapshot) (chooserCommand, clientUIResult) {
@@ -324,26 +371,14 @@ func (cr *ClientRenderer) selectChooser() chooserCommand {
 
 func (st *chooserState) rebuild() {
 	items := make([]chooserItem, 0, len(st.windows)*2)
+	treeMode := st.mode == chooserModeTree
 	for _, ws := range st.windows {
-		windowItem := chooserItem{
-			text:        formatChooserWindowRow(ws, ws.ID == st.activeWinID),
-			filterValue: chooserWindowFilterValue(ws, st.mode == chooserModeTree),
-			selectable:  true,
-			command:     "select-window",
-			args:        []string{strconv.Itoa(ws.Index)},
-		}
-		items = append(items, windowItem)
-		if st.mode != chooserModeTree {
+		items = append(items, chooserWindowItem(ws, ws.ID == st.activeWinID, treeMode, st.icons))
+		if !treeMode {
 			continue
 		}
 		for _, ps := range ws.Panes {
-			items = append(items, chooserItem{
-				text:        formatChooserPaneRow(ps, ps.ID == ws.ActivePaneID),
-				filterValue: chooserPaneFilterValue(ps),
-				selectable:  true,
-				command:     "focus",
-				args:        []string{ps.Name},
-			})
+			items = append(items, chooserPaneItem(ps, ps.ID == ws.ActivePaneID, st.icons))
 		}
 	}
 	st.items = items
@@ -411,6 +446,12 @@ func (st *chooserState) overlayRows(screenW, screenH int) ([]render.ChooserOverl
 		rows = append(rows, render.ChooserOverlayRow{
 			Text:       row.text,
 			Selectable: row.selectable,
+			Header:     row.header,
+			Icon:       row.icon,
+			IconColor:  row.iconColor,
+			TextColor:  row.textColor,
+			Desc:       row.desc,
+			Rule:       row.rule,
 		})
 	}
 	return rows, model.Index()
@@ -425,11 +466,9 @@ func (cr *ClientRenderer) chooserScreenSize() (int, int) {
 }
 
 func chooserListHeight(screenH int) int {
-	height := screenH - 7
-	if height < 1 {
-		return 1
-	}
-	return height
+	// Match the chrome's visible-row window so PgUp/PgDn steps line up with
+	// what is actually drawn.
+	return render.ChooserRowLimit(screenH)
 }
 
 func chooserWindowFilterValue(ws proto.WindowSnapshot, includePanes bool) string {
@@ -460,12 +499,67 @@ func chooserHasSelectableItems(items []list.Item) bool {
 	return false
 }
 
-func formatChooserWindowRow(ws proto.WindowSnapshot, active bool) string {
-	marker := " "
-	if active {
-		marker = "*"
+// chooserWindowItem builds the row for a window. In tree mode it is a bold
+// section header with a trailing rule; in window mode it is a plain selectable
+// row, marked with a status dot when it is the active window.
+func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool, icons render.IconSet) chooserItem {
+	item := chooserItem{
+		text:        strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + chooserPaneCount(len(ws.Panes)) + ")",
+		filterValue: chooserWindowFilterValue(ws, treeMode),
+		selectable:  true,
+		command:     "select-window",
+		args:        []string{strconv.Itoa(ws.Index)},
 	}
-	return marker + " " + strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + strconv.Itoa(len(ws.Panes)) + " panes)"
+	switch {
+	case treeMode:
+		item.header = true
+		item.rule = true
+	case active:
+		item.icon = icons.PaneActive
+		item.iconColor = config.BlueHex
+	}
+	return item
+}
+
+// chooserPaneItem builds the row for a pane: a colored status icon, the pane
+// name in its assigned color, and a dim branch/task suffix.
+func chooserPaneItem(ps proto.PaneSnapshot, active bool, icons render.IconSet) chooserItem {
+	icon := icons.PaneBusy
+	switch {
+	case ps.Lead:
+		icon = icons.PaneLead
+	case active:
+		icon = icons.PaneActive
+	case ps.Idle:
+		icon = icons.PaneIdle
+	}
+	iconColor := ps.Color
+	if ps.Idle && !active && !ps.Lead {
+		iconColor = config.DimColorHex
+	}
+	desc := ps.GitBranch
+	if desc == "" {
+		desc = ps.Task
+	}
+	return chooserItem{
+		text:        ps.Name,
+		filterValue: chooserPaneFilterValue(ps),
+		selectable:  true,
+		icon:        icon,
+		iconColor:   iconColor,
+		textColor:   ps.Color,
+		desc:        desc,
+		command:     "focus",
+		args:        []string{ps.Name},
+	}
+}
+
+// chooserPaneCount renders a grammatically correct pane count.
+func chooserPaneCount(n int) string {
+	if n == 1 {
+		return "1 pane"
+	}
+	return strconv.Itoa(n) + " panes"
 }
 
 func chooserWindowName(ws proto.WindowSnapshot) string {
@@ -473,19 +567,4 @@ func chooserWindowName(ws proto.WindowSnapshot) string {
 		return ws.Name + "Z"
 	}
 	return ws.Name
-}
-
-func formatChooserPaneRow(ps proto.PaneSnapshot, active bool) string {
-	marker := " "
-	if active {
-		marker = "*"
-	}
-	text := "  " + marker + " " + ps.Name
-	if ps.Host != "" && ps.Host != "local" {
-		text += " @" + ps.Host
-	}
-	if ps.Task != "" {
-		text += " " + ps.Task
-	}
-	return text
 }

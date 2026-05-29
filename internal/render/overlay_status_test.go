@@ -294,37 +294,27 @@ func TestChooserOverlayLayoutAndRendering(t *testing.T) {
 		Selected: 2,
 	}
 
-	lines, styles, x, y := chooserOverlayLayout(24, 12, overlay)
-	if len(lines) == 0 || len(styles) != len(lines) {
-		t.Fatalf("chooserOverlayLayout returned lines=%v styles=%v", lines, styles)
-	}
-	if x < 0 || y < 0 {
-		t.Fatalf("chooser overlay origin = (%d,%d), want non-negative", x, y)
-	}
-
-	grid := NewScreenGrid(24, 12)
+	grid := NewScreenGrid(60, 16)
 	buildChooserOverlayCells(grid, overlay)
-	if got := grid.Get(x+1, y).Char; got == "" {
-		t.Fatal("chooser title row should populate grid cells")
-	}
-	selectedRow := -1
-	for i, style := range styles {
-		if style == chooserRowSelected {
-			selectedRow = i
-			break
+
+	// The selected row (index 2) must carry the Mauve accent background.
+	mauve := hexToColor(config.MauveHex)
+	found := false
+	for y := 0; y < grid.Height && !found; y++ {
+		for x := 0; x < grid.Width; x++ {
+			if grid.Get(x, y).Style.Bg == mauve {
+				found = true
+				break
+			}
 		}
 	}
-	if selectedRow < 0 {
-		t.Fatal("chooserOverlayLayout should mark one row as selected")
-	}
-	selected := grid.Get(x+1, y+selectedRow)
-	if selected.Style.Bg == nil {
-		t.Fatal("selected chooser row should have a background color")
+	if !found {
+		t.Fatal("selected chooser row should use the Mauve accent background")
 	}
 
 	buf := strings.Builder{}
-	renderChooserOverlay(&buf, 24, 12, overlay)
-	got := MaterializeGrid(buf.String(), 24, 12)
+	renderChooserOverlay(&buf, 60, 16, overlay)
+	got := MaterializeGrid(buf.String(), 60, 16)
 	for _, want := range []string{"choose-window", "> pane", "1:editor", "3:gpu"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("chooser render missing %q in:\n%s", want, got)
@@ -426,34 +416,30 @@ func TestBuildChooserOverlayCellsSelectedRowUsesDistinctStyle(t *testing.T) {
 		},
 		Selected: 1,
 	}
-	grid := NewScreenGrid(20, 8)
+	grid := NewScreenGrid(30, 16)
 	buildChooserOverlayCells(grid, overlay)
-	lines, styles, x, y := chooserOverlayLayout(20, 8, overlay)
-	if len(lines) == 0 {
-		t.Fatal("chooserOverlayLayout should produce lines")
-	}
-	selectedRow := -1
-	baseRow := -1
-	for i, style := range styles {
-		switch style {
-		case chooserRowSelected:
-			selectedRow = i
-		case chooserRowNormal:
-			if baseRow < 0 {
-				baseRow = i
+
+	selBg := hexToColor(config.MauveHex)
+	normBg := hexToColor(config.Surface0Hex)
+	var sawSelected, sawNormal bool
+	for y := 0; y < grid.Height; y++ {
+		for x := 0; x < grid.Width; x++ {
+			switch grid.Get(x, y).Style.Bg {
+			case selBg:
+				sawSelected = true
+			case normBg:
+				sawNormal = true
 			}
 		}
 	}
-	if selectedRow < 0 || baseRow < 0 {
-		t.Fatalf("chooser styles = %v, want selected and normal rows", styles)
+	if !sawSelected {
+		t.Fatal("selected chooser row should use the Mauve accent background")
 	}
-	selectedCell := grid.Get(x+1, y+selectedRow)
-	baseCell := grid.Get(x+1, y+baseRow)
-	if selectedCell.Style.Bg == nil || baseCell.Style.Bg == nil {
-		t.Fatal("chooser overlay cells should include background colors")
+	if !sawNormal {
+		t.Fatal("expected normal rows on the Surface0 background")
 	}
-	if sameColor(selectedCell.Style.Bg, baseCell.Style.Bg) {
-		t.Fatal("selected chooser row should not use the same background as a normal row")
+	if sameColor(selBg, normBg) {
+		t.Fatal("selected and normal backgrounds must differ")
 	}
 }
 
@@ -1159,39 +1145,6 @@ func findRowLabel(grid *ScreenGrid, y, width int, label string) int {
 		}
 	}
 	return -1
-}
-
-func TestPadOrTrim(t *testing.T) {
-	t.Parallel()
-
-	if got := padOrTrim("abcdef", 4); got != "abcd" {
-		t.Fatalf("padOrTrim trim = %q, want %q", got, "abcd")
-	}
-	if got := padOrTrim("abc", 5); got != "abc  " {
-		t.Fatalf("padOrTrim pad = %q, want %q", got, "abc  ")
-	}
-	if got := padOrTrim("abc", 0); got != "" {
-		t.Fatalf("padOrTrim zero width = %q, want empty", got)
-	}
-}
-
-func TestChooserCellStyle(t *testing.T) {
-	t.Parallel()
-
-	border := uv.Style{Fg: hexToColor(config.TextColorHex)}
-	text := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: hexToColor(config.Surface0Hex)}
-	dim := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: hexToColor(config.Surface0Hex)}
-	selected := uv.Style{Fg: hexToColor(config.Surface0Hex), Bg: hexToColor(config.TextColorHex)}
-
-	if got := chooserCellStyle(chooserRowSelected, true, border, text, dim, selected); !sameColor(got.Fg, border.Fg) {
-		t.Fatal("border cells should always use the border style")
-	}
-	if got := chooserCellStyle(chooserRowDim, false, border, text, dim, selected); !sameColor(got.Fg, dim.Fg) {
-		t.Fatal("dim rows should use the dim style")
-	}
-	if got := chooserCellStyle(chooserRowSelected, false, border, text, dim, selected); !sameColor(got.Bg, selected.Bg) {
-		t.Fatal("selected rows should use the selected style")
-	}
 }
 
 func TestRenderPaneStatusLeadIndicator(t *testing.T) {

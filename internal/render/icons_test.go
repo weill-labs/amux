@@ -143,6 +143,8 @@ func TestNerdFontIconSetUsesPublishedGlyphs(t *testing.T) {
 		Issue:         "\uf41b", // nf-oct-issue_opened
 		Task:          "\ueb67", // nf-cod-tasklist
 		CopyMode:      "\ueac0", // nf-cod-clippy
+		ToggleOn:      "\uf192", // nf-fa-dot_circle_o
+		ToggleOff:     "\uf10c", // nf-fa-circle_o
 	}
 	if got := NerdFontIconSet(); got != want {
 		t.Fatalf("NerdFontIconSet() = %#v, want %#v", got, want)

@@ -671,12 +671,50 @@ func resolvePaneWindowTabDropTarget(cr *ClientRenderer, layout *mux.LayoutCell, 
 	}, true
 }
 
+// handleChooserMouseEvent handles mouse input while the chooser modal is open.
+// The modal is exclusive: when active it consumes every mouse event so clicks
+// never leak through to panes. Scroll wheel moves the selection; a left click
+// on a row chooses it; a left click outside the box dismisses the chooser.
+func handleChooserMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, msgCh chan<- *RenderMsg) bool {
+	if !cr.ChooserActive() {
+		return false
+	}
+	switch {
+	case ev.Button == mouse.ScrollUp:
+		cr.moveChooser(-1)
+		rerenderOverlay(cr, msgCh)
+	case ev.Button == mouse.ScrollDown:
+		cr.moveChooser(1)
+		rerenderOverlay(cr, msgCh)
+	case ev.Action == mouse.Press && ev.Button == mouse.ButtonLeft:
+		screenW, screenH := cr.chooserScreenSize()
+		absRow, onRow, inside := render.ChooserRowAtPoint(screenW, screenH, cr.chooserOverlay(), ev.X, ev.Y)
+		switch {
+		case !inside:
+			cr.HideChooser()
+			rerenderOverlay(cr, msgCh)
+		case onRow:
+			cmd := cr.selectChooserRowAt(absRow)
+			if cmd.command != "" && sender != nil {
+				sender.Command(cmd.command, cmd.args)
+			}
+			rerenderOverlay(cr, msgCh)
+		}
+	}
+	// Exclusive: swallow all mouse events while the chooser is open.
+	return true
+}
+
 // handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *dragState, msgCh chan<- *RenderMsg) {
 	if drag == nil {
 		drag = &dragState{}
 	}
+	if handleChooserMouseEvent(ev, cr, sender, msgCh) {
+		return
+	}
+
 	layout := cr.VisibleLayout()
 
 	if layout == nil {

@@ -102,6 +102,52 @@ func TestNormalizeLocalInput(t *testing.T) {
 	}
 }
 
+func TestNormalizeChooserInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input []byte
+		want  []byte
+	}{
+		{
+			name:  "kitty ctrl-j maps to down arrow",
+			input: []byte("\x1b[106;5u"),
+			want:  []byte("\x1b[B"),
+		},
+		{
+			name:  "kitty ctrl-k maps to up arrow",
+			input: []byte("\x1b[107;5u"),
+			want:  []byte("\x1b[A"),
+		},
+		{
+			name:  "plain j stays text for the filter",
+			input: []byte("j"),
+			want:  []byte("j"),
+		},
+		{
+			name:  "plain k stays text for the filter",
+			input: []byte("k"),
+			want:  []byte("k"),
+		},
+		{
+			name:  "other ctrl keys are unaffected",
+			input: []byte("\x1b[97;5u"), // ctrl-a
+			want:  []byte{0x01},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := normalizeChooserInput(tt.input); !bytes.Equal(got, tt.want) {
+				t.Fatalf("normalizeChooserInput(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSplitTrailingIncompleteUTF8(t *testing.T) {
 	t.Parallel()
 

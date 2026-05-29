@@ -17,7 +17,7 @@ func TestChooseWindowShowsModalAndSelectsWindow(t *testing.T) {
 	h.runCmd("select-window", "1")
 
 	h.sendClientKeys("C-a", "w")
-	if !h.waitFor("choose-window", 3*time.Second) || !h.waitFor("2:logs", 3*time.Second) {
+	if !h.waitFor("Choose", 3*time.Second) || !h.waitFor("2:logs", 3*time.Second) {
 		t.Fatalf("expected choose-window modal, got:\n%s", h.captureOuter())
 	}
 
@@ -51,7 +51,7 @@ func TestChooseTreeFocusesPaneAcrossWindows(t *testing.T) {
 	h.runCmd("select-window", "1")
 
 	h.sendClientKeys("C-a", "s")
-	if !h.waitFor("choose-tree", 3*time.Second) || !h.waitFor("2:logs", 3*time.Second) {
+	if !h.waitFor("Choose", 3*time.Second) || !h.waitFor("2:logs", 3*time.Second) {
 		t.Fatalf("expected choose-tree modal, got:\n%s", h.captureOuter())
 	}
 
@@ -76,12 +76,12 @@ func TestChooserDismissDoesNotLeakInput(t *testing.T) {
 	h.runCmd("select-window", "1")
 
 	h.sendClientKeys("C-a", "w")
-	if !h.waitFor("choose-window", 3*time.Second) {
+	if !h.waitFor("Choose", 3*time.Second) {
 		t.Fatalf("expected choose-window modal, got:\n%s", h.captureOuter())
 	}
 
 	h.sendClientKeys("l", "o", "g", "s", "Escape")
-	if !waitForOuterGone(h, "choose-window", 3*time.Second) {
+	if !waitForOuterGone(h, "Choose", 3*time.Second) {
 		t.Fatalf("expected chooser to dismiss\nScreen:\n%s", h.captureOuter())
 	}
 
@@ -97,7 +97,7 @@ func TestChooseTreeDismissesOnLayoutChange(t *testing.T) {
 
 	h := newAmuxHarness(t)
 	h.sendKeys("C-a", "s")
-	if !h.waitFor("choose-tree", 3*time.Second) {
+	if !h.waitFor("Choose", 3*time.Second) {
 		t.Fatalf("expected choose-tree modal, got:\n%s", h.captureOuter())
 	}
 
@@ -109,7 +109,7 @@ func TestChooseTreeDismissesOnLayoutChange(t *testing.T) {
 	if !strings.Contains(out, proto.UIEventChooseTreeHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)
 	}
-	if strings.Contains(h.captureOuter(), "choose-tree") {
+	if strings.Contains(h.captureOuter(), "Choose") {
 		t.Fatalf("chooser should clear on layout change, got:\n%s", h.captureOuter())
 	}
 }

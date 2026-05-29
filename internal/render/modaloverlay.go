@@ -3,44 +3,123 @@ package render
 import (
 	"strings"
 
-	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/muesli/termenv"
-	"github.com/weill-labs/amux/internal/config"
 )
 
 const (
 	chooserModalMaxWidth  = 80
 	chooserModalMinMargin = 2
+	// chooserChromeOverhead is the count of non-list rows the chooser chrome
+	// always draws: top + bottom borders, the query line, the two list
+	// spacers, and the footer. The visible-row window must leave room for them
+	// or computeLayout rejects the box and nothing renders.
+	chooserChromeOverhead = 6
 )
 
-type chooserRowStyle string
+// ChooserRowLimit is the maximum number of list rows that fit on a screen of
+// the given height. Both chooserChrome (windowing) and ChooserRowAtPoint
+// (hit-testing) use it so clickable geometry can never drift from what is
+// drawn.
+func ChooserRowLimit(screenH int) int {
+	return max(screenH-chooserModalMinMargin*2-chooserChromeOverhead, 1)
+}
 
-const (
-	chooserRowBorder   chooserRowStyle = "border"
-	chooserRowNormal   chooserRowStyle = "row"
-	chooserRowSelected chooserRowStyle = "selected"
-	chooserRowDim      chooserRowStyle = "dim"
-)
+// chooserChrome converts a ChooserOverlay into the shared dialogChrome,
+// windowing the rows around the selection so a long list fits on screen and
+// driving a scrollbar for the overflow.
+func chooserChrome(screenH int, overlay *ChooserOverlay) dialogChrome {
+	start, end := chooserVisibleWindow(len(overlay.Rows), overlay.Selected, ChooserRowLimit(screenH))
+	rows := make([]dialogRow, 0, end-start)
+	for i := start; i < end; i++ {
+		src := overlay.Rows[i]
+		row := dialogRow{text: src.Text, desc: src.Desc, icon: src.Icon, rule: src.Rule, kind: dialogRowNormal}
+		if src.IconColor != "" {
+			row.iconColor = hexToColor(src.IconColor)
+		}
+		if src.TextColor != "" {
+			row.textColor = hexToColor(src.TextColor)
+		}
+		switch {
+		case i == overlay.Selected && src.Selectable:
+			row.kind = dialogRowSelected
+		case src.Header:
+			row.kind = dialogRowHeader
+		case !src.Selectable:
+			row.kind = dialogRowDim
+		}
+		rows = append(rows, row)
+	}
+
+	footer := []footerHint{
+		{key: "↑/↓", label: "choose"},
+		{key: "enter", label: "open"},
+		{key: "esc", label: "close"},
+	}
+	if overlay.Toggle != nil {
+		footer = append([]footerHint{{key: "tab", label: "switch"}}, footer...)
+	}
+	chrome := dialogChrome{
+		title:     overlay.Title,
+		showQuery: true,
+		query:     overlay.Query,
+		rows:      rows,
+		footer:    footer,
+	}
+	if overlay.Toggle != nil {
+		chrome.toggle = newDialogToggle(overlay.Toggle.Selected, overlay.Toggle.Options...)
+	}
+	if len(overlay.Rows) > len(rows) {
+		chrome.scroll = &dialogScroll{total: len(overlay.Rows), offset: start, visible: len(rows)}
+	}
+	return chrome
+}
+
+// chooserVisibleWindow returns the [start, end) slice of rows to show, centering
+// the selection when the full set overflows rowLimit.
+func chooserVisibleWindow(count, selected, rowLimit int) (int, int) {
+	if count <= rowLimit {
+		return 0, count
+	}
+	start := max(selected-rowLimit/2, 0)
+	end := start + rowLimit
+	if end > count {
+		end = count
+		start = end - rowLimit
+	}
+	return start, end
+}
+
+// ChooserRowAtPoint maps a screen point to the chooser modal. inside reports
+// whether the point falls within the modal box; onRow and absRow are valid when
+// it lands on a selectable list row. It reuses computeLayout so the clickable
+// geometry matches exactly what is rendered.
+func ChooserRowAtPoint(screenW, screenH int, overlay *ChooserOverlay, x, y int) (absRow int, onRow, inside bool) {
+	if overlay == nil {
+		return 0, false, false
+	}
+	chrome := chooserChrome(screenH, overlay)
+	rect, bodyTop, ok := chrome.computeLayout(screenW, screenH)
+	if !ok {
+		return 0, false, false
+	}
+	if x < rect.X || x >= rect.X+rect.W || y < rect.Y || y >= rect.Y+rect.H {
+		return 0, false, false
+	}
+
+	start, end := chooserVisibleWindow(len(overlay.Rows), overlay.Selected, ChooserRowLimit(screenH))
+	idx := y - bodyTop
+	if idx < 0 || idx >= end-start {
+		return 0, false, true
+	}
+	absRow = start + idx
+	return absRow, overlay.Rows[absRow].Selectable, true
+}
 
 func buildChooserOverlayCells(g *ScreenGrid, overlay *ChooserOverlay) {
 	if overlay == nil {
 		return
 	}
-	lines, styles, x, y := chooserOverlayLayout(g.Width, g.Height, overlay)
-	if len(lines) == 0 {
-		return
-	}
-	borderStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: hexToColor(config.Surface0Hex), Attrs: uv.AttrBold}
-	textStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: hexToColor(config.Surface0Hex)}
-	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: hexToColor(config.Surface0Hex)}
-	selectedStyle := uv.Style{Fg: hexToColor(config.Surface0Hex), Bg: hexToColor(config.TextColorHex), Attrs: uv.AttrBold}
-
-	for row, line := range lines {
-		for col, r := range line {
-			style := chooserCellStyle(styles[row], col == 0 || col == len(line)-1, borderStyle, textStyle, dimStyle, selectedStyle)
-			g.Set(x+col, y+row, ScreenCell{Char: string(r), Width: 1, Style: style})
-		}
-	}
+	chooserChrome(g.Height, overlay).place(g, defaultDialogStyles())
 }
 
 func renderChooserOverlay(buf *strings.Builder, width, height int, overlay *ChooserOverlay) {
@@ -51,131 +130,5 @@ func renderChooserOverlayWithProfile(buf *strings.Builder, width, height int, ov
 	if overlay == nil {
 		return
 	}
-	lines, _, x, y := chooserOverlayLayout(width, height, overlay)
-	if len(lines) == 0 {
-		return
-	}
-	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
-	textFg := fgHexSequence(config.TextColorHex, profile)
-	for row, line := range lines {
-		writeCursorTo(buf, y+row+1, x+1)
-		if row == 0 || row == len(lines)-1 {
-			buf.WriteString(surface0Bg + Bold + textFg)
-		} else {
-			buf.WriteString(surface0Bg + textFg)
-		}
-		buf.WriteString(line)
-		buf.WriteString(Reset)
-	}
-}
-
-func chooserOverlayLayout(screenW, screenH int, overlay *ChooserOverlay) ([]string, []chooserRowStyle, int, int) {
-	if overlay == nil || screenW <= 0 || screenH <= 0 {
-		return nil, nil, 0, 0
-	}
-	title := " " + overlay.Title + " "
-	query := "> " + overlay.Query
-	if overlay.Query == "" {
-		query = "> "
-	}
-	width := len(title)
-	if len(query) > width {
-		width = len(query)
-	}
-	for _, row := range overlay.Rows {
-		if len(row.Text) > width {
-			width = len(row.Text)
-		}
-	}
-	width += 2
-	maxWidth := screenW - chooserModalMinMargin*2
-	if maxWidth < 10 {
-		return nil, nil, 0, 0
-	}
-	if width > chooserModalMaxWidth {
-		width = chooserModalMaxWidth
-	}
-	if width > maxWidth {
-		width = maxWidth
-	}
-
-	rowLimit := screenH - chooserModalMinMargin*2 - 3
-	if rowLimit < 1 {
-		return nil, nil, 0, 0
-	}
-	start := 0
-	end := len(overlay.Rows)
-	if end-start > rowLimit {
-		start = overlay.Selected - rowLimit/2
-		if start < 0 {
-			start = 0
-		}
-		end = start + rowLimit
-		if end > len(overlay.Rows) {
-			end = len(overlay.Rows)
-			start = end - rowLimit
-		}
-	}
-
-	lines := make([]string, 0, end-start+3)
-	styles := make([]chooserRowStyle, 0, end-start+3)
-	lines = append(lines, "+"+padOrTrim(title, width-2)+"+")
-	styles = append(styles, chooserRowBorder)
-	lines = append(lines, "|"+padOrTrim(query, width-2)+"|")
-	styles = append(styles, chooserRowNormal)
-	for i := start; i < end; i++ {
-		row := overlay.Rows[i]
-		lines = append(lines, "|"+padOrTrim(row.Text, width-2)+"|")
-		style := chooserRowNormal
-		if !row.Selectable {
-			style = chooserRowDim
-		}
-		if i == overlay.Selected && row.Selectable {
-			style = chooserRowSelected
-		}
-		styles = append(styles, style)
-	}
-	lines = append(lines, "+"+strings.Repeat("-", width-2)+"+")
-	styles = append(styles, chooserRowBorder)
-
-	height := len(lines)
-	if height > screenH-chooserModalMinMargin*2 {
-		return nil, nil, 0, 0
-	}
-	x := (screenW - width) / 2
-	y := (screenH - height) / 2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return lines, styles, x, y
-}
-
-func chooserCellStyle(rowStyle chooserRowStyle, border bool, borderStyle, textStyle, dimStyle, selectedStyle uv.Style) uv.Style {
-	if border {
-		return borderStyle
-	}
-	switch rowStyle {
-	case chooserRowSelected:
-		return selectedStyle
-	case chooserRowDim:
-		return dimStyle
-	default:
-		return textStyle
-	}
-}
-
-func padOrTrim(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if len(s) > width {
-		return s[:width]
-	}
-	if len(s) < width {
-		return s + strings.Repeat(" ", width-len(s))
-	}
-	return s
+	emitDialogChrome(buf, width, height, chooserChrome(height, overlay), profile)
 }
