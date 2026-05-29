@@ -39,6 +39,7 @@ type chooserState struct {
 	query       bubblesutil.TextInputState
 	windows     []proto.WindowSnapshot
 	activeWinID uint32
+	icons       render.IconSet
 	items       []chooserItem
 	selected    int
 }
@@ -111,6 +112,7 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 		mode:        mode,
 		windows:     windows,
 		activeWinID: activeWinID,
+		icons:       cr.IconSet(),
 	}
 	state.rebuild()
 
@@ -371,12 +373,12 @@ func (st *chooserState) rebuild() {
 	items := make([]chooserItem, 0, len(st.windows)*2)
 	treeMode := st.mode == chooserModeTree
 	for _, ws := range st.windows {
-		items = append(items, chooserWindowItem(ws, ws.ID == st.activeWinID, treeMode))
+		items = append(items, chooserWindowItem(ws, ws.ID == st.activeWinID, treeMode, st.icons))
 		if !treeMode {
 			continue
 		}
 		for _, ps := range ws.Panes {
-			items = append(items, chooserPaneItem(ps, ps.ID == ws.ActivePaneID))
+			items = append(items, chooserPaneItem(ps, ps.ID == ws.ActivePaneID, st.icons))
 		}
 	}
 	st.items = items
@@ -464,11 +466,9 @@ func (cr *ClientRenderer) chooserScreenSize() (int, int) {
 }
 
 func chooserListHeight(screenH int) int {
-	height := screenH - 7
-	if height < 1 {
-		return 1
-	}
-	return height
+	// Match the chrome's visible-row window so PgUp/PgDn steps line up with
+	// what is actually drawn.
+	return render.ChooserRowLimit(screenH)
 }
 
 func chooserWindowFilterValue(ws proto.WindowSnapshot, includePanes bool) string {
@@ -502,7 +502,7 @@ func chooserHasSelectableItems(items []list.Item) bool {
 // chooserWindowItem builds the row for a window. In tree mode it is a bold
 // section header with a trailing rule; in window mode it is a plain selectable
 // row, marked with a status dot when it is the active window.
-func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool) chooserItem {
+func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool, icons render.IconSet) chooserItem {
 	item := chooserItem{
 		text:        strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + chooserPaneCount(len(ws.Panes)) + ")",
 		filterValue: chooserWindowFilterValue(ws, treeMode),
@@ -515,7 +515,7 @@ func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool) chooserIt
 		item.header = true
 		item.rule = true
 	case active:
-		item.icon = render.DefaultIconSet().PaneActive
+		item.icon = icons.PaneActive
 		item.iconColor = config.BlueHex
 	}
 	return item
@@ -523,8 +523,7 @@ func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool) chooserIt
 
 // chooserPaneItem builds the row for a pane: a colored status icon, the pane
 // name in its assigned color, and a dim branch/task suffix.
-func chooserPaneItem(ps proto.PaneSnapshot, active bool) chooserItem {
-	icons := render.DefaultIconSet()
+func chooserPaneItem(ps proto.PaneSnapshot, active bool, icons render.IconSet) chooserItem {
 	icon := icons.PaneBusy
 	switch {
 	case ps.Lead:

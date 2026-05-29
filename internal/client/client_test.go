@@ -2364,27 +2364,32 @@ func TestFormatChooserRowsPolish(t *testing.T) {
 	twoPane := proto.WindowSnapshot{Index: 2, Name: "orca", Panes: []proto.PaneSnapshot{{}, {}}}
 
 	// Tree-mode window: bold header with a rule, grammatically correct count.
-	if got := chooserWindowItem(onePane, true, true); got.text != "1:amux (1 pane)" || !got.header || !got.rule {
+	if got := chooserWindowItem(onePane, true, true, render.UnicodeIconSet()); got.text != "1:amux (1 pane)" || !got.header || !got.rule {
 		t.Errorf("tree window item = %+v, want text %q, header+rule", got, "1:amux (1 pane)")
 	}
 	// Window-mode active window: status dot, no rule.
-	if got := chooserWindowItem(twoPane, true, false); got.text != "2:orca (2 panes)" || got.icon == "" || got.rule {
+	if got := chooserWindowItem(twoPane, true, false, render.UnicodeIconSet()); got.text != "2:orca (2 panes)" || got.icon == "" || got.rule {
 		t.Errorf("active window item = %+v, want text %q with an icon and no rule", got, "2:orca (2 panes)")
 	}
 	// Window-mode inactive: no icon.
-	if got := chooserWindowItem(twoPane, false, false); got.icon != "" {
+	if got := chooserWindowItem(twoPane, false, false, render.UnicodeIconSet()); got.icon != "" {
 		t.Errorf("inactive window item should have no icon, got %q", got.icon)
 	}
 
 	// Active pane: colored icon + name + dim branch.
-	active := chooserPaneItem(proto.PaneSnapshot{Name: "pane-1", Color: "f5e0dc", GitBranch: "main"}, true)
+	active := chooserPaneItem(proto.PaneSnapshot{Name: "pane-1", Color: "f5e0dc", GitBranch: "main"}, true, render.UnicodeIconSet())
 	if active.text != "pane-1" || active.icon == "" || active.iconColor != "f5e0dc" || active.textColor != "f5e0dc" || active.desc != "main" {
 		t.Errorf("active pane item = %+v, want name pane-1, colored icon/text, desc main", active)
 	}
 	// Idle inactive pane: dim icon.
-	idle := chooserPaneItem(proto.PaneSnapshot{Name: "pane-2", Idle: true}, false)
+	idle := chooserPaneItem(proto.PaneSnapshot{Name: "pane-2", Idle: true}, false, render.UnicodeIconSet())
 	if idle.iconColor != config.DimColorHex {
 		t.Errorf("idle pane icon color = %q, want dim %q", idle.iconColor, config.DimColorHex)
+	}
+	// The configured icon set is honored (not hard-coded to Unicode).
+	asciiItem := chooserPaneItem(proto.PaneSnapshot{Name: "pane-3"}, true, render.ASCIIIconSet())
+	if asciiItem.icon != render.ASCIIIconSet().PaneActive {
+		t.Errorf("pane icon = %q, want ASCII active glyph %q", asciiItem.icon, render.ASCIIIconSet().PaneActive)
 	}
 }
 

@@ -131,8 +131,8 @@ func TestChooserChromeFitsTallList(t *testing.T) {
 		t.Fatalf("box height %d exceeds the screen budget %d", rect.H, h-chooserModalMinMargin*2)
 	}
 	// The selected row must be within the windowed slice that was drawn.
-	if got := chooserRowLimit(h); got < 1 {
-		t.Fatalf("chooserRowLimit(%d) = %d, want >= 1", h, got)
+	if got := ChooserRowLimit(h); got < 1 {
+		t.Fatalf("ChooserRowLimit(%d) = %d, want >= 1", h, got)
 	}
 }
 
