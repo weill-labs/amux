@@ -28,6 +28,10 @@ type statusPaneData struct {
 	lead          bool
 	screen        string
 	cursorHidden  bool
+	mirrorState   string
+	remotePane    string
+	reconnectIn   int
+	mirrorLastErr string
 }
 
 func (p *statusPaneData) RenderScreen(bool) string { return p.screen }
@@ -52,6 +56,9 @@ func (p *statusPaneData) CopyModeSearch() string              { return p.copySea
 func (p *statusPaneData) HasCursorBlock() bool                { return false }
 func (p *statusPaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return nil
+}
+func (p *statusPaneData) MirrorStatus() (state, remotePaneName string, reconnectInSeconds int, lastError string, ok bool) {
+	return p.mirrorState, p.remotePane, p.reconnectIn, p.mirrorLastErr, p.mirrorState != ""
 }
 
 func TestRenderPaneStatusVariants(t *testing.T) {
@@ -502,6 +509,137 @@ func TestBuildStatusCellsPreservesRemoteMetadata(t *testing.T) {
 			t.Fatalf("status row %q missing %q", line, want)
 		}
 	}
+}
+
+func TestBuildStatusCellsShowsMirrorConnectionState(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 80, 4)
+	grid := NewScreenGrid(80, 4)
+	buildStatusCellsPressedWithIconsAndStyle(grid, cell, false, false, &statusPaneData{
+		id:           1,
+		name:         "pane-91",
+		host:         "hetzner-1",
+		color:        config.TextColorHex,
+		mirrorState:  mirrorStateReconnecting,
+		remotePane:   "pane-1786",
+		reconnectIn:  3,
+		trackedPRs:   []proto.TrackedPR{{Number: 817}},
+		task:         "~/amux",
+		cursorHidden: true,
+	}, ASCIIIconSet(), config.StatusStyleCompact)
+
+	line := statusGridLine(grid, 80)
+	for _, want := range []string{"@hetzner-1:pane-1786 ! reconnecting… 3s", "#817", "~/amux"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status row %q missing %q", line, want)
+		}
+	}
+}
+
+func TestBuildStatusCellsDropsMirrorDetailsBeforeHostAndState(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 40, 4)
+	grid := NewScreenGrid(40, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:           1,
+		name:         "pane-91",
+		host:         "hetzner-1",
+		color:        config.TextColorHex,
+		mirrorState:  mirrorStateConnected,
+		remotePane:   "pane-1786-remote-long-name",
+		trackedPRs:   []proto.TrackedPR{{Number: 817}},
+		task:         "~/very/long/amux/worktree",
+		cursorHidden: true,
+	})
+
+	line := statusGridLine(grid, 40)
+	if !strings.Contains(line, "@hetzner-1 ●") {
+		t.Fatalf("narrow status row %q should keep host and state", line)
+	}
+	for _, dropped := range []string{"pane-1786", "#817", "~/very"} {
+		if strings.Contains(line, dropped) {
+			t.Fatalf("narrow status row %q should drop %q first", line, dropped)
+		}
+	}
+}
+
+func TestMirrorReconnectingBorderTintAppliesToFullAndGridRenderers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 48
+		totalH      = 6
+		layoutH     = totalH - GlobalBarHeight
+		sessionName = "mirror"
+	)
+
+	local := &mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}
+	remote := &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "pane-2"}}
+	window := mux.NewWindow(local, width, layoutH)
+	if _, err := window.Split(mux.SplitVertical, remote); err != nil {
+		t.Fatal(err)
+	}
+	window.FocusPane(local)
+
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &statusPaneData{id: 1, name: "pane-1", color: config.AccentColor(0), cursorHidden: true}
+		}
+		return &statusPaneData{
+			id:           2,
+			name:         "pane-2",
+			host:         "hetzner-1",
+			color:        config.AccentColor(1),
+			mirrorState:  mirrorStateReconnecting,
+			remotePane:   "pane-1786",
+			cursorHidden: true,
+		}
+	}
+
+	comp := NewCompositor(width, totalH, sessionName)
+	raw := comp.RenderFullWithOverlay(window.Root, window.ActivePane.ID, lookup, OverlayState{}, true)
+	if colorMap := ExtractColorMap(raw, width, totalH); !strings.Contains(colorMap, "H") {
+		t.Fatalf("full render color map should contain peach border H:\n%s", colorMap)
+	}
+
+	grid, _ := comp.buildGridWithOverlay(window.Root, window.ActivePane.ID, lookup, OverlayState{})
+	if !gridHasBorderColor(grid, config.PeachHex) {
+		t.Fatal("grid renderer should tint a reconnecting mirror border peach")
+	}
+}
+
+func statusGridLine(grid *ScreenGrid, width int) string {
+	var row strings.Builder
+	for x := 0; x < width; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	return strings.TrimRight(row.String(), " ")
+}
+
+func gridHasBorderColor(grid *ScreenGrid, wantHex string) bool {
+	want := hexToColor(wantHex)
+	for _, cell := range grid.Cells {
+		if cell.Char == "" {
+			continue
+		}
+		runes := []rune(cell.Char)
+		if len(runes) == 0 || !isBorderRune(runes[0]) {
+			continue
+		}
+		got, ok := cell.Style.Fg.(interface {
+			RGBA() (uint32, uint32, uint32, uint32)
+		})
+		if ok && sameColor(got, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {

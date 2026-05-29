@@ -80,6 +80,7 @@ const (
 	paneStatusSegmentDim
 	paneStatusSegmentText
 	paneStatusSegmentYellow
+	paneStatusSegmentPeach
 	paneStatusSegmentGreen
 	paneStatusSegmentRed
 	paneStatusSegmentCompletedMeta
@@ -90,11 +91,59 @@ type paneStatusSegment struct {
 	role paneStatusSegmentRole
 }
 
+type paneMirrorStatus struct {
+	state              string
+	remotePaneName     string
+	reconnectInSeconds int
+	lastError          string
+}
+
+type paneMirrorStatusProvider interface {
+	MirrorStatus() (state, remotePaneName string, reconnectInSeconds int, lastError string, ok bool)
+}
+
+const (
+	mirrorStateConnected    = "connected"
+	mirrorStateConnecting   = "connecting"
+	mirrorStateReconnecting = "reconnecting"
+	mirrorStateDead         = "dead"
+	mirrorStateDisconnected = "disconnected"
+	mirrorStateGone         = "gone"
+)
+
 func paneStatusColorHex(pd PaneData) string {
 	if color := pd.Color(); color != "" {
 		return color
 	}
 	return config.TextColorHex
+}
+
+func paneBorderTintColorHex(pd PaneData) string {
+	status, ok := paneMirrorStatusForPane(pd)
+	if !ok {
+		return ""
+	}
+	if status.state == mirrorStateReconnecting || status.state == mirrorStateConnecting {
+		return config.PeachHex
+	}
+	return ""
+}
+
+func paneMirrorStatusForPane(pd PaneData) (paneMirrorStatus, bool) {
+	provider, ok := pd.(paneMirrorStatusProvider)
+	if !ok {
+		return paneMirrorStatus{}, false
+	}
+	state, remotePaneName, reconnectInSeconds, lastError, ok := provider.MirrorStatus()
+	if !ok || strings.TrimSpace(state) == "" {
+		return paneMirrorStatus{}, false
+	}
+	return paneMirrorStatus{
+		state:              strings.ToLower(strings.TrimSpace(state)),
+		remotePaneName:     strings.TrimSpace(remotePaneName),
+		reconnectInSeconds: reconnectInSeconds,
+		lastError:          strings.TrimSpace(lastError),
+	}, true
 }
 
 func appendPaneStatusSegment(segments []paneStatusSegment, text string, role paneStatusSegmentRole) []paneStatusSegment {
@@ -222,6 +271,10 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
 	}
 
+	if mirrorStatus, ok := paneMirrorStatusForPane(pd); ok {
+		return buildMirrorPaneStatusSegments(cellWidth, segments, pd, icons, mirrorStatus)
+	}
+
 	metaItems := paneStatusMetadataItemsForPaneWithIcons(pd, icons)
 	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidthWithIcons(cellWidth, isActive, pd, icons))
 	if len(metaSegments) > 0 {
@@ -246,6 +299,111 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 	}
 
 	return clipPaneStatusSegments(segments, cellWidth)
+}
+
+func buildMirrorPaneStatusSegments(cellWidth int, base []paneStatusSegment, pd PaneData, icons IconSet, status paneMirrorStatus) []paneStatusSegment {
+	metaSegments := fullPaneStatusMetadataSegments(pd, icons)
+	taskText := paneStatusTaskText(pd.Task(), icons)
+
+	tests := []struct {
+		includeTask           bool
+		includeMeta           bool
+		includeRemotePaneName bool
+	}{
+		{includeTask: true, includeMeta: true, includeRemotePaneName: true},
+		{includeTask: false, includeMeta: true, includeRemotePaneName: true},
+		{includeTask: false, includeMeta: false, includeRemotePaneName: true},
+		{includeTask: false, includeMeta: false, includeRemotePaneName: false},
+	}
+
+	var fallback []paneStatusSegment
+	for _, tt := range tests {
+		segments := append([]paneStatusSegment(nil), base...)
+		segments = appendMirrorConnectionStatusSegments(segments, pd.Host(), icons, status, tt.includeRemotePaneName)
+		if tt.includeMeta && len(metaSegments) > 0 {
+			segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+			segments = append(segments, metaSegments...)
+		}
+		if tt.includeTask && taskText != "" {
+			segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+			segments = appendPaneStatusSegment(segments, taskText, paneStatusSegmentText)
+		}
+		fallback = segments
+		if paneStatusSegmentsWidth(segments) <= cellWidth {
+			return segments
+		}
+	}
+
+	return clipPaneStatusSegments(fallback, cellWidth)
+}
+
+func fullPaneStatusMetadataSegments(pd PaneData, icons IconSet) []paneStatusSegment {
+	raw := paneStatusMetadataSegments(paneStatusMetadataItemsForPaneWithIcons(pd, icons), 1024)
+	if len(raw) == 0 {
+		return nil
+	}
+	segments := make([]paneStatusSegment, 0, len(raw))
+	for _, segment := range raw {
+		role := paneStatusSegmentText
+		if segment.status == proto.TrackedStatusCompleted {
+			role = paneStatusSegmentCompletedMeta
+		}
+		segments = appendPaneStatusSegment(segments, segment.text, role)
+	}
+	return segments
+}
+
+func appendMirrorConnectionStatusSegments(segments []paneStatusSegment, host string, icons IconSet, status paneMirrorStatus, includeRemotePaneName bool) []paneStatusSegment {
+	host = strings.TrimSpace(host)
+	if host == "" || host == mux.DefaultHost {
+		return segments
+	}
+
+	role := mirrorConnectionStatusRole(status)
+	text := icons.RemoteHost + host
+	if includeRemotePaneName && status.remotePaneName != "" {
+		text += ":" + status.remotePaneName
+	}
+	if stateText := mirrorConnectionStatusText(status, icons); stateText != "" {
+		text += " " + stateText
+	}
+
+	segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+	return appendPaneStatusSegment(segments, text, role)
+}
+
+func mirrorConnectionStatusRole(status paneMirrorStatus) paneStatusSegmentRole {
+	switch status.state {
+	case mirrorStateConnected:
+		return paneStatusSegmentGreen
+	case mirrorStateReconnecting, mirrorStateConnecting:
+		return paneStatusSegmentPeach
+	case mirrorStateDead, mirrorStateDisconnected, mirrorStateGone:
+		return paneStatusSegmentRed
+	default:
+		return paneStatusSegmentText
+	}
+}
+
+func mirrorConnectionStatusText(status paneMirrorStatus, icons IconSet) string {
+	switch status.state {
+	case mirrorStateConnected:
+		return icons.RemoteConnected
+	case mirrorStateConnecting:
+		return icons.RemoteReconnecting + " connecting…"
+	case mirrorStateReconnecting:
+		text := icons.RemoteReconnecting + " reconnecting…"
+		if status.reconnectInSeconds > 0 {
+			text += " " + strconv.Itoa(status.reconnectInSeconds) + "s"
+		}
+		return text
+	case mirrorStateDead, mirrorStateGone:
+		return icons.RemoteDisconnected + " remote pane gone"
+	case mirrorStateDisconnected:
+		return icons.RemoteDisconnected + " disconnected"
+	default:
+		return ""
+	}
 }
 
 func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
@@ -410,6 +568,8 @@ func panePowerlineRoleBgHex(role paneStatusSegmentRole, paneColor, baseBg string
 		return alternatePowerlineBgHex(baseBg)
 	case paneStatusSegmentYellow:
 		return config.YellowHex
+	case paneStatusSegmentPeach:
+		return config.PeachHex
 	case paneStatusSegmentGreen:
 		return config.GreenHex
 	case paneStatusSegmentRed:

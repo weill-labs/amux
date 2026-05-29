@@ -137,6 +137,10 @@ func markBorders(bm *borderMap, cell *mux.LayoutCell) {
 // renderBorders draws all border cells with junction characters and per-cell coloring.
 // Iterates the sparse position list instead of scanning the full w*h grid.
 func renderBordersWithProfile(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string, profile termenv.Profile) {
+	renderBordersWithProfileAndTints(buf, bm, root, activePaneID, activeColor, nil, profile)
+}
+
+func renderBordersWithProfileAndTints(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string, paneTints map[uint32]string, profile termenv.Profile) {
 	lastColor := ""
 	dimColor := fgHexSequence(config.DimColorHex, profile)
 	for _, pos := range bm.positions {
@@ -153,6 +157,9 @@ func renderBordersWithProfile(buf *strings.Builder, bm *borderMap, root *mux.Lay
 		bc := bm.get(x, y)
 		isJunction := (up || down) && (left || right)
 		color := borderColor(bc.left, bc.right, x, y, isJunction, activePaneID, activeColor)
+		if tint := borderAdjacentTintColorHex(bc.left, bc.right, x, y, isJunction, paneTints); tint != "" {
+			color = fgHexSequence(tint, profile)
+		}
 		if color == DimFg {
 			color = dimColor
 		}
@@ -194,6 +201,29 @@ func borderAdjacentToActive(a, b *mux.LayoutCell, x, y int, junction bool, activ
 		return false
 	}
 
+	return borderAdjacentPane(a, b, x, y, junction, func(paneID uint32) bool {
+		return paneID == activePaneID
+	})
+}
+
+func borderAdjacentTintColorHex(a, b *mux.LayoutCell, x, y int, junction bool, paneTints map[uint32]string) string {
+	if len(paneTints) == 0 {
+		return ""
+	}
+
+	var tint string
+	borderAdjacentPane(a, b, x, y, junction, func(paneID uint32) bool {
+		tint = paneTints[paneID]
+		return tint != ""
+	})
+	return tint
+}
+
+func borderAdjacentPane(a, b *mux.LayoutCell, x, y int, junction bool, match func(uint32) bool) bool {
+	if a == nil || b == nil || match == nil {
+		return false
+	}
+
 	var offsets [][2]int
 	if junction {
 		offsets = junctionOffsets[:]
@@ -209,7 +239,7 @@ func borderAdjacentToActive(a, b *mux.LayoutCell, x, y int, junction bool, activ
 		if leaf == nil {
 			leaf = findLeafByAxis(b, nx, ny)
 		}
-		if leaf != nil && leaf.CellPaneID() == activePaneID {
+		if leaf != nil && match(leaf.CellPaneID()) {
 			return true
 		}
 	}
