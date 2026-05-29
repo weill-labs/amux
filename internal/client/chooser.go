@@ -333,13 +333,17 @@ func (cr *ClientRenderer) applyChooserQueryKey(msg tea.KeyMsg) {
 // selectChooserRowAt moves the selection to absRow (an index into the visible
 // rows) and confirms it — used for click-to-choose.
 func (cr *ClientRenderer) selectChooserRowAt(absRow int) chooserCommand {
-	cr.updateChooserSelection(func(model *list.Model) chooserCommand {
+	if cmd := cr.updateChooserSelection(func(model *list.Model) chooserCommand {
 		if absRow < 0 || absRow >= len(model.VisibleItems()) {
 			return chooserCommand{bell: true}
 		}
 		model.Select(absRow)
 		return chooserCommand{}
-	})
+	}); cmd.bell {
+		// The row went out of range (e.g. the filter changed under us); ring
+		// the bell instead of confirming whatever happens to be selected.
+		return cmd
+	}
 	return cr.selectChooser()
 }
 

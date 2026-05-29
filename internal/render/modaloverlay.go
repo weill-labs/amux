@@ -9,15 +9,26 @@ import (
 const (
 	chooserModalMaxWidth  = 80
 	chooserModalMinMargin = 2
+	// chooserChromeOverhead is the count of non-list rows the chooser chrome
+	// always draws: top + bottom borders, the query line, the two list
+	// spacers, and the footer. The visible-row window must leave room for them
+	// or computeLayout rejects the box and nothing renders.
+	chooserChromeOverhead = 6
 )
+
+// chooserRowLimit is the maximum number of list rows that fit on a screen of
+// the given height. Both chooserChrome (windowing) and ChooserRowAtPoint
+// (hit-testing) use it so clickable geometry can never drift from what is
+// drawn.
+func chooserRowLimit(screenH int) int {
+	return max(screenH-chooserModalMinMargin*2-chooserChromeOverhead, 1)
+}
 
 // chooserChrome converts a ChooserOverlay into the shared dialogChrome,
 // windowing the rows around the selection so a long list fits on screen and
 // driving a scrollbar for the overflow.
 func chooserChrome(screenH int, overlay *ChooserOverlay) dialogChrome {
-	rowLimit := max(screenH-chooserModalMinMargin*2-3, 1)
-
-	start, end := chooserVisibleWindow(len(overlay.Rows), overlay.Selected, rowLimit)
+	start, end := chooserVisibleWindow(len(overlay.Rows), overlay.Selected, chooserRowLimit(screenH))
 	rows := make([]dialogRow, 0, end-start)
 	for i := start; i < end; i++ {
 		src := overlay.Rows[i]
@@ -95,8 +106,7 @@ func ChooserRowAtPoint(screenW, screenH int, overlay *ChooserOverlay, x, y int) 
 		return 0, false, false
 	}
 
-	rowLimit := max(screenH-chooserModalMinMargin*2-3, 1)
-	start, end := chooserVisibleWindow(len(overlay.Rows), overlay.Selected, rowLimit)
+	start, end := chooserVisibleWindow(len(overlay.Rows), overlay.Selected, chooserRowLimit(screenH))
 	idx := y - bodyTop
 	if idx < 0 || idx >= end-start {
 		return 0, false, true

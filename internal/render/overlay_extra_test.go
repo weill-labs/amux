@@ -104,6 +104,38 @@ func TestChooserRowAtPoint(t *testing.T) {
 	}
 }
 
+// TestChooserChromeFitsTallList is the regression guard for the rowLimit
+// off-by-overhead bug: a list far taller than the screen must still window
+// down and render, never collapse to a blank box.
+func TestChooserChromeFitsTallList(t *testing.T) {
+	t.Parallel()
+
+	rows := make([]ChooserOverlayRow, 50)
+	for i := range rows {
+		rows[i] = ChooserOverlayRow{Text: "row", Selectable: true}
+	}
+	overlay := &ChooserOverlay{
+		Title:    "Choose",
+		Rows:     rows,
+		Selected: 40,
+		Toggle:   &ChooserToggle{Options: []string{"Tree", "Window"}, Selected: 0},
+	}
+	const w, h = 80, 24
+
+	g := NewScreenGrid(w, h)
+	rect := chooserChrome(h, overlay).place(g, defaultDialogStyles())
+	if rect.W <= 0 || rect.H <= 0 {
+		t.Fatal("chooser must still render with a tall list (regression: blank box)")
+	}
+	if rect.H > h-chooserModalMinMargin*2 {
+		t.Fatalf("box height %d exceeds the screen budget %d", rect.H, h-chooserModalMinMargin*2)
+	}
+	// The selected row must be within the windowed slice that was drawn.
+	if got := chooserRowLimit(h); got < 1 {
+		t.Fatalf("chooserRowLimit(%d) = %d, want >= 1", h, got)
+	}
+}
+
 func TestChooserOverlayRendersChrome(t *testing.T) {
 	t.Parallel()
 
