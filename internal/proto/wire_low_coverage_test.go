@@ -140,6 +140,33 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 		{name: "pane history", msg: Message{Type: MsgTypePaneHistory, PaneID: 4, History: []string{"one", "two"}}},
 		{name: "list panes", msg: Message{Type: MsgTypeListPanes}},
 		{name: "attach pane", msg: Message{Type: MsgTypeAttachPane, Session: "test-session", PaneID: 4}},
+		{
+			name: "pane meta update",
+			msg: Message{
+				Type:   MsgTypePaneMetaUpdate,
+				PaneID: 4,
+				PaneMetaUpdate: &PaneMetaUpdate{
+					GitBranch: "feature/federation",
+					PR:        "826",
+					TrackedPRs: []TrackedPR{{
+						Number:    826,
+						Status:    TrackedStatusActive,
+						CheckedAt: "2026-05-29T12:00:00Z",
+					}},
+					TrackedIssues: []TrackedIssue{{
+						ID:        "LAB-1963",
+						Status:    TrackedStatusActive,
+						CheckedAt: "2026-05-29T12:00:00Z",
+					}},
+					AgentStatus: PaneAgentStatus{
+						Exited:         false,
+						CurrentCommand: "codex",
+						Idle:           false,
+						LastOutput:     "2026-05-29T12:00:01Z",
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,6 +187,14 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 				t.Fatalf("round trip mismatch:\n got: %#v\nwant: %#v", got, &tt.msg)
 			}
 		})
+	}
+}
+
+func TestMsgTypePaneMetaUpdateValue(t *testing.T) {
+	t.Parallel()
+
+	if MsgTypePaneMetaUpdate != 28 {
+		t.Fatalf("MsgTypePaneMetaUpdate = %d, want 28", MsgTypePaneMetaUpdate)
 	}
 }
 

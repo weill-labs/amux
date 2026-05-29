@@ -61,6 +61,87 @@ func TestManagerDropsStaleGenerationFrames(t *testing.T) {
 	}
 }
 
+func TestManagerApplyPaneMetaUpdateStoresStatusAndDropsStaleGeneration(t *testing.T) {
+	t.Parallel()
+
+	pane := newMirrorTestPane(t, 2)
+	updates := make(chan proto.PaneMetaUpdate, 2)
+	mgr := NewManager(Config{
+		OnMetaUpdate: func(_ uint32, update proto.PaneMetaUpdate) {
+			updates <- update
+		},
+	})
+	t.Cleanup(mgr.Close)
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = &mirrorState{
+		pane:       pane,
+		ref:        checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+		state:      StateConnected,
+		generation: 2,
+	}
+	mgr.mu.Unlock()
+
+	stale := &proto.Message{
+		Type:   proto.MsgTypePaneMetaUpdate,
+		PaneID: 99,
+		PaneMetaUpdate: &proto.PaneMetaUpdate{
+			GitBranch: "stale",
+			AgentStatus: proto.PaneAgentStatus{
+				Exited:         false,
+				CurrentCommand: "stale",
+			},
+		},
+	}
+	if err := mgr.applyMessage(pane.ID, 1, stale); err != nil {
+		t.Fatalf("apply stale meta update: %v", err)
+	}
+	if status, ok := mgr.AgentStatus(pane.ID); ok || status.CurrentCommand != "" {
+		t.Fatalf("stale AgentStatus = (%+v, %v), want zero false", status, ok)
+	}
+	select {
+	case update := <-updates:
+		t.Fatalf("stale update callback fired: %+v", update)
+	default:
+	}
+
+	fresh := &proto.Message{
+		Type:   proto.MsgTypePaneMetaUpdate,
+		PaneID: 99,
+		PaneMetaUpdate: &proto.PaneMetaUpdate{
+			GitBranch: "feature/federation",
+			PR:        "826",
+			TrackedPRs: []proto.TrackedPR{{
+				Number: 826,
+				Status: proto.TrackedStatusActive,
+			}},
+			TrackedIssues: []proto.TrackedIssue{{
+				ID:     "LAB-1963",
+				Status: proto.TrackedStatusActive,
+			}},
+			AgentStatus: proto.PaneAgentStatus{
+				Exited:         false,
+				CurrentCommand: "codex",
+				Idle:           false,
+			},
+		},
+	}
+	if err := mgr.applyMessage(pane.ID, 2, fresh); err != nil {
+		t.Fatalf("apply fresh meta update: %v", err)
+	}
+	status, ok := mgr.AgentStatus(pane.ID)
+	if !ok || status.CurrentCommand != "codex" || status.Exited {
+		t.Fatalf("fresh AgentStatus = (%+v, %v), want busy codex true", status, ok)
+	}
+	select {
+	case update := <-updates:
+		if update.GitBranch != "feature/federation" || update.PR != "826" {
+			t.Fatalf("callback update = %+v, want forwarded branch/pr", update)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for fresh update callback")
+	}
+}
+
 func TestManagerRetryBudgetEndsDead(t *testing.T) {
 	t.Parallel()
 

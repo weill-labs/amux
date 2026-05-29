@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"path/filepath"
@@ -45,6 +46,72 @@ func TestMirrorManagerHappyPath(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("input did not reach remote pane")
 	}
+}
+
+func TestMirrorManagerForwardsPaneMetaWithoutOverwritingHost(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	mirrorPane := h.attachMirror(t)
+	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
+
+	mustSessionMutation(t, h.remoteSess, func(sess *Session) {
+		h.remotePane.Meta.Host = mux.DefaultHost
+		h.remotePane.Meta.GitBranch = "feature/federation"
+		h.remotePane.Meta.PR = "826"
+		h.remotePane.Meta.TrackedPRs = []proto.TrackedPR{{
+			Number: 826,
+			Status: proto.TrackedStatusActive,
+		}}
+		h.remotePane.Meta.TrackedIssues = []proto.TrackedIssue{{
+			ID:     "LAB-1963",
+			Status: proto.TrackedStatusActive,
+		}}
+		sess.broadcastLayoutNow()
+	})
+
+	waitUntil(t, func() bool {
+		return mirrorPane.Meta.GitBranch == "feature/federation" &&
+			mirrorPane.Meta.PR == "826" &&
+			len(mirrorPane.Meta.TrackedPRs) == 1 &&
+			len(mirrorPane.Meta.TrackedIssues) == 1
+	})
+	if mirrorPane.Meta.Host != mirrorRemoteHostName {
+		t.Fatalf("mirror Host = %q, want %q", mirrorPane.Meta.Host, mirrorRemoteHostName)
+	}
+	if mirrorPane.Meta.TrackedPRs[0].Number != 826 {
+		t.Fatalf("TrackedPRs = %+v, want PR 826", mirrorPane.Meta.TrackedPRs)
+	}
+	if mirrorPane.Meta.TrackedIssues[0].ID != "LAB-1963" {
+		t.Fatalf("TrackedIssues = %+v, want LAB-1963", mirrorPane.Meta.TrackedIssues)
+	}
+}
+
+func TestMirrorManagerCaptureUsesForwardedAgentStatusForProxyPane(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarnessWithRemoteShell(t)
+	defer h.cleanup()
+
+	mirrorPane := h.attachMirror(t)
+	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
+
+	if _, err := mirrorPane.Write([]byte("sleep 10\r")); err != nil {
+		t.Fatalf("mirror Write: %v", err)
+	}
+
+	var got proto.CapturePane
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got = captureJSONPaneFromCommand(t, h.localSrv, h.localSess, mirrorPane.ID)
+		if !got.Exited && got.CurrentCommand != "" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("mirror capture agent status = exited=%t current_command=%q idle=%t, want busy forwarded status", got.Exited, got.CurrentCommand, got.Idle)
 }
 
 func TestMirrorManagerRemotePaneKilledGoesDead(t *testing.T) {
@@ -204,6 +271,52 @@ func newMirrorIntegrationHarness(t *testing.T) *mirrorIntegrationHarness {
 	}
 }
 
+func newMirrorIntegrationHarnessWithRemoteShell(t *testing.T) *mirrorIntegrationHarness {
+	t.Helper()
+
+	remoteSrv, remoteSess, remoteCleanup := newCommandTestSession(t)
+	var remotePane *mux.Pane
+	remotePane, err := enqueueSessionQueryOnState(remoteSess.context(), remoteSess, func(sess *Session) (*mux.Pane, error) {
+		return sess.createPaneWithMeta(remoteSrv, mux.PaneMeta{
+			Name:  "remote-agent",
+			Color: config.AccentColor(0),
+		}, 80, 23)
+	})
+	if err != nil {
+		remoteCleanup()
+		t.Fatalf("create remote pane: %v", err)
+	}
+	remotePane.Start()
+	remoteWindow := newTestWindowWithPanes(t, remoteSess, 1, "remote-window", remotePane)
+	setSessionLayoutForTest(t, remoteSess, remoteWindow.ID, []*mux.Window{remoteWindow}, remotePane)
+
+	localSrv, localSess, localCleanup := newCommandTestSession(t)
+	localPane := newTestPane(localSess, 1, "local")
+	localWindow := newTestWindowWithPanes(t, localSess, 1, "local-window", localPane)
+	setSessionLayoutForTest(t, localSess, localWindow.ID, []*mux.Window{localWindow}, localPane)
+
+	dialer := &serverDialer{srv: remoteSrv}
+	localSess.mirror.Configure(mirrorpkg.Config{
+		Hosts:       mirrorHosts(remoteSess.Name),
+		Dialer:      dialer,
+		RetryPolicy: mirrorRetryPolicyForTest(),
+	})
+
+	return &mirrorIntegrationHarness{
+		localSrv:   localSrv,
+		localSess:  localSess,
+		remoteSrv:  remoteSrv,
+		remoteSess: remoteSess,
+		remotePane: remotePane,
+		dialer:     dialer,
+		cleanup: func() {
+			localSess.mirror.Close()
+			remoteCleanup()
+			localCleanup()
+		},
+	}
+}
+
 func (h *mirrorIntegrationHarness) hosts() map[string]config.Host {
 	return mirrorHosts(h.remoteSess.Name)
 }
@@ -254,6 +367,26 @@ func (h *mirrorIntegrationHarness) waitMirrorState(t *testing.T, paneID uint32, 
 		t.Fatalf("mirror state = %s, want %s (last error %q)", snap.State, want, snap.LastError)
 	}
 	t.Fatalf("mirror %d missing, want state %s", paneID, want)
+}
+
+func captureJSONPaneFromCommand(t *testing.T, srv *Server, sess *Session, paneID uint32) proto.CapturePane {
+	t.Helper()
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("capture --format json cmdErr = %q", res.cmdErr)
+	}
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(res.output), &capture); err != nil {
+		t.Fatalf("unmarshal capture json: %v\n%s", err, res.output)
+	}
+	for _, pane := range capture.Panes {
+		if pane.ID == paneID {
+			return pane
+		}
+	}
+	t.Fatalf("capture missing pane %d: %s", paneID, res.output)
+	return proto.CapturePane{}
 }
 
 func mirrorHosts(session string) map[string]config.Host {
