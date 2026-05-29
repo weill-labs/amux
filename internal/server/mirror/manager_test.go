@@ -422,6 +422,11 @@ func TestManagerWriteRoutesConnectedInputAndDropsWhenDisconnected(t *testing.T) 
 func TestManagerRemoteRefAndSnapshotMisses(t *testing.T) {
 	t.Parallel()
 
+	var nilMgr *Manager
+	if snaps := nilMgr.Snapshots(); snaps != nil {
+		t.Fatalf("nil Snapshots = %+v, want nil", snaps)
+	}
+
 	mgr := NewManager(Config{})
 	t.Cleanup(mgr.Close)
 	if ref, ok := mgr.RemoteRef(1); ok || ref != nil {
@@ -439,6 +444,13 @@ func TestManagerRemoteRefAndSnapshotMisses(t *testing.T) {
 	gotRef, ok := mgr.RemoteRef(pane.ID)
 	if !ok || gotRef == nil || *gotRef != ref {
 		t.Fatalf("RemoteRef = (%v, %v), want %v true", gotRef, ok, ref)
+	}
+	snaps := mgr.Snapshots()
+	if len(snaps) != 1 {
+		t.Fatalf("Snapshots len = %d, want 1: %+v", len(snaps), snaps)
+	}
+	if snaps[0].RemoteRef != ref || snaps[0].State != StateConnecting {
+		t.Fatalf("Snapshots[0] = %+v, want connecting %v", snaps[0], ref)
 	}
 }
 

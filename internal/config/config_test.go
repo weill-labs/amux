@@ -20,6 +20,46 @@ func TestLoadMissing(t *testing.T) {
 	}
 }
 
+func TestSaveCreatesParentDirectoryAndRoundTripsRemoteHosts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "nested", "config.toml")
+	cfg := &Config{
+		Remote: RemoteConfig{
+			Hosts: map[string]Host{
+				"hetzner-1": {
+					SSH:        "cweill@host",
+					Session:    "main",
+					SocketPath: "/tmp/amux-1000/main",
+				},
+			},
+		},
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load saved config: %v", err)
+	}
+	if got := loaded.Remote.Hosts["hetzner-1"]; got != cfg.Remote.Hosts["hetzner-1"] {
+		t.Fatalf("saved remote host = %+v, want %+v", got, cfg.Remote.Hosts["hetzner-1"])
+	}
+}
+
+func TestSaveNilConfigWritesEmptyConfig(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := Save(path, nil); err != nil {
+		t.Fatalf("Save(nil): %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("saved config stat: %v", err)
+	}
+}
+
 func TestLoadScrollbackLines(t *testing.T) {
 	t.Parallel()
 

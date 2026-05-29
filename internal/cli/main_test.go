@@ -752,6 +752,26 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
+			name:     "remote dispatches through server",
+			args:     []string{"remote", "list"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "remote", args: []string{"list"}},
+			},
+		},
+		{
+			name:       "remote help prints usage",
+			args:       []string{"remote", "--help"},
+			wantExit:   0,
+			wantStdout: remoteUsage + "\n",
+		},
+		{
+			name:       "remote requires subcommand",
+			args:       []string{"remote"},
+			wantExit:   1,
+			wantStderr: remoteUsage + "\n",
+		},
+		{
 			name:     "window command honors explicit session",
 			args:     []string{"-s", "demo", "select-window", "2"},
 			wantExit: 0,

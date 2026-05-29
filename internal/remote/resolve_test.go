@@ -184,6 +184,15 @@ func TestResolvePaneIDProtocolErrors(t *testing.T) {
 func TestResolvePaneIDConnectionErrors(t *testing.T) {
 	t.Parallel()
 
+	t.Run("list panes nil connection", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := ListPanes(context.Background(), nil, "remote-session")
+		if err == nil || err.Error() != "list panes: nil connection" {
+			t.Fatalf("ListPanes(nil) error = %v, want nil connection", err)
+		}
+	})
+
 	t.Run("nil connection", func(t *testing.T) {
 		t.Parallel()
 

@@ -114,6 +114,22 @@ func TestRemoteCLIPanesAttachDetachResizeAndLocalKill(t *testing.T) {
 	if remoteList := pair.remote.runCmd("list", "--no-cwd"); !strings.Contains(remoteList, "remote-side") {
 		t.Fatalf("kill without --remote removed remote pane:\n%s", remoteList)
 	}
+
+	attachOut = pair.local.runCmd("remote", "attach", remoteCLITestHost+":remote-side")
+	if !strings.Contains(attachOut, "Attached "+remoteCLITestHost+":remote-side") {
+		t.Fatalf("third remote attach output = %q", attachOut)
+	}
+	mirrorName = waitForLocalMirrorName(t, pair.local, remoteCLITestHost)
+	killOut = pair.local.runCmd("kill", "--remote", mirrorName)
+	if !strings.Contains(killOut, "Killed remote pane "+remoteCLITestHost+":remote-side") {
+		t.Fatalf("remote kill output = %q", killOut)
+	}
+	if localList := pair.local.runCmd("list", "--no-cwd"); strings.Contains(localList, mirrorName) {
+		t.Fatalf("kill --remote left mirror in local list:\n%s", localList)
+	}
+	if remoteList := pair.remote.runCmd("list", "--no-cwd"); strings.Contains(remoteList, "remote-side") {
+		t.Fatalf("kill --remote left remote pane running:\n%s", remoteList)
+	}
 }
 
 type remoteCLIPair struct {

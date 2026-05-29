@@ -72,6 +72,38 @@ func TestParseRemoteAddArgs(t *testing.T) {
 	}
 }
 
+func TestRunRemoteCommandUsageErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing subcommand", want: remoteCommandUsage},
+		{name: "unknown subcommand", args: []string{"bogus"}, want: remoteCommandUsage},
+		{name: "add usage", args: []string{"add"}, want: remoteAddUsage},
+		{name: "list usage", args: []string{"list", "extra"}, want: remoteListUsage},
+		{name: "rm usage", args: []string{"rm"}, want: remoteRmUsage},
+		{name: "panes usage", args: []string{"panes"}, want: remotePanesUsage},
+		{name: "attach usage", args: []string{"attach"}, want: remoteAttachUsage},
+		{name: "attach malformed target", args: []string{"attach", "remote"}, want: remoteAttachUsage},
+		{name: "detach usage", args: []string{"detach"}, want: remoteDetachUsage},
+		{name: "resize usage", args: []string{"resize"}, want: remoteResizeUsage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := runRemoteCommand(&CommandContext{Args: tt.args})
+			if got.Err == nil || got.Err.Error() != tt.want {
+				t.Fatalf("runRemoteCommand(%v) error = %v, want %q", tt.args, got.Err, tt.want)
+			}
+		})
+	}
+}
+
 func TestRemoteLayoutPaneEntriesUsesWindowLeafOrder(t *testing.T) {
 	t.Parallel()
 
@@ -106,6 +138,38 @@ func TestRemoteLayoutPaneEntriesUsesWindowLeafOrder(t *testing.T) {
 	}
 	if entries[1].Name != "right" || !entries[1].Active || entries[1].Lead {
 		t.Fatalf("second entry = %+v, want active right", entries[1])
+	}
+}
+
+func TestRemoteLayoutPaneEntriesLegacyLayout(t *testing.T) {
+	t.Parallel()
+
+	layout := &proto.LayoutSnapshot{
+		ActivePaneID: 2,
+		LeadPaneID:   1,
+		Root: proto.CellSnapshot{
+			Dir: int(mux.SplitVertical),
+			Children: []proto.CellSnapshot{
+				{IsLeaf: true, PaneID: 1},
+				{IsLeaf: true, PaneID: 2},
+				{IsLeaf: true, PaneID: 99},
+			},
+		},
+		Panes: []proto.PaneSnapshot{
+			{ID: 2, Name: "right", Host: "remote"},
+			{ID: 1, Name: "left", Host: "remote"},
+		},
+	}
+
+	entries := remoteLayoutPaneEntries(layout)
+	if len(entries) != 2 {
+		t.Fatalf("remoteLayoutPaneEntries len = %d, want 2: %+v", len(entries), entries)
+	}
+	if entries[0].Name != "left" || !entries[0].Lead || entries[0].Active {
+		t.Fatalf("first legacy entry = %+v, want lead left", entries[0])
+	}
+	if entries[1].Name != "right" || !entries[1].Active || entries[1].Lead {
+		t.Fatalf("second legacy entry = %+v, want active right", entries[1])
 	}
 }
 
@@ -146,6 +210,23 @@ func TestRemoteGeometryForPane(t *testing.T) {
 	if _, err := remoteGeometryForPane(nil, "agent"); err == nil || err.Error() != "remote layout is empty" {
 		t.Fatalf("nil remoteGeometryForPane error = %v, want empty layout", err)
 	}
+
+	legacy := &proto.LayoutSnapshot{
+		ActivePaneID: 7,
+		LeadPaneID:   7,
+		Root:         leafCell(7, 100, 30),
+		Panes:        []proto.PaneSnapshot{{ID: 7, Name: "legacy"}},
+	}
+	geo, err = remoteGeometryForPane(legacy, "legacy")
+	if err != nil {
+		t.Fatalf("legacy remoteGeometryForPane: %v", err)
+	}
+	if geo.id != 7 || !geo.active || !geo.lead || geo.cell.W != 100 || geo.cell.H != 30 {
+		t.Fatalf("legacy geometry = %+v, want active lead pane 7 at 100x30", geo)
+	}
+	if _, err := remoteGeometryForPane(legacy, "missing"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing remoteGeometryForPane error = %v, want not found", err)
+	}
 }
 
 func TestPlanRemoteResize(t *testing.T) {
@@ -182,6 +263,28 @@ func TestPlanRemoteResize(t *testing.T) {
 			want: []remoteResizeStep{{direction: "left", delta: 5}},
 		},
 		{
+			name: "grow first column rightward",
+			geo: remotePaneGeometry{
+				name: "agent",
+				cell: proto.CellSnapshot{W: 40, H: 20},
+				path: []layoutPathStep{{dir: int(mux.SplitVertical), index: 0, count: 2}},
+			},
+			cols: 45,
+			rows: mux.PaneContentHeight(20),
+			want: []remoteResizeStep{{direction: "right", delta: 5}},
+		},
+		{
+			name: "shrink last column rightward",
+			geo: remotePaneGeometry{
+				name: "agent",
+				cell: proto.CellSnapshot{W: 40, H: 20},
+				path: []layoutPathStep{{dir: int(mux.SplitVertical), index: 1, count: 2}},
+			},
+			cols: 35,
+			rows: mux.PaneContentHeight(20),
+			want: []remoteResizeStep{{direction: "right", delta: 5}},
+		},
+		{
 			name: "grow first row downward",
 			geo: remotePaneGeometry{
 				name: "agent",
@@ -190,6 +293,39 @@ func TestPlanRemoteResize(t *testing.T) {
 			},
 			cols: 40,
 			rows: mux.PaneContentHeight(12) + 3,
+			want: []remoteResizeStep{{direction: "down", delta: 3}},
+		},
+		{
+			name: "grow last row upward",
+			geo: remotePaneGeometry{
+				name: "agent",
+				cell: proto.CellSnapshot{W: 40, H: 12},
+				path: []layoutPathStep{{dir: int(mux.SplitHorizontal), index: 1, count: 2}},
+			},
+			cols: 40,
+			rows: mux.PaneContentHeight(12) + 3,
+			want: []remoteResizeStep{{direction: "up", delta: 3}},
+		},
+		{
+			name: "shrink first row upward",
+			geo: remotePaneGeometry{
+				name: "agent",
+				cell: proto.CellSnapshot{W: 40, H: 12},
+				path: []layoutPathStep{{dir: int(mux.SplitHorizontal), index: 0, count: 2}},
+			},
+			cols: 40,
+			rows: mux.PaneContentHeight(12) - 3,
+			want: []remoteResizeStep{{direction: "up", delta: 3}},
+		},
+		{
+			name: "shrink last row downward",
+			geo: remotePaneGeometry{
+				name: "agent",
+				cell: proto.CellSnapshot{W: 40, H: 12},
+				path: []layoutPathStep{{dir: int(mux.SplitHorizontal), index: 1, count: 2}},
+			},
+			cols: 40,
+			rows: mux.PaneContentHeight(12) - 3,
 			want: []remoteResizeStep{{direction: "down", delta: 3}},
 		},
 		{
@@ -211,6 +347,16 @@ func TestPlanRemoteResize(t *testing.T) {
 			cols:        41,
 			rows:        mux.PaneContentHeight(12),
 			wantErrText: "remote pane agent cannot be resized horizontally",
+		},
+		{
+			name: "missing vertical donor",
+			geo: remotePaneGeometry{
+				name: "agent",
+				cell: proto.CellSnapshot{W: 40, H: 12},
+			},
+			cols:        40,
+			rows:        mux.PaneContentHeight(12) + 1,
+			wantErrText: "remote pane agent cannot be resized vertically",
 		},
 		{
 			name: "invalid local size",
@@ -242,6 +388,28 @@ func TestPlanRemoteResize(t *testing.T) {
 				t.Fatalf("planRemoteResize() = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRemoteCommandSession(t *testing.T) {
+	t.Parallel()
+
+	if got := remoteCommandSession(config.Host{}); got != DefaultSessionName {
+		t.Fatalf("remoteCommandSession(empty) = %q, want %q", got, DefaultSessionName)
+	}
+	if got := remoteCommandSession(config.Host{Session: " lab "}); got != "lab" {
+		t.Fatalf("remoteCommandSession(trimmed) = %q, want lab", got)
+	}
+}
+
+func TestRemoteMirrorSnapshotsNilContext(t *testing.T) {
+	t.Parallel()
+
+	if got := remoteMirrorSnapshots(nil); got != nil {
+		t.Fatalf("remoteMirrorSnapshots(nil) = %+v, want nil", got)
+	}
+	if got := remoteMirrorSnapshots(&CommandContext{}); got != nil {
+		t.Fatalf("remoteMirrorSnapshots(empty context) = %+v, want nil", got)
 	}
 }
 
