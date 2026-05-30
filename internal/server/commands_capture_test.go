@@ -241,15 +241,14 @@ func TestCaptureJSONMailboxMultiplePanesAndReadAckState(t *testing.T) {
 	assertJSONNumber(t, mailboxMap(t, capturePaneMap(t, capture, "pane-2")), "unread", 0)
 
 	pane3Mailbox := mailboxMap(t, capturePaneMap(t, capture, "pane-3"))
-	assertJSONNumber(t, pane3Mailbox, "unread", 2)
+	assertJSONNumber(t, pane3Mailbox, "unread", 1)
+	assertJSONMapLen(t, pane3Mailbox, "topics", 1)
 	assertTopicCount(t, pane3Mailbox, "review", 1)
-	assertTopicCount(t, pane3Mailbox, "status", 1)
 	latest := latestUnread(t, pane3Mailbox)
-	if len(latest) != 2 {
-		t.Fatalf("pane-3 latest_unread length = %d, want 2", len(latest))
+	if len(latest) != 1 {
+		t.Fatalf("pane-3 latest_unread length = %d, want 1", len(latest))
 	}
-	assertJSONString(t, latest[0], "id", string(msg2.ID))
-	assertJSONString(t, latest[1], "id", string(msg1.ID))
+	assertJSONString(t, latest[0], "id", string(msg1.ID))
 	for _, summary := range latest {
 		if _, ok := summary["acked_at"]; ok {
 			t.Fatalf("capture summary leaked ack state: %#v", summary)

@@ -458,19 +458,6 @@ func runMsgAck(mctx *MutationContext, actorPaneID uint32, opts msgAckOptions) (s
 	return fmt.Sprintf("Acked %s for %s\n", opts.id, recipient.Name), nil
 }
 
-func (s *Session) ensureMailbox() *mailbox.Store {
-	if s.mailbox == nil {
-		s.mailbox = s.newMailboxStore()
-	}
-	return s.mailbox
-}
-
-func (s *Session) newMailboxStore() *mailbox.Store {
-	return mailbox.NewStore(mailbox.Options{Now: func() time.Time {
-		return s.clock().Now()
-	}})
-}
-
 func resolveMailboxSender(mctx *MutationContext, actorPaneID uint32, ref string) (mailbox.PaneAddress, error) {
 	if ref == "" {
 		return mailboxActorAddress(mctx, actorPaneID, "sender")
