@@ -2,6 +2,7 @@ package mailbox
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -242,6 +243,13 @@ func TestStoreRejectsInvalidSendWithoutStoring(t *testing.T) {
 			wantReason: "recipient",
 		},
 		{
+			name: "missing recipient name",
+			mutate: func(req *SendRequest) {
+				req.Recipients = []PaneAddress{{ID: 2}}
+			},
+			wantReason: "recipient",
+		},
+		{
 			name: "duplicate recipient",
 			mutate: func(req *SendRequest) {
 				req.Recipients = []PaneAddress{testAddress(2), testAddress(2)}
@@ -263,11 +271,25 @@ func TestStoreRejectsInvalidSendWithoutStoring(t *testing.T) {
 			wantReason: "subject",
 		},
 		{
+			name: "invalid sender name",
+			mutate: func(req *SendRequest) {
+				req.Sender = PaneAddress{ID: 1}
+			},
+			wantReason: "sender",
+		},
+		{
 			name: "invalid topic",
 			mutate: func(req *SendRequest) {
 				req.Topics = []string{"bad topic"}
 			},
 			wantReason: "topic",
+		},
+		{
+			name: "duplicate topic",
+			mutate: func(req *SendRequest) {
+				req.Topics = []string{"review", "review"}
+			},
+			wantReason: "duplicate",
 		},
 		{
 			name: "invalid group",
@@ -280,6 +302,13 @@ func TestStoreRejectsInvalidSendWithoutStoring(t *testing.T) {
 			name: "invalid metadata json",
 			mutate: func(req *SendRequest) {
 				req.Metadata = map[string]json.RawMessage{"priority": json.RawMessage(`{`)}
+			},
+			wantReason: "metadata",
+		},
+		{
+			name: "missing metadata key",
+			mutate: func(req *SendRequest) {
+				req.Metadata = map[string]json.RawMessage{"": json.RawMessage(`"normal"`)}
 			},
 			wantReason: "metadata",
 		},
@@ -325,6 +354,201 @@ func TestStoreRejectsInvalidSendWithoutStoring(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsLimitsWithoutStoring(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		limits     Limits
+		setup      func(*Store)
+		req        SendRequest
+		wantReason string
+	}{
+		{
+			name:       "subject byte limit",
+			limits:     Limits{SubjectBytes: 4},
+			req:        validSendRequest("too long", []byte("body")),
+			wantReason: "subject",
+		},
+		{
+			name:       "recipient count limit",
+			limits:     Limits{RecipientsPerMsg: 1},
+			req:        validSendRequest("Subject", []byte("body"), testAddress(2), testAddress(3)),
+			wantReason: "recipient",
+		},
+		{
+			name:       "one part limit",
+			limits:     Limits{PartBytes: 3},
+			req:        validSendRequest("Subject", []byte("body")),
+			wantReason: "part",
+		},
+		{
+			name:   "total body limit",
+			limits: Limits{TotalBodyBytes: 7},
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Parts: []MessagePart{
+					{Bytes: []byte("1234")},
+					{Bytes: []byte("5678")},
+				},
+			},
+			wantReason: "body",
+		},
+		{
+			name:   "metadata limit",
+			limits: Limits{MetadataBytes: 8},
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Body:       []byte("body"),
+				Metadata:   map[string]json.RawMessage{"priority": json.RawMessage(`"normal"`)},
+			},
+			wantReason: "metadata",
+		},
+		{
+			name:       "stored message limit",
+			limits:     Limits{StoredMessages: 1},
+			setup:      seedOneMessage,
+			req:        validSendRequest("Subject", []byte("body")),
+			wantReason: "stored message",
+		},
+		{
+			name:       "mailbox byte limit",
+			limits:     Limits{StoredMailboxBytes: 3},
+			req:        validSendRequest("Subject", []byte("body")),
+			wantReason: "byte limit",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+			store := NewStore(Options{
+				Now:    func() time.Time { return now },
+				Limits: tt.limits,
+			})
+			if tt.setup != nil {
+				tt.setup(store)
+			}
+			before := store.Len()
+
+			if _, err := store.Send(tt.req); err == nil || !strings.Contains(err.Error(), tt.wantReason) {
+				t.Fatalf("Send error = %v, want reason containing %q", err, tt.wantReason)
+			}
+			if store.Len() != before {
+				t.Fatalf("Len after rejected Send = %d, want %d", store.Len(), before)
+			}
+		})
+	}
+}
+
+func TestStoreRejectsInvalidPartsWithoutStoring(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		req        SendRequest
+		wantReason string
+	}{
+		{
+			name: "body and parts",
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Body:       []byte("body"),
+				Parts:      []MessagePart{{Bytes: []byte("part")}},
+			},
+			wantReason: "mutually exclusive",
+		},
+		{
+			name: "empty part",
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Parts:      []MessagePart{{Name: "empty"}},
+			},
+			wantReason: "empty",
+		},
+		{
+			name: "invalid utf8",
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Parts:      []MessagePart{{Name: "body", Bytes: []byte{0xff}}},
+			},
+			wantReason: "UTF-8",
+		},
+		{
+			name: "control byte",
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Parts:      []MessagePart{{Name: "body", Bytes: []byte{'a', 0x1b}}},
+			},
+			wantReason: "control byte",
+		},
+		{
+			name: "unsupported encoding",
+			req: SendRequest{
+				Sender:     testAddress(1),
+				Recipients: []PaneAddress{testAddress(2)},
+				Subject:    "Subject",
+				Parts:      []MessagePart{{Name: "body", Encoding: "gzip", Bytes: []byte("body")}},
+			},
+			wantReason: "encoding",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+			store := newTestStore(&now)
+
+			if _, err := store.Send(tt.req); err == nil || !strings.Contains(err.Error(), tt.wantReason) {
+				t.Fatalf("Send error = %v, want reason containing %q", err, tt.wantReason)
+			}
+			if store.Len() != 0 {
+				t.Fatalf("Len after rejected Send = %d, want 0", store.Len())
+			}
+		})
+	}
+}
+
+func TestStoreAcceptsBase64Part(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+
+	msg := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Binary",
+		Parts: []MessagePart{{
+			Name:     "payload",
+			Encoding: EncodingBase64,
+			Bytes:    []byte("AAEC"),
+		}},
+	})
+
+	if msg.Parts[0].Encoding != EncodingBase64 || msg.Parts[0].Size != len("AAEC") {
+		t.Fatalf("base64 part = %#v, want preserved encoding and size", msg.Parts[0])
+	}
+}
+
 func TestStoreRejectsReadAndAckNoOps(t *testing.T) {
 	t.Parallel()
 
@@ -349,8 +573,66 @@ func TestStoreRejectsReadAndAckNoOps(t *testing.T) {
 	if _, err := store.Ack(msg.ID, 3, AckRequest{Status: "ok"}); err == nil || !strings.Contains(err.Error(), "not delivered") {
 		t.Fatalf("Ack non-recipient error = %v, want not delivered", err)
 	}
+	if _, err := store.Ack(msg.ID, 2, AckRequest{Status: "ok", Note: strings.Repeat("x", DefaultLimits().AckNoteBytes+1)}); err == nil || !strings.Contains(err.Error(), "ack note") {
+		t.Fatalf("Ack oversized note error = %v, want ack note error", err)
+	}
 	if _, err := store.ListUnread(0); err == nil || !strings.Contains(err.Error(), "recipient") {
 		t.Fatalf("ListUnread invalid pane error = %v, want recipient error", err)
+	}
+}
+
+func TestStoreNilReceiverErrors(t *testing.T) {
+	t.Parallel()
+
+	var store *Store
+	if store.Len() != 0 {
+		t.Fatalf("nil Len = %d, want 0", store.Len())
+	}
+	if _, ok := store.Message("msg-000001"); ok {
+		t.Fatalf("nil Message returned ok")
+	}
+	if _, err := store.Send(validSendRequest("Subject", []byte("body"))); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil Send error = %v, want nil store error", err)
+	}
+	if _, err := store.ListUnread(2); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil ListUnread error = %v, want nil store error", err)
+	}
+	if _, _, err := store.Read("msg-000001", 2, ReadOptions{}); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil Read error = %v, want nil store error", err)
+	}
+	if _, err := store.Ack("msg-000001", 2, AckRequest{Status: "ok"}); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil Ack error = %v, want nil store error", err)
+	}
+}
+
+func TestStoreNewStoreUsesRealClockWhenNoClockInjected(t *testing.T) {
+	t.Parallel()
+
+	store := NewStore(Options{})
+	before := time.Now().UTC()
+	msg := mustSend(t, store, validSendRequest("Subject", []byte("body")))
+	after := time.Now().UTC()
+
+	if msg.CreatedAt.Before(before) || msg.CreatedAt.After(after) {
+		t.Fatalf("CreatedAt = %s, want between %s and %s", msg.CreatedAt, before, after)
+	}
+}
+
+func TestStoreMessageAndEmptyUnreadMisses(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+
+	if _, ok := store.Message("msg-000001"); ok {
+		t.Fatalf("Message for missing ID returned ok")
+	}
+	unread, err := store.ListUnread(99)
+	if err != nil {
+		t.Fatalf("ListUnread for empty valid pane: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("empty ListUnread length = %d, want 0", len(unread))
 	}
 }
 
@@ -460,6 +742,35 @@ func TestStoreRepliesLinkThreads(t *testing.T) {
 	}); err == nil || !strings.Contains(err.Error(), "reply") {
 		t.Fatalf("Send reply to missing parent error = %v, want reply error", err)
 	}
+
+	if _, err := store.Send(SendRequest{
+		Sender:     testAddress(2),
+		Recipients: []PaneAddress{testAddress(1)},
+		Subject:    "Bad reply",
+		Body:       []byte("reply"),
+		ReplyTo:    root.ID,
+		ThreadID:   "other-thread",
+	}); err == nil || !strings.Contains(err.Error(), "thread") {
+		t.Fatalf("Send reply to mismatched thread error = %v, want thread error", err)
+	}
+}
+
+func TestStoreExplicitThread(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+	msg := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Explicit",
+		Body:       []byte("body"),
+		ThreadID:   "thread-review",
+	})
+
+	if msg.ThreadID != "thread-review" {
+		t.Fatalf("ThreadID = %q, want explicit thread", msg.ThreadID)
+	}
 }
 
 func newTestStore(now *time.Time) *Store {
@@ -487,5 +798,24 @@ func assertMessageID(t *testing.T, got, want MessageID) {
 }
 
 func testAddress(id uint32) PaneAddress {
-	return PaneAddress{ID: id, Name: "pane-" + string(rune('0'+id)), Host: "local"}
+	return PaneAddress{ID: id, Name: fmt.Sprintf("pane-%d", id), Host: "local"}
+}
+
+func validSendRequest(subject string, body []byte, recipients ...PaneAddress) SendRequest {
+	if len(recipients) == 0 {
+		recipients = []PaneAddress{testAddress(2)}
+	}
+	return SendRequest{
+		Sender:     testAddress(1),
+		Recipients: recipients,
+		Subject:    subject,
+		Body:       body,
+	}
+}
+
+func seedOneMessage(store *Store) {
+	_, err := store.Send(validSendRequest("Seed", []byte("seed")))
+	if err != nil {
+		panic(err)
+	}
 }
