@@ -314,18 +314,33 @@ func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Res
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	if err := client.client.Send(&Message{
+	msg, err := remoteChooserMessage(layout, hostName)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	if err := client.client.Send(msg); err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	_ = client.client.Flush()
+	return commandpkg.Result{Output: fmt.Sprintf("Opened remote pane chooser for %s\n", hostName)}
+}
+
+// remoteChooserMessage builds the MsgTypeChooser push for a remote host's
+// layout, or fails loudly when the remote has no panes to choose. Without the
+// empty check the client shows only a bell (ShowRemoteChooser returns false on
+// an empty list) while the command reports success — a silent no-op.
+func remoteChooserMessage(layout *proto.LayoutSnapshot, hostName string) (*Message, error) {
+	if len(remoteLayoutPaneEntries(layout)) == 0 {
+		return nil, fmt.Errorf("no remote panes on %s", hostName)
+	}
+	return &Message{
 		Type: MsgTypeChooser,
 		Chooser: &proto.ChooserRequest{
 			Kind:   proto.ChooserKindRemotePanes,
 			Host:   hostName,
 			Layout: layout,
 		},
-	}); err != nil {
-		return commandpkg.Result{Err: err}
-	}
-	_ = client.client.Flush()
-	return commandpkg.Result{Output: fmt.Sprintf("Opened remote pane chooser for %s\n", hostName)}
+	}, nil
 }
 
 func runRemoteDetach(ctx *CommandContext) commandpkg.Result {

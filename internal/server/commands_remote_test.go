@@ -115,6 +115,36 @@ func TestRunRemoteAttachChooserRequiresAttachedClient(t *testing.T) {
 	}
 }
 
+func TestRemoteChooserMessage(t *testing.T) {
+	t.Parallel()
+
+	// Empty remote layout → error, no chooser push (silent no-op guard).
+	if _, err := remoteChooserMessage(&proto.LayoutSnapshot{}, "hetzner-1"); err == nil || err.Error() != "no remote panes on hetzner-1" {
+		t.Fatalf("empty layout error = %v, want \"no remote panes on hetzner-1\"", err)
+	}
+
+	// Layout with a leaf pane → chooser message carrying the layout.
+	layout := &proto.LayoutSnapshot{
+		Windows: []proto.WindowSnapshot{{
+			Name: "w",
+			Root: proto.CellSnapshot{IsLeaf: true, PaneID: 1},
+			Panes: []proto.PaneSnapshot{
+				{ID: 1, Name: "remote-agent", Host: "remote"},
+			},
+		}},
+	}
+	msg, err := remoteChooserMessage(layout, "hetzner-1")
+	if err != nil {
+		t.Fatalf("remoteChooserMessage: %v", err)
+	}
+	if msg.Type != MsgTypeChooser || msg.Chooser == nil {
+		t.Fatalf("message = %+v, want MsgTypeChooser with chooser payload", msg)
+	}
+	if msg.Chooser.Kind != proto.ChooserKindRemotePanes || msg.Chooser.Host != "hetzner-1" || msg.Chooser.Layout != layout {
+		t.Fatalf("chooser request = %+v, want remote-panes for hetzner-1 carrying the layout", msg.Chooser)
+	}
+}
+
 func TestRemoteLayoutPaneEntriesUsesWindowLeafOrder(t *testing.T) {
 	t.Parallel()
 
