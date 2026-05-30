@@ -238,6 +238,20 @@ func mailboxEventSummaryFromJSON(data []byte) (Event, bool) {
 	return ev, true
 }
 
+func mailboxWaitEventFromJSON(data []byte, opts mailboxWaitOptions) (summary proto.MailboxMessageSummary, matched bool, paneExited bool) {
+	ev, ok := mailboxEventSummaryFromJSON(data)
+	if !ok {
+		return proto.MailboxMessageSummary{}, false, false
+	}
+	if ev.Type == EventPaneExit {
+		return proto.MailboxMessageSummary{}, false, true
+	}
+	if !mailboxEventMatchesWait(ev, opts) {
+		return proto.MailboxMessageSummary{}, false, false
+	}
+	return *ev.Message, true, false
+}
+
 func mailboxEventMatchesWait(ev Event, opts mailboxWaitOptions) bool {
 	if ev.Type != EventMessageDelivered || ev.Message == nil {
 		return false

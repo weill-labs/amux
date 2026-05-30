@@ -69,6 +69,25 @@ func TestStoreSendCreatesMessageAndUnreadDelivery(t *testing.T) {
 	if summary.DeliveredAt != now || !summary.ReadAt.IsZero() || !summary.AckedAt.IsZero() {
 		t.Fatalf("delivery timestamps = %#v, want delivered only", summary)
 	}
+	if summary.LastEventSeq != 0 {
+		t.Fatalf("LastEventSeq = %d, want 0 before event emission", summary.LastEventSeq)
+	}
+
+	updated, err := store.SetLastEventSeq(msg.ID, 2, 42)
+	if err != nil {
+		t.Fatalf("SetLastEventSeq: %v", err)
+	}
+	if updated.LastEventSeq != 42 {
+		t.Fatalf("updated LastEventSeq = %d, want 42", updated.LastEventSeq)
+	}
+
+	delivery, err := store.DeliverySummary(msg.ID, 2)
+	if err != nil {
+		t.Fatalf("DeliverySummary: %v", err)
+	}
+	if delivery.LastEventSeq != 42 {
+		t.Fatalf("DeliverySummary LastEventSeq = %d, want 42", delivery.LastEventSeq)
+	}
 }
 
 func TestStoreListUnreadReadAndAckTransitions(t *testing.T) {
@@ -592,6 +611,12 @@ func TestStoreRejectsReadAndAckNoOps(t *testing.T) {
 	if _, err := store.ListUnread(0); err == nil || !strings.Contains(err.Error(), "recipient") {
 		t.Fatalf("ListUnread invalid pane error = %v, want recipient error", err)
 	}
+	if _, err := store.DeliverySummary("msg-999999", 2); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("DeliverySummary unknown error = %v, want not found", err)
+	}
+	if _, err := store.SetLastEventSeq(msg.ID, 3, 99); err == nil || !strings.Contains(err.Error(), "not delivered") {
+		t.Fatalf("SetLastEventSeq non-recipient error = %v, want not delivered", err)
+	}
 }
 
 func TestStoreNilReceiverErrors(t *testing.T) {
@@ -609,6 +634,12 @@ func TestStoreNilReceiverErrors(t *testing.T) {
 	}
 	if _, err := store.ListUnread(2); err == nil || !strings.Contains(err.Error(), "nil") {
 		t.Fatalf("nil ListUnread error = %v, want nil store error", err)
+	}
+	if _, err := store.DeliverySummary("msg-000001", 2); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil DeliverySummary error = %v, want nil store error", err)
+	}
+	if _, err := store.SetLastEventSeq("msg-000001", 2, 1); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil SetLastEventSeq error = %v, want nil store error", err)
 	}
 	if _, _, err := store.Read("msg-000001", 2, ReadOptions{}); err == nil || !strings.Contains(err.Error(), "nil") {
 		t.Fatalf("nil Read error = %v, want nil store error", err)

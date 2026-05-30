@@ -244,6 +244,86 @@ func TestParseWaitUIArgs(t *testing.T) {
 	}
 }
 
+func TestParseWaitMessageArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		args      []string
+		want      MessageWaitOptions
+		wantError string
+	}{
+		{
+			name:      "missing pane",
+			wantError: "usage: wait msg <pane>",
+		},
+		{
+			name: "defaults",
+			args: []string{"pane-2"},
+			want: MessageWaitOptions{
+				PaneRef: "pane-2",
+				Timeout: 5 * time.Second,
+			},
+		},
+		{
+			name: "json topic and message cursor",
+			args: []string{"pane-2", "--topic", "review", "--after", "msg-000123", "--timeout", "250ms", "--format", "json"},
+			want: MessageWaitOptions{
+				PaneRef:        "pane-2",
+				Topic:          "review",
+				AfterMessageID: "msg-000123",
+				Timeout:        250 * time.Millisecond,
+				FormatJSON:     true,
+			},
+		},
+		{
+			name: "event sequence cursor",
+			args: []string{"pane-2", "--after", "42"},
+			want: MessageWaitOptions{
+				PaneRef:       "pane-2",
+				AfterEventSeq: 42,
+				Timeout:       5 * time.Second,
+			},
+		},
+		{
+			name:      "invalid cursor",
+			args:      []string{"pane-2", "--after", "later"},
+			wantError: "invalid --after: later",
+		},
+		{
+			name:      "unsupported format",
+			args:      []string{"pane-2", "--format", "yaml"},
+			wantError: "unsupported format: yaml",
+		},
+		{
+			name:      "unknown positional",
+			args:      []string{"pane-2", "extra"},
+			wantError: "unknown flag: extra",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ParseWaitMessageArgs(tt.args)
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("ParseWaitMessageArgs(%v) error = %v, want substring %q", tt.args, err, tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseWaitMessageArgs(%v): %v", tt.args, err)
+			}
+			if got != tt.want {
+				t.Fatalf("ParseWaitMessageArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWaitBusyForegroundProcessGroup(t *testing.T) {
 	t.Parallel()
 

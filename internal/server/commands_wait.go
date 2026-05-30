@@ -233,9 +233,8 @@ func (ctx waitCommandContext) WaitMessage(actorPaneID uint32, opts waitcmd.Messa
 		afterEventSeq:  opts.AfterEventSeq,
 	}
 	for _, data := range sub.initialState {
-		ev, ok := mailboxEventSummaryFromJSON(data)
-		if ok && mailboxEventMatchesWait(ev, matchOpts) {
-			return *ev.Message, nil
+		if summary, matched, _ := mailboxWaitEventFromJSON(data, matchOpts); matched {
+			return summary, nil
 		}
 	}
 	if !sub.targetExists {
@@ -247,15 +246,12 @@ func (ctx waitCommandContext) WaitMessage(actorPaneID uint32, opts waitcmd.Messa
 	for {
 		select {
 		case data := <-sub.sub.Ch:
-			ev, ok := mailboxEventSummaryFromJSON(data)
-			if !ok {
-				continue
-			}
-			if ev.Type == EventPaneExit {
+			summary, matched, paneExited := mailboxWaitEventFromJSON(data, matchOpts)
+			if paneExited {
 				return proto.MailboxMessageSummary{}, fmt.Errorf("pane %q disappeared while waiting for message", opts.PaneRef)
 			}
-			if mailboxEventMatchesWait(ev, matchOpts) {
-				return *ev.Message, nil
+			if matched {
+				return summary, nil
 			}
 		case <-timer.C:
 			return proto.MailboxMessageSummary{}, fmt.Errorf("timeout waiting for message for %s", opts.PaneRef)
