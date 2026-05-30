@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -381,6 +382,55 @@ func TestCrashRestoreAdvancesMailboxEventSequencePastRestoredDeliveries(t *testi
 	}
 	if summary.LastEventSeq <= lastSeq {
 		t.Fatalf("new message event seq = %d, want > restored seq %d", summary.LastEventSeq, lastSeq)
+	}
+}
+
+func TestMailboxCheckpointSnapshotSkipsNilAndEmptyStores(t *testing.T) {
+	t.Parallel()
+
+	if got := mailboxCheckpointSnapshot(nil); got != nil {
+		t.Fatalf("mailboxCheckpointSnapshot(nil) = %#v, want nil", got)
+	}
+	if got := mailboxCheckpointSnapshot(mailbox.NewStore(mailbox.Options{})); got != nil {
+		t.Fatalf("mailboxCheckpointSnapshot(empty) = %#v, want nil", got)
+	}
+}
+
+func TestRestoreMailboxHandlesNilAndMalformedSnapshots(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("mailbox-restore-errors")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	if err := sess.restoreMailbox(nil, 99); err != nil {
+		t.Fatalf("restoreMailbox(nil): %v", err)
+	}
+	if sess.mailboxEventSeq != 0 {
+		t.Fatalf("mailboxEventSeq after nil restore = %d, want unchanged zero", sess.mailboxEventSeq)
+	}
+
+	err := sess.restoreMailbox(&mailbox.Snapshot{
+		Deliveries: []mailbox.DeliveryState{{MessageID: "msg-000001", Recipient: mailbox.PaneAddress{ID: 2, Name: "pane-2"}}},
+	}, 0)
+	if err == nil || !strings.Contains(err.Error(), "missing message") {
+		t.Fatalf("restoreMailbox malformed error = %v, want missing message", err)
+	}
+}
+
+func TestBuildReloadCheckpointRequiresWindow(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("mailbox-reload-no-window")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	if _, err := sess.buildReloadCheckpoint(); err == nil || !strings.Contains(err.Error(), "no window") {
+		t.Fatalf("buildReloadCheckpoint error = %v, want no window", err)
 	}
 }
 

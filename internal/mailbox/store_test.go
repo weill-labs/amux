@@ -633,6 +633,12 @@ func TestStoreNilReceiverErrors(t *testing.T) {
 	if store.Len() != 0 {
 		t.Fatalf("nil Len = %d, want 0", store.Len())
 	}
+	if snapshot := store.Snapshot(); snapshot.NextSeq != 0 || len(snapshot.Messages) != 0 || len(snapshot.Deliveries) != 0 {
+		t.Fatalf("nil Snapshot = %#v, want empty", snapshot)
+	}
+	if got := store.MaxLastEventSeq(); got != 0 {
+		t.Fatalf("nil MaxLastEventSeq = %d, want 0", got)
+	}
 	if _, ok := store.Message("msg-000001"); ok {
 		t.Fatalf("nil Message returned ok")
 	}
@@ -787,9 +793,103 @@ func TestStoreSnapshotRestorePreservesMessagesDeliveriesAndNextID(t *testing.T) 
 	if restoredReplyDelivery.AckedAt != ackState.AckedAt || restoredReplyDelivery.AckStatus != "seen" || restoredReplyDelivery.AckNote != "queued" || restoredReplyDelivery.LastEventSeq != 8 {
 		t.Fatalf("restored reply delivery = %#v, want ack state and seq 8", restoredReplyDelivery)
 	}
+	if got := restored.MaxLastEventSeq(); got != 8 {
+		t.Fatalf("MaxLastEventSeq = %d, want 8", got)
+	}
 
 	next := mustSend(t, restored, validSendRequest("Next", []byte("next body")))
 	assertMessageID(t, next.ID, "msg-000003")
+}
+
+func TestStoreRestoreSnapshotRejectsMalformedState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		snapshot Snapshot
+		want     string
+	}{
+		{
+			name:     "missing message id",
+			snapshot: Snapshot{Messages: []Message{{Subject: "missing id"}}},
+			want:     "message ID",
+		},
+		{
+			name: "duplicate message id",
+			snapshot: Snapshot{Messages: []Message{
+				snapshotMessage("msg-000001"),
+				snapshotMessage("msg-000001"),
+			}},
+			want: "duplicate",
+		},
+		{
+			name: "missing delivery message id",
+			snapshot: Snapshot{
+				Messages:   []Message{snapshotMessage("msg-000001")},
+				Deliveries: []DeliveryState{{Recipient: testAddress(2)}},
+			},
+			want: "delivery message ID",
+		},
+		{
+			name: "missing delivery recipient id",
+			snapshot: Snapshot{
+				Messages:   []Message{snapshotMessage("msg-000001")},
+				Deliveries: []DeliveryState{{MessageID: "msg-000001"}},
+			},
+			want: "recipient pane ID",
+		},
+		{
+			name: "delivery references missing message",
+			snapshot: Snapshot{
+				Messages:   []Message{snapshotMessage("msg-000001")},
+				Deliveries: []DeliveryState{{MessageID: "msg-000002", Recipient: testAddress(2)}},
+			},
+			want: "missing message",
+		},
+		{
+			name: "duplicate delivery",
+			snapshot: Snapshot{
+				Messages: []Message{snapshotMessage("msg-000001")},
+				Deliveries: []DeliveryState{
+					{MessageID: "msg-000001", Recipient: testAddress(2)},
+					{MessageID: "msg-000001", Recipient: testAddress(2)},
+				},
+			},
+			want: "duplicate",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := RestoreSnapshot(tt.snapshot, Options{}); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("RestoreSnapshot error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestStoreRestoreSnapshotUsesNextSeqForNonStandardMessageIDs(t *testing.T) {
+	t.Parallel()
+
+	restored, err := RestoreSnapshot(Snapshot{
+		NextSeq: 5,
+		Messages: []Message{{
+			ID:       "external-message",
+			ThreadID: "external-thread",
+			Sender:   testAddress(1),
+			Parts:    []MessagePart{{Name: "body", ContentType: DefaultContentType, Encoding: EncodingUTF8, Bytes: []byte("body"), Size: 4}},
+		}},
+		Deliveries: []DeliveryState{{MessageID: "external-message", Recipient: testAddress(2)}},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("RestoreSnapshot: %v", err)
+	}
+
+	next := mustSend(t, restored, validSendRequest("Next", []byte("body")))
+	assertMessageID(t, next.ID, "msg-000005")
 }
 
 func TestStoreListUnreadSortsByMessageID(t *testing.T) {
@@ -970,6 +1070,21 @@ func validSendRequest(subject string, body []byte, recipients ...PaneAddress) Se
 		Recipients: recipients,
 		Subject:    subject,
 		Body:       body,
+	}
+}
+
+func snapshotMessage(id MessageID) Message {
+	return Message{
+		ID:       id,
+		ThreadID: ThreadID(id),
+		Sender:   testAddress(1),
+		Parts: []MessagePart{{
+			Name:        "body",
+			ContentType: DefaultContentType,
+			Encoding:    EncodingUTF8,
+			Bytes:       []byte("body"),
+			Size:        len("body"),
+		}},
 	}
 }
 
