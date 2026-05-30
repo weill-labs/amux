@@ -1,22 +1,22 @@
 # Capture Architecture
 
-Status: design parent for [LAB-1643](https://linear.app/weill-labs/issue/LAB-1643/design-split-amux-capture-into-server-side-default-client-side-opt-in). This document records the target architecture. Implementation is tracked separately in [LAB-1644](https://linear.app/weill-labs/issue/LAB-1644/implement-server-side-capture-path) and [LAB-1645](https://linear.app/weill-labs/issue/LAB-1645/make-client-side-capture-non-blocking-via-prevgrid-snapshot).
+Status: **implemented.** Design parent for [LAB-1643](https://linear.app/weill-labs/issue/LAB-1643/design-split-amux-capture-into-server-side-default-client-side-opt-in). The architecture below has shipped: server-side capture is the default for single-pane ([LAB-1753](https://linear.app/weill-labs/issue/LAB-1753)) and full-session ([LAB-1760](https://linear.app/weill-labs/issue/LAB-1760)) captures, and client-side `--client` capture reads a non-blocking `prevGrid` snapshot ([LAB-1645](https://linear.app/weill-labs/issue/LAB-1645/make-client-side-capture-non-blocking-via-prevgrid-snapshot)). The Design, Migration Path, and Decision Log sections are retained as the design record. Remaining follow-ups are called out inline: deprecating the redundant `--display` alias and adding structured overlay metadata to JSON output.
 
 ## Motivation
 
-The current `amux capture` API conflates two distinct questions an agent might be asking:
+Before this split, the `amux capture` API conflated two distinct questions an agent might be asking:
 
 - **Q1: "What is in the pane?"** Show me what the process has output, regardless of any user's current viewport state. Source of truth: `mux.Pane.emulator` cells on the server.
 - **Q2: "What does the user see right now?"** Show me the rendered terminal output from the user's perspective, including transient client-side state such as copy mode, pane labels, drop indicators, and prompts. Source of truth: the diff renderer's `prevGrid` on a specific attached client.
 
-Today both questions go through the same code path: `amux capture` forwards `MsgTypeCaptureRequest` to the active rendering client, which re-runs the full compositor on its render-actor goroutine. This:
+Both questions went through the same code path: `amux capture` forwarded `MsgTypeCaptureRequest` to the active rendering client, which re-ran the full compositor on its render-actor goroutine. That:
 
-- Causes the flicker bug tracked in [LAB-1634](https://linear.app/weill-labs/issue/LAB-1634/pane-running-nvim-transiently-loses-background-color-after-amux) through synchronous actor blocking plus a post-capture `msgCh` drain that burst-emits pending frames.
-- Requires a client to be attached. Captures fail or wait through `waitForCaptureClient` retries when no client is attached.
-- Queues multiple captures behind each other on a single client's actor.
-- Does not answer Q2 well either because it re-renders instead of reading the already-painted `prevGrid`.
+- Caused the flicker bug tracked in [LAB-1634](https://linear.app/weill-labs/issue/LAB-1634/pane-running-nvim-transiently-loses-background-color-after-amux) through synchronous actor blocking plus a post-capture `msgCh` drain that burst-emitted pending frames.
+- Required a client to be attached. Captures failed or waited through `waitForCaptureClient` retries when no client was attached.
+- Queued multiple captures behind each other on a single client's actor.
+- Did not answer Q2 well either, because it re-rendered instead of reading the already-painted `prevGrid`.
 
-tmux's `capture-pane` answers Q1 with a server-local read of `wp->base.grid` and is immune to the background-color loss seen in LAB-1634. amux should adopt the same architectural pattern for Q1 while preserving a path for Q2.
+tmux's `capture-pane` answers Q1 with a server-local read of `wp->base.grid` and is immune to the background-color loss seen in LAB-1634. amux adopted the same architectural pattern for Q1 while preserving a path for Q2.
 
 ## Design
 
@@ -36,23 +36,23 @@ amux capture --format json    # structured server-side data
 - Expected latency is microseconds because capture is a memory walk.
 - Capture works with zero clients attached.
 
-Implementation is tracked in [LAB-1644](https://linear.app/weill-labs/issue/LAB-1644/implement-server-side-capture-path).
+Implemented in [LAB-1644](https://linear.app/weill-labs/issue/LAB-1644/implement-server-side-capture-path), with the default flips in [LAB-1753](https://linear.app/weill-labs/issue/LAB-1753) and [LAB-1760](https://linear.app/weill-labs/issue/LAB-1760).
 
 ### Client-Side Capture, Opt-In User Perspective
 
 ```bash
 amux capture --client         # what the user sees right now
 amux capture --client pane-3  # one pane from the user's view, including overlays
-amux capture --display        # alias for --client; target: reads prevGrid
+amux capture --display        # alias for --client; reads the prevGrid snapshot
 ```
 
 - Reads `Compositor.prevGrid` directly through an `atomic.Pointer[ScreenGrid]` snapshot mechanism.
-- Does not block the actor. Today's `--display` blocks briefly through `withRendererActorValue`; the target design promotes that data to a published snapshot.
+- Does not block the actor: `--client`/`--display` read the published `prevGridSnap` (`atomic.Pointer[ScreenGrid]`) via an atomic load in `CaptureDisplay`, rather than running on the render actor.
 - Includes what the user actually sees: copy-mode scrollback views, overlays, prompts, and drop indicators.
 - Expected latency is microseconds because capture is a cached grid read.
 - The mode is per-client. When multiple clients are attached, a later implementation can accept `--for-client <id>` to disambiguate.
 
-Implementation is tracked in [LAB-1645](https://linear.app/weill-labs/issue/LAB-1645/make-client-side-capture-non-blocking-via-prevgrid-snapshot).
+Implemented in [LAB-1645](https://linear.app/weill-labs/issue/LAB-1645/make-client-side-capture-non-blocking-via-prevgrid-snapshot).
 
 ## Why Both Modes
 
@@ -82,17 +82,17 @@ With both modes available, agents can diff server and client output to detect se
 diff <(amux capture pane-3) <(amux capture --client pane-3)
 ```
 
-That diagnostic primitive does not exist today. The bug classes it would reveal include [LAB-1634](https://linear.app/weill-labs/issue/LAB-1634/pane-running-nvim-transiently-loses-background-color-after-amux) and [LAB-1610](https://linear.app/weill-labs/issue/LAB-1610/diff-renderer-paints-stale-and-missing-pane-headers-in-multi-row).
+Both capture modes now exist, so this diagnostic works today. The bug classes it reveals include [LAB-1634](https://linear.app/weill-labs/issue/LAB-1634/pane-running-nvim-transiently-loses-background-color-after-amux) and [LAB-1610](https://linear.app/weill-labs/issue/LAB-1610/diff-renderer-paints-stale-and-missing-pane-headers-in-multi-row).
 
 ## Overlay Handling For `--client`
 
 Three options exist for how `--client` should include UI overlays:
 
-1. **Read `prevGrid` only.** Whatever is painted is what capture returns. The diff renderer already painted overlays into `prevGrid`. This is the simplest option and addresses the visual inspection use case.
-2. **Read `prevGrid` plus emit a structured overlay summary.** Include the client and active overlay state alongside the grid. This is useful for agents that need to detect states such as "user is in copy mode" without parsing visuals. This best fits `--format json`.
-3. **Re-render with current overlays.** This is today's behavior. It is slow and flicker-prone; keep it only if a flag-based deprecation path requires temporary compatibility.
+1. **Read `prevGrid` only.** Whatever is painted is what capture returns. The diff renderer already painted overlays into `prevGrid`. This is the simplest option and addresses the visual inspection use case. **Shipped.**
+2. **Read `prevGrid` plus emit a structured overlay summary.** Include the client and active overlay state alongside the grid. This is useful for agents that need to detect states such as "user is in copy mode" without parsing visuals. This best fits `--format json`. (Follow-up, not yet shipped.)
+3. **Re-render with current overlays.** The pre-split behavior: slow and flicker-prone. The design moved away from this.
 
-Recommendation: ship option 1 first, then add option 2 to JSON output. Option 3 is the path this design moves away from.
+Outcome: option 1 shipped. Option 2 remains a JSON follow-up.
 
 ## Migration Path
 
@@ -115,6 +115,8 @@ Existing scripts continue working. Most scripts call `amux capture --format json
 - [LAB-1645](https://linear.app/weill-labs/issue/LAB-1645/make-client-side-capture-non-blocking-via-prevgrid-snapshot) - child issue for non-blocking client-side capture.
 
 ## Effort Estimate
+
+_Original pre-implementation estimate, retained as a planning record. The work shipped across the LAB-1644 / LAB-1645 / LAB-1753 / LAB-1760 PRs._
 
 - **Single-pane text/JSON capture server-side**: about half a day. The pieces already exist; this calls them from a different goroutine. It fixes most of LAB-1634's visible flicker because most agent capture invocations are single-pane.
 - **Full-session composited capture server-side**: two to three days. This is mostly mechanical, centered on a `serverPaneData` adapter wrapping `*mux.Pane`, with one design call about how to handle client UI state.
