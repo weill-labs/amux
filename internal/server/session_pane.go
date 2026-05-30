@@ -45,13 +45,17 @@ func (s *Session) closePaneAsync(pane *mux.Pane) {
 	if pane == nil {
 		return
 	}
-	closePane := s.paneCloser
-	if closePane == nil {
-		closePane = func(pane *mux.Pane) {
-			_ = pane.Close()
-		}
+	if s.paneCloser != nil {
+		go s.paneCloser(pane)
+		return
 	}
-	go closePane(pane)
+
+	closeRequested := make(chan struct{})
+	go func() {
+		_ = pane.Close()
+		close(closeRequested)
+	}()
+	<-closeRequested
 }
 
 func cleanupFailedPaneMutation(sess *Session, pane *mux.Pane, err error) commandMutationResult {
@@ -426,19 +430,6 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 		return nil, err
 	}
 	return pane, nil
-}
-
-func effectiveRespawnDir(pane *mux.Pane) string {
-	if pane == nil {
-		return ""
-	}
-	if cwd := pane.LiveCwd(); cwd != "" {
-		return cwd
-	}
-	if cwd, _ := pane.DetectCwdBranch(); cwd != "" {
-		return cwd
-	}
-	return pane.Meta.Dir
 }
 
 func clonePaneMetaForReplacement(meta mux.PaneMeta) mux.PaneMeta {
