@@ -314,7 +314,26 @@ func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Res
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	if err := client.client.Send(&Message{
+	return sendRemoteChooser(client.client, layout, hostName)
+}
+
+// chooserSender is the subset of the client connection that sendRemoteChooser
+// needs, abstracted so the empty-check/send/flush logic is unit-testable
+// without a live client connection.
+type chooserSender interface {
+	Send(*Message) error
+	Flush() error
+}
+
+// sendRemoteChooser pushes the remote pane chooser to the client, or fails
+// loudly when the remote has no panes to choose. Without the empty check the
+// client shows only a bell (ShowRemoteChooser returns false on an empty list)
+// while the command reports success — a silent no-op.
+func sendRemoteChooser(sender chooserSender, layout *proto.LayoutSnapshot, hostName string) commandpkg.Result {
+	if len(remoteLayoutPaneEntries(layout)) == 0 {
+		return commandpkg.Result{Err: fmt.Errorf("no remote panes on %s", hostName)}
+	}
+	if err := sender.Send(&Message{
 		Type: MsgTypeChooser,
 		Chooser: &proto.ChooserRequest{
 			Kind:   proto.ChooserKindRemotePanes,
@@ -324,7 +343,7 @@ func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Res
 	}); err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	_ = client.client.Flush()
+	_ = sender.Flush()
 	return commandpkg.Result{Output: fmt.Sprintf("Opened remote pane chooser for %s\n", hostName)}
 }
 
