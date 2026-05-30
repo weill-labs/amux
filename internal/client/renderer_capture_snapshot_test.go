@@ -182,6 +182,22 @@ func sameScrollbackBacking(a, b []paneBufferLine) bool {
 	return false
 }
 
+func TestSnapshotPaneDataMailboxUnreadCount(t *testing.T) {
+	t.Parallel()
+
+	pane := &snapshotPaneData{
+		info: proto.PaneSnapshot{
+			Mailbox: &proto.CaptureMailbox{Unread: 5},
+		},
+	}
+	if got := pane.MailboxUnreadCount(); got != 5 {
+		t.Fatalf("MailboxUnreadCount() = %d, want 5", got)
+	}
+	if got := (&snapshotPaneData{}).MailboxUnreadCount(); got != 0 {
+		t.Fatalf("nil mailbox MailboxUnreadCount() = %d, want 0", got)
+	}
+}
+
 func TestCapturePaneRenderSnapshotIncrementalScrollback(t *testing.T) {
 	t.Parallel()
 

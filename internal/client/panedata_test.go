@@ -143,6 +143,7 @@ func TestPaneDataAccessors(t *testing.T) {
 			Task:          "tail -f",
 			Color:         "89dceb",
 			Idle:          true,
+			Mailbox:       &proto.CaptureMailbox{Unread: 7},
 		},
 	}
 
@@ -169,6 +170,12 @@ func TestPaneDataAccessors(t *testing.T) {
 	}
 	if !pane.Idle() {
 		t.Fatal("Idle() = false, want true")
+	}
+	if got := pane.MailboxUnreadCount(); got != 7 {
+		t.Fatalf("MailboxUnreadCount() = %d, want 7", got)
+	}
+	if got := (&clientPaneData{}).MailboxUnreadCount(); got != 0 {
+		t.Fatalf("nil mailbox MailboxUnreadCount() = %d, want 0", got)
 	}
 	if pane.InCopyMode() {
 		t.Fatal("InCopyMode() = true, want false")

@@ -852,6 +852,63 @@ func TestBuildStatusCellsUnreadBadgeUsesYellow(t *testing.T) {
 	}
 }
 
+func TestPaneStatusUnreadBadgeEdges(t *testing.T) {
+	t.Parallel()
+
+	if got := paneStatusMailboxBadgeText(0); got != "" {
+		t.Fatalf("zero unread badge = %q, want empty", got)
+	}
+	if got := paneStatusMailboxBadgeText(10); got != "msg:9+" {
+		t.Fatalf("capped unread badge = %q, want msg:9+", got)
+	}
+	if got := paneStatusMailboxUnreadCount(&statusPaneData{mailboxUnread: -1}); got != 0 {
+		t.Fatalf("negative unread count = %d, want 0", got)
+	}
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 12, 4)
+	grid := NewScreenGrid(12, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:            1,
+		name:          "pane-1",
+		color:         config.TextColorHex,
+		mailboxUnread: 4,
+	})
+	row := gridRowText(grid, 0, cell.W)
+	if strings.Contains(row, "msg:") {
+		t.Fatalf("narrow status row %q should hide unread badge", row)
+	}
+	if !strings.Contains(row, "[pane-1]") {
+		t.Fatalf("narrow status row %q should keep pane identity", row)
+	}
+}
+
+func TestRenderPaneStatusUnreadBadgeDoesNotOverlapMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 64, 4)
+	buf := strings.Builder{}
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id:            1,
+		name:          "pane-1",
+		color:         config.TextColorHex,
+		mailboxUnread: 3,
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-1993"},
+		},
+		host: "gpu",
+		task: "build",
+	})
+
+	line := strings.TrimRight(MaterializeGrid(buf.String(), cell.W, 1), " ")
+	want := "● [pane-1] msg:3 #42, LAB-1993 @gpu build"
+	if line != want {
+		t.Fatalf("status line = %q, want %q", line, want)
+	}
+}
+
 func TestRenderPaneStatusPowerlineFullANSI(t *testing.T) {
 	t.Parallel()
 
