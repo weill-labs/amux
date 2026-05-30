@@ -286,15 +286,25 @@ func CloneCaptureMailbox(src *CaptureMailbox) *CaptureMailbox {
 		return EmptyCaptureMailbox()
 	}
 	dst := *src
-	dst.LatestUnread = append([]CaptureMailboxMessage(nil), src.LatestUnread...)
-	if dst.LatestUnread == nil {
-		dst.LatestUnread = []CaptureMailboxMessage{}
-	}
+	dst.LatestUnread = cloneCaptureMailboxMessages(src.LatestUnread)
 	dst.Topics = make(map[string]int, len(src.Topics))
 	for topic, count := range src.Topics {
 		dst.Topics[topic] = count
 	}
 	return &dst
+}
+
+func cloneCaptureMailboxMessages(src []CaptureMailboxMessage) []CaptureMailboxMessage {
+	if src == nil {
+		return []CaptureMailboxMessage{}
+	}
+	dst := make([]CaptureMailboxMessage, len(src))
+	for i, msg := range src {
+		dst[i] = msg
+		dst[i].Topics = append([]string(nil), msg.Topics...)
+		dst[i].Groups = append([]string(nil), msg.Groups...)
+	}
+	return dst
 }
 
 // FindCellInSnapshot finds a leaf cell by pane ID in a CellSnapshot tree.

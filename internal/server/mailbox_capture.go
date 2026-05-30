@@ -63,7 +63,7 @@ func mailboxCaptureSummaryFromUnread(unread []mailbox.DeliverySummary) *proto.Ca
 }
 
 func mailboxCaptureMessage(delivery mailbox.DeliverySummary) proto.CaptureMailboxMessage {
-	msg := proto.CaptureMailboxMessage{
+	return proto.CaptureMailboxMessage{
 		ID: string(delivery.MessageID),
 		From: proto.MailboxAddress{
 			ID:   delivery.Sender.ID,
@@ -80,7 +80,6 @@ func mailboxCaptureMessage(delivery mailbox.DeliverySummary) proto.CaptureMailbo
 		BodySize:    delivery.BodySize,
 		PartCount:   delivery.PartCount,
 	}
-	return msg
 }
 
 func formatMailboxTime(t time.Time) string {
