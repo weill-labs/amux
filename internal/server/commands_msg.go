@@ -390,7 +390,7 @@ func runMsgSend(mctx *MutationContext, actorPaneID uint32, opts msgSendOptions) 
 	if err != nil {
 		return "", err
 	}
-	msg, err := mctx.sess.ensureMailbox().Send(mailbox.SendRequest{
+	msg, err := mctx.sess.sendMailboxMessage(mailbox.SendRequest{
 		Sender:     sender,
 		Recipients: recipients,
 		Topics:     opts.topics,
@@ -429,7 +429,7 @@ func runMsgRead(mctx *MutationContext, actorPaneID uint32, opts msgReadOptions) 
 	if err != nil {
 		return "", err
 	}
-	msg, delivery, err := mctx.sess.ensureMailbox().Read(opts.id, recipient.ID, mailbox.ReadOptions{Peek: opts.peek})
+	msg, delivery, err := mctx.sess.readMailboxMessage(opts.id, recipient.ID, mailbox.ReadOptions{Peek: opts.peek})
 	if err != nil {
 		return "", err
 	}
@@ -445,7 +445,7 @@ func runMsgAck(mctx *MutationContext, actorPaneID uint32, opts msgAckOptions) (s
 	if err != nil {
 		return "", err
 	}
-	delivery, err := mctx.sess.ensureMailbox().Ack(opts.id, recipient.ID, mailbox.AckRequest{Status: opts.status, Note: opts.note})
+	delivery, err := mctx.sess.ackMailboxMessage(opts.id, recipient.ID, mailbox.AckRequest{Status: opts.status, Note: opts.note})
 	if err != nil {
 		return "", err
 	}
