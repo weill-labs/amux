@@ -267,6 +267,71 @@ func TestMsgCommandReplyCanAckParent(t *testing.T) {
 	}
 }
 
+func TestMsgCommandReplyRecipientInferenceEdges(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	root := runTestCommand(t, srv, sess, "msg", "send",
+		"--from", "pane-1",
+		"--to", "pane-2",
+		"--topic", "root-topic",
+		"--group", "root-group",
+		"--body", "root",
+		"--format", "json",
+	)
+	if root.cmdErr != "" {
+		t.Fatalf("msg send root error: %s", root.cmdErr)
+	}
+	rootJSON := parseMsgCommandSendJSON(t, root.output)
+
+	fromOriginalSender := runTestCommandWithActor(t, srv, sess, 1, "msg", "reply", rootJSON.ID, "--body", "sender follow-up", "--format", "json")
+	if fromOriginalSender.cmdErr != "" {
+		t.Fatalf("msg reply from original sender error: %s", fromOriginalSender.cmdErr)
+	}
+	fromOriginalSenderJSON := parseMsgCommandSendJSON(t, fromOriginalSender.output)
+	if len(fromOriginalSenderJSON.Recipients) != 1 || fromOriginalSenderJSON.Recipients[0].Name != "pane-2" {
+		t.Fatalf("original sender reply recipients = %#v, want original recipient pane-2", fromOriginalSenderJSON.Recipients)
+	}
+
+	explicitTo := runTestCommandWithActor(t, srv, sess, 3, "msg", "reply", rootJSON.ID,
+		"--to", "pane-1",
+		"--topic", "override-topic",
+		"--group", "override-group",
+		"--body", "observer reply",
+		"--format", "json",
+	)
+	if explicitTo.cmdErr != "" {
+		t.Fatalf("msg reply with explicit recipient error: %s", explicitTo.cmdErr)
+	}
+	explicitToJSON := parseMsgCommandSendJSON(t, explicitTo.output)
+	if len(explicitToJSON.Recipients) != 1 || explicitToJSON.Recipients[0].Name != "pane-1" {
+		t.Fatalf("explicit reply recipients = %#v, want pane-1", explicitToJSON.Recipients)
+	}
+	if got := strings.Join(explicitToJSON.Topics, ","); got != "override-topic" {
+		t.Fatalf("explicit reply topics = %q, want override-topic", got)
+	}
+	if got := strings.Join(explicitToJSON.Groups, ","); got != "override-group" {
+		t.Fatalf("explicit reply groups = %q, want override-group", got)
+	}
+
+	observer := runTestCommandWithActor(t, srv, sess, 3, "msg", "reply", rootJSON.ID, "--body", "cannot infer")
+	if observer.cmdErr == "" || !strings.Contains(observer.cmdErr, "pass --to") {
+		t.Fatalf("observer reply error = %q, want pass --to", observer.cmdErr)
+	}
+
+	self := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-1", "--body", "self", "--format", "json")
+	if self.cmdErr != "" {
+		t.Fatalf("msg send self error: %s", self.cmdErr)
+	}
+	selfJSON := parseMsgCommandSendJSON(t, self.output)
+	selfReply := runTestCommandWithActor(t, srv, sess, 1, "msg", "reply", selfJSON.ID, "--body", "cannot infer")
+	if selfReply.cmdErr == "" || !strings.Contains(selfReply.cmdErr, "pass --to") {
+		t.Fatalf("self reply error = %q, want pass --to", selfReply.cmdErr)
+	}
+}
+
 func TestMsgCommandTextAndDetailedJSON(t *testing.T) {
 	t.Parallel()
 
@@ -446,6 +511,11 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			name: "unknown reply flag",
 			args: []string{"reply", "msg-000001", "--bad"},
 			want: "usage: msg reply",
+		},
+		{
+			name: "missing reply body value",
+			args: []string{"reply", "msg-000001", "--body"},
+			want: "missing value for --body",
 		},
 		{
 			name: "unknown read flag",
