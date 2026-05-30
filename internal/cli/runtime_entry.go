@@ -68,6 +68,7 @@ func defaultRuntime(buildCommit string) Runtime {
 	return Runtime{
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
+		Stdin:  os.Stdin,
 		AttachSession: func(sessionName string) error {
 			return client.RunSession(sessionName, term.GetSize)
 		},

@@ -15,6 +15,7 @@ const (
 	diagUsage         = "usage: amux _diag [dump|goroutines|heap|info] [--output <path>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
+	msgUsage          = "usage: amux msg <send|inbox|read|ack> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
 	remoteUsage       = "usage: amux remote <add|list|rm|panes|status|attach|detach|resize> ..."
 	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
@@ -62,6 +63,7 @@ var commandUsageByName = map[string]string{
 	"list-windows":     listWindowsUsage,
 	"log":              logUsage,
 	"meta":             metaUsage,
+	"msg":              msgUsage,
 	"mouse":            mouseUsage,
 	"move":             moveUsage,
 	"new":              "usage: amux new [name]",
@@ -224,6 +226,11 @@ Usage:
   amux [-s session] meta get <pane> [key]
   amux [-s session] meta rm <pane> key [key...]
                                        Manage generic pane metadata
+  amux [-s session] msg send --from <pane> --to <pane[,pane...]> [--subject text] (--body text|--body-file path|stdin) [--format json]
+  amux [-s session] msg inbox [pane] [--unread] [--format json]
+  amux [-s session] msg read <msg-id> [--for pane] [--peek] [--format json]
+  amux [-s session] msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]
+                                       Manage pane mailbox messages
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name

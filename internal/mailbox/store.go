@@ -114,6 +114,10 @@ type ReadOptions struct {
 	Peek bool
 }
 
+type ListOptions struct {
+	UnreadOnly bool
+}
+
 type AckRequest struct {
 	Status string
 	Note   string
@@ -276,6 +280,10 @@ func (s *Store) Message(id MessageID) (Message, bool) {
 }
 
 func (s *Store) ListUnread(recipientID uint32) ([]DeliverySummary, error) {
+	return s.List(recipientID, ListOptions{UnreadOnly: true})
+}
+
+func (s *Store) List(recipientID uint32, opts ListOptions) ([]DeliverySummary, error) {
 	if s == nil {
 		return nil, fmt.Errorf("mailbox store is nil")
 	}
@@ -288,9 +296,10 @@ func (s *Store) ListUnread(recipientID uint32) ([]DeliverySummary, error) {
 	}
 	ids := make([]MessageID, 0, len(byMessage))
 	for id, delivery := range byMessage {
-		if delivery.ReadAt.IsZero() {
-			ids = append(ids, id)
+		if opts.UnreadOnly && (!delivery.ReadAt.IsZero() || !delivery.AckedAt.IsZero()) {
+			continue
 		}
+		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool {
 		return ids[i] < ids[j]

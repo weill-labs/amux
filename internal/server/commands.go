@@ -223,6 +223,7 @@ var commandRegistry = map[string]CommandHandler{
 	"copy-mode":           cmdCopyMode,
 	"cursor":              cmdCursor,
 	"meta":                cmdMeta,
+	"msg":                 cmdMsg,
 	"wait":                cmdWait,
 	"_layout-json":        cmdLayoutJSON,
 	"events":              cmdEvents,

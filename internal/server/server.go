@@ -110,6 +110,10 @@ type Session struct {
 	// panes are being reconstructed.
 	mirror *mirror.Manager
 
+	// Mailbox stores session-scoped pane messages. It is mutated only on the
+	// session event loop.
+	mailbox *mailbox.Store
+
 	// Crash checkpoint coordination owns debounce/periodic scheduling and disk writes.
 	checkpointCoordinator crashCheckpointCoordinator
 
@@ -520,6 +524,9 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 	sess.input = newInputRouter()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.undo = newUndoManager(undoManagerConfig{})
+	sess.mailbox = mailbox.NewStore(mailbox.Options{Now: func() time.Time {
+		return sess.clock().Now()
+	}})
 	sess.startEventLoop()
 	return sess
 }
