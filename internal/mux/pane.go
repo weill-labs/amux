@@ -59,6 +59,7 @@ func paneExecCommand(shell string, id uint32, sessionName, dir, colorProfile str
 	cmd.Env = paneCommandEnvWithProfile(os.Environ(), id, sessionName, colorProfile)
 	if dir != "" {
 		cmd.Dir = dir
+		cmd.Env = envWithValue(cmd.Env, "PWD", dir)
 	}
 	return cmd
 }
@@ -266,6 +267,26 @@ func paneCommandEnvWithProfile(base []string, paneID uint32, sessionName, colorP
 		env = append(env, fmt.Sprintf("%s=%s", termprofile.EnvKey, colorProfile))
 	}
 	return env
+}
+
+func envWithValue(env []string, key, value string) []string {
+	prefix := key + "="
+	next := make([]string, 0, len(env)+1)
+	replaced := false
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			if !replaced {
+				next = append(next, prefix+value)
+				replaced = true
+			}
+			continue
+		}
+		next = append(next, entry)
+	}
+	if !replaced {
+		next = append(next, prefix+value)
+	}
+	return next
 }
 
 type paneEnv []string

@@ -104,6 +104,8 @@ func resolveInheritedPaneDir(sess *Session, pane *mux.Pane) string {
 type respawnTarget struct {
 	pane         *mux.Pane
 	colorProfile string
+	startDir     string
+	metaDir      string
 }
 
 func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool) commandpkg.Result {
@@ -635,11 +637,21 @@ func cmdRespawn(ctx *CommandContext) {
 		return
 	}
 
+	startDir := target.startDir
+	if startDir == "" {
+		cwd, _ := target.pane.DetectCwdBranch()
+		if cwd != "" {
+			startDir = cwd
+		}
+	}
+	if startDir == "" {
+		startDir = target.metaDir
+	}
 	newPane, err := ctx.Sess.buildConfiguredLocalPane(ctx.Srv, localPaneBuildRequest{
 		sourcePane:   target.pane,
 		sessionName:  ctx.Sess.Name,
 		colorProfile: target.colorProfile,
-		startDir:     effectiveRespawnDir(target.pane),
+		startDir:     startDir,
 		onOutput:     ctx.Sess.paneOutputCallback(),
 		onExit:       ctx.Sess.paneExitCallback(),
 	})
@@ -694,6 +706,8 @@ func queryRespawnTarget(sess *Session, actorPaneID uint32, args []string) (respa
 		return respawnTarget{
 			pane:         pane,
 			colorProfile: sess.paneLaunchColorProfile(nil),
+			startDir:     pane.LiveCwd(),
+			metaDir:      pane.Meta.Dir,
 		}, nil
 	})
 }

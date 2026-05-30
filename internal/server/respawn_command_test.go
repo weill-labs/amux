@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
+	sess.DisablePaneMetaAutoRefresh = true
 
 	startDir := t.TempDir()
 	nextDir := t.TempDir()
@@ -63,7 +65,9 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 
 	pane.SetRetainedHistory([]string{"base-1", "base-2"})
 	pane.FeedOutput([]byte("stale-screen"))
-	pane.ApplyCwdBranch(nextDir, "feat/respawn")
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.findPaneByID(pane.ID).ApplyCwdBranch(nextDir, "feat/respawn")
+	})
 
 	oldPID := pane.ProcessPid()
 	if oldPID == 0 {
@@ -201,6 +205,7 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	}
 
 	waitForFileString(t, cwdFile, nextDirResolved)
+	waitForPaneClosed(t, pane)
 	waitForProcessExit(t, oldPID)
 }
 
@@ -253,6 +258,65 @@ func TestQueryRespawnTargetCapturesColorProfile(t *testing.T) {
 	}
 }
 
+func TestQueryRespawnTargetCapturesStartDir(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-respawn-target-start-dir")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	liveDir := t.TempDir()
+	pane := newTestPane(sess, 1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+		pane.ApplyCwdBranch(liveDir, "feat/respawn")
+	})
+
+	target, err := queryRespawnTarget(sess, 0, []string{"pane-1"})
+	if err != nil {
+		t.Fatalf("queryRespawnTarget: %v", err)
+	}
+	if target.startDir != liveDir {
+		t.Fatalf("respawn target start dir = %q, want %q", target.startDir, liveDir)
+	}
+}
+
+func TestQueryRespawnTargetCapturesMetaDir(t *testing.T) {
+	t.Parallel()
+
+	metaDir := t.TempDir()
+	sess := newSession("test-respawn-target-meta-dir")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	pane := newTestPane(sess, 1, "pane-1")
+	pane.Meta.Dir = metaDir
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+	})
+
+	target, err := queryRespawnTarget(sess, 0, []string{"pane-1"})
+	if err != nil {
+		t.Fatalf("queryRespawnTarget: %v", err)
+	}
+	if target.startDir != "" {
+		t.Fatalf("respawn target start dir = %q, want empty live cwd", target.startDir)
+	}
+	if target.metaDir != metaDir {
+		t.Fatalf("respawn target meta dir = %q, want %q", target.metaDir, metaDir)
+	}
+}
+
 func mustCreatePaneWithMeta(t *testing.T, sess *Session, srv *Server, meta mux.PaneMeta, cols, rows int) *mux.Pane {
 	t.Helper()
 
@@ -271,8 +335,8 @@ func writeRespawnTestShell(t *testing.T, markerFile, cwdFile string) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "respawn-test-shell.sh")
 	script := "#!/bin/sh\n" +
+		"/bin/pwd -P > " + strconv.Quote(cwdFile) + "\n" +
 		"printf x >> " + strconv.Quote(markerFile) + "\n" +
-		"pwd > " + strconv.Quote(cwdFile) + "\n" +
 		"while [ \"$1\" = \"-l\" ]; do\n\tshift\n" +
 		"done\n" +
 		"while IFS= read -r line; do\n\teval \"$line\"\n" +
@@ -333,6 +397,17 @@ func waitForProcessExit(t *testing.T, pid int) {
 	waitUntilRespawn(t, respawnWaitTimeout, func() bool {
 		return syscall.Kill(pid, 0) != nil
 	})
+}
+
+func waitForPaneClosed(t *testing.T, pane *mux.Pane) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), respawnWaitTimeout)
+	defer cancel()
+
+	if err := pane.WaitClosed(ctx); err != nil {
+		t.Fatalf("timed out waiting for pane close: %v", err)
+	}
 }
 
 func waitUntilRespawn(t *testing.T, timeout time.Duration, cond func() bool, detailFns ...func() string) {
