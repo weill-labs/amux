@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/client"
+	"github.com/weill-labs/amux/internal/mcp"
 	"github.com/weill-labs/amux/internal/terminfo"
 	"golang.org/x/term"
 )
@@ -83,8 +85,19 @@ func defaultRuntime(buildCommit string) Runtime {
 		},
 		RunServerCommand: RunServerCommand,
 		RunEventsCommand: RunEventsCommand,
-		CheckNesting:     CheckNesting,
-		ShouldTakeover:   ShouldAttemptTakeover,
+		RunMCPServer: func(sessionName string) {
+			server := mcp.NewServer(mcp.ServerOptions{
+				Runner:        mcp.ServerCommandRunner{SessionName: sessionName, ActorPaneID: actorPaneIDFromEnv()},
+				ServerName:    "amux",
+				ServerVersion: buildVersion(buildCommit),
+			})
+			if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "amux mcp-server: %v\n", err)
+				os.Exit(1)
+			}
+		},
+		CheckNesting:   CheckNesting,
+		ShouldTakeover: ShouldAttemptTakeover,
 		TryTakeover: func(sessionName string) bool {
 			return TryTakeover(sessionName, buildVersion(buildCommit))
 		},

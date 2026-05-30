@@ -1036,6 +1036,9 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 				args:    append([]string(nil), args...),
 			})
 		},
+		RunMCPServer: func(sessionName string) {
+			h.calls = append(h.calls, cliCall{kind: "mcp-server", session: sessionName})
+		},
 		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
 		},

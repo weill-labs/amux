@@ -20,6 +20,7 @@ type Runtime struct {
 	RunServer          func(string, bool)
 	RunServerCommand   func(string, string, []string)
 	RunEventsCommand   func(string, []string)
+	RunMCPServer       func(string)
 	CheckNesting       func(string)
 	ShouldTakeover     func() bool
 	TryTakeover        func(string) bool
@@ -46,6 +47,7 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, remoteCLICommands())
 	addCLICommands(commands, msgCLICommands())
+	addCLICommands(commands, mcpCLICommands())
 	addCLICommands(commands, doctorCLICommands())
 	commands["reload-server"] = func(inv invocation, args []string) int {
 		return inv.runSessionCommand("reload-server", PrependReloadExecPathArg(reload.ResolveExecutable, args))

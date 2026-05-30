@@ -15,6 +15,7 @@ const (
 	diagUsage         = "usage: amux _diag [dump|goroutines|heap|info] [--output <path>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
+	mcpServerUsage    = "usage: amux mcp-server"
 	msgUsage          = "usage: amux msg <send|inbox|read|ack> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
 	remoteUsage       = "usage: amux remote <add|list|rm|panes|status|attach|detach|resize> ..."
@@ -63,6 +64,7 @@ var commandUsageByName = map[string]string{
 	"list-windows":     listWindowsUsage,
 	"log":              logUsage,
 	"meta":             metaUsage,
+	"mcp-server":       mcpServerUsage,
 	"msg":              msgUsage,
 	"mouse":            mouseUsage,
 	"move":             moveUsage,
@@ -226,6 +228,7 @@ Usage:
   amux [-s session] meta get <pane> [key]
   amux [-s session] meta rm <pane> key [key...]
                                        Manage generic pane metadata
+  amux [-s session] mcp-server         Run the amux MCP server over stdio
   amux [-s session] msg send --from <pane> --to <pane[,pane...]> [--subject text] (--body text|--body-file path|stdin) [--format json]
   amux [-s session] msg inbox [pane] [--unread] [--format json]
   amux [-s session] msg read <msg-id> [--for pane] [--peek] [--format json]

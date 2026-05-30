@@ -482,6 +482,27 @@ The old `amux _diag` entrypoint is deprecated. `amux _diag dump` and
 `amux _diag heap` remain as compatibility aliases during the deprecation window;
 new scripts should use `amux debug dump` and `amux debug heap --raw`.
 
+### MCP Mailbox Server
+
+`amux mcp-server` runs a local MCP server over stdio for the selected amux
+session. Configure MCP clients that accept command/args servers with:
+
+```json
+{
+  "mcpServers": {
+    "amux": {
+      "command": "amux",
+      "args": ["-s", "main", "mcp-server"]
+    }
+  }
+}
+```
+
+The server exposes pane mailbox tools for sending messages, listing an inbox,
+reading a message, acknowledging a delivery, and waiting for the next matching
+message. The tools use the same mailbox semantics as `amux msg` and `amux wait
+msg`, including pane references by name, numeric ID, or prefix.
+
 ## AI Agent Support
 
 Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the instruction file for coding agents in this repo.
