@@ -143,6 +143,9 @@ func (cr *ClientRenderer) emitUIEvent(name string) {
 
 func (cr *ClientRenderer) emitUIEvents(names []string) {
 	for _, name := range names {
+		if name == "" {
+			continue
+		}
 		cr.emitUIEvent(name)
 	}
 }

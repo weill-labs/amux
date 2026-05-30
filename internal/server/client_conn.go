@@ -293,6 +293,10 @@ func cloneMessage(msg *Message) *Message {
 	cp.PaneData = append([]byte(nil), msg.PaneData...)
 	cp.History = append([]string(nil), msg.History...)
 	cp.StyledHistory = proto.CloneStyledLines(msg.StyledHistory)
+	if msg.Chooser != nil {
+		chooser := *msg.Chooser
+		cp.Chooser = &chooser
+	}
 	return &cp
 }
 

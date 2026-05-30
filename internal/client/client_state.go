@@ -62,9 +62,6 @@ func cloneChooserState(src *chooserState) *chooserState {
 		return nil
 	}
 	dst := *src
-	if src.windows != nil {
-		dst.windows = append([]proto.WindowSnapshot(nil), src.windows...)
-	}
 	if src.items != nil {
 		dst.items = append([]chooserItem(nil), src.items...)
 	}

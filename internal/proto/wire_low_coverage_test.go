@@ -167,6 +167,17 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "chooser",
+			msg: Message{
+				Type: MsgTypeChooser,
+				Chooser: &ChooserRequest{
+					Kind:   ChooserKindRemotePanes,
+					Host:   "hetzner-1",
+					Layout: sampleLayoutSnapshot(),
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2421,6 +2422,66 @@ func TestChooserTabTogglesTreeWindow(t *testing.T) {
 	cr.HandleChooserInput([]byte{'\t'})
 	if ov := cr.chooserOverlay(); ov.Toggle.Selected != 1 {
 		t.Fatalf("second tab should return to Window view, toggle = %+v", ov.Toggle)
+	}
+}
+
+func TestLocalChooserSourceKeepsTreeSelectionCommand(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeTree) {
+		t.Fatal("ShowChooser tree should succeed")
+	}
+
+	cr.HandleChooserInput([]byte("pane-3"))
+	cmd := cr.selectChooser()
+	if cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "2" {
+		t.Fatalf("local chooser selection = %+v, want select-window 2", cmd)
+	}
+}
+
+func TestRemoteChooserSourcePopulatesLeafPaneRows(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23())
+	remoteLayout := multiWindow80x23()
+	remoteLayout.Windows[0].Panes[1].Name = "remote-side"
+	remoteLayout.Windows[0].Panes[1].Task = ""
+	remoteLayout.Windows[0].Panes[1].GitBranch = "main"
+	remoteLayout.Windows[1].Panes[0].Name = "remote-logs"
+
+	if !cr.ShowRemoteChooser("hetzner-1", remoteLayout) {
+		t.Fatal("ShowRemoteChooser should succeed")
+	}
+	overlay := cr.chooserOverlay()
+	if overlay == nil {
+		t.Fatal("missing chooser overlay")
+	}
+	if overlay.Title != "Remote panes: hetzner-1" {
+		t.Fatalf("remote chooser title = %q", overlay.Title)
+	}
+	if overlay.Toggle != nil {
+		t.Fatalf("remote chooser toggle = %+v, want nil", overlay.Toggle)
+	}
+	if overlay.Selected == 0 {
+		t.Fatalf("remote chooser selected header row, rows=%+v", overlay.Rows)
+	}
+
+	var texts []string
+	for _, row := range overlay.Rows {
+		texts = append(texts, row.Text)
+	}
+	for _, want := range []string{"1:editor (2 panes)", "remote-side", "2:logs (1 pane)", "remote-logs"} {
+		if !slices.Contains(texts, want) {
+			t.Fatalf("remote chooser rows missing %q in %v", want, texts)
+		}
+	}
+
+	cr.HandleChooserInput([]byte("remote-side"))
+	cmd := cr.selectChooser()
+	if cmd.command != "remote" || !reflect.DeepEqual(cmd.args, []string{"attach", "hetzner-1:remote-side"}) {
+		t.Fatalf("remote chooser selection = %+v, want remote attach hetzner-1:remote-side", cmd)
 	}
 }
 

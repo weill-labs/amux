@@ -18,7 +18,16 @@ type chooserMode string
 const (
 	chooserModeTree   chooserMode = "tree"
 	chooserModeWindow chooserMode = "window"
+	chooserModeRemote chooserMode = "remote"
 )
+
+// Source builds chooser rows from a backing pane/window collection.
+type Source interface {
+	title() string
+	buildItems(mode chooserMode, icons render.IconSet) []chooserItem
+	toggle(mode chooserMode) *render.ChooserToggle
+	toggleMode(mode chooserMode) chooserMode
+}
 
 type chooserItem struct {
 	text        string
@@ -35,13 +44,22 @@ type chooserItem struct {
 }
 
 type chooserState struct {
-	mode        chooserMode
-	query       bubblesutil.TextInputState
+	mode     chooserMode
+	query    bubblesutil.TextInputState
+	source   Source
+	icons    render.IconSet
+	items    []chooserItem
+	selected int
+}
+
+type localChooserSource struct {
 	windows     []proto.WindowSnapshot
 	activeWinID uint32
-	icons       render.IconSet
-	items       []chooserItem
-	selected    int
+}
+
+type remoteChooserSource struct {
+	host   string
+	layout *proto.LayoutSnapshot
 }
 
 type chooserCommand struct {
@@ -71,6 +89,8 @@ func (m chooserMode) title() string {
 		return "choose-tree"
 	case chooserModeWindow:
 		return "choose-window"
+	case chooserModeRemote:
+		return "remote-attach"
 	default:
 		return "chooser"
 	}
@@ -109,12 +129,31 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 	}
 
 	state := &chooserState{
-		mode:        mode,
-		windows:     windows,
-		activeWinID: activeWinID,
-		icons:       cr.IconSet(),
+		mode:   mode,
+		source: localChooserSource{windows: windows, activeWinID: activeWinID},
+		icons:  cr.IconSet(),
 	}
 	state.rebuild()
+
+	result := cr.reduceUI(uiActionShowChooser{chooser: state})
+	cr.emitUIEvents(result.uiEvents)
+	return true
+}
+
+func (cr *ClientRenderer) ShowRemoteChooser(host string, layout *proto.LayoutSnapshot) bool {
+	if strings.TrimSpace(host) == "" || layout == nil {
+		return false
+	}
+
+	state := &chooserState{
+		mode:   chooserModeRemote,
+		source: remoteChooserSource{host: host, layout: layout},
+		icons:  cr.IconSet(),
+	}
+	state.rebuild()
+	if len(state.items) == 0 {
+		return false
+	}
 
 	result := cr.reduceUI(uiActionShowChooser{chooser: state})
 	cr.emitUIEvents(result.uiEvents)
@@ -208,16 +247,18 @@ func (cr *ClientRenderer) chooserOverlayFromSnapshot(state *clientSnapshot) *ren
 	}
 	screenW, screenH := cr.chooserScreenSize()
 	rows, selected := state.ui.chooser.overlayRows(screenW, screenH)
-	toggleSelected := 0
-	if state.ui.chooser.mode == chooserModeWindow {
-		toggleSelected = 1
+	title := "Choose"
+	var toggle *render.ChooserToggle
+	if state.ui.chooser.source != nil {
+		title = state.ui.chooser.source.title()
+		toggle = state.ui.chooser.source.toggle(state.ui.chooser.mode)
 	}
 	return &render.ChooserOverlay{
-		Title:    "Choose",
+		Title:    title,
 		Query:    state.ui.chooser.query.Value,
 		Rows:     rows,
 		Selected: selected,
-		Toggle:   &render.ChooserToggle{Options: []string{"Tree", "Window"}, Selected: toggleSelected},
+		Toggle:   toggle,
 	}
 }
 
@@ -228,12 +269,15 @@ func (cr *ClientRenderer) toggleChooserMode() {
 		if next.ui.chooser == nil {
 			return clientUIResult{}
 		}
-		next.ui.chooser = cloneChooserState(next.ui.chooser)
-		if next.ui.chooser.mode == chooserModeWindow {
-			next.ui.chooser.mode = chooserModeTree
-		} else {
-			next.ui.chooser.mode = chooserModeWindow
+		if next.ui.chooser.source == nil {
+			return clientUIResult{}
 		}
+		next.ui.chooser = cloneChooserState(next.ui.chooser)
+		nextMode := next.ui.chooser.source.toggleMode(next.ui.chooser.mode)
+		if nextMode == next.ui.chooser.mode {
+			return clientUIResult{}
+		}
+		next.ui.chooser.mode = nextMode
 		next.ui.chooser.rebuild()
 		next.ui.dirty = true
 		return clientUIResult{}
@@ -370,18 +414,12 @@ func (cr *ClientRenderer) selectChooser() chooserCommand {
 }
 
 func (st *chooserState) rebuild() {
-	items := make([]chooserItem, 0, len(st.windows)*2)
-	treeMode := st.mode == chooserModeTree
-	for _, ws := range st.windows {
-		items = append(items, chooserWindowItem(ws, ws.ID == st.activeWinID, treeMode, st.icons))
-		if !treeMode {
-			continue
-		}
-		for _, ps := range ws.Panes {
-			items = append(items, chooserPaneItem(ps, ps.ID == ws.ActivePaneID, st.icons))
-		}
+	if st.source == nil {
+		st.items = nil
+		st.selected = 0
+		return
 	}
-	st.items = items
+	st.items = st.source.buildItems(st.mode, st.icons)
 	st.selected = 0
 }
 
@@ -411,6 +449,7 @@ func (st *chooserState) model(screenW, screenH int) list.Model {
 		if selected >= visible {
 			selected = visible - 1
 		}
+		selected = chooserSelectableIndex(model.VisibleItems(), selected)
 		model.Select(selected)
 	}
 	return model
@@ -471,6 +510,125 @@ func chooserListHeight(screenH int) int {
 	return render.ChooserRowLimit(screenH)
 }
 
+func (s localChooserSource) title() string {
+	return "Choose"
+}
+
+func (s localChooserSource) buildItems(mode chooserMode, icons render.IconSet) []chooserItem {
+	items := make([]chooserItem, 0, len(s.windows)*2)
+	treeMode := mode == chooserModeTree
+	for _, ws := range s.windows {
+		items = append(items, chooserWindowItem(ws, ws.ID == s.activeWinID, treeMode, icons))
+		if !treeMode {
+			continue
+		}
+		for _, ps := range ws.Panes {
+			items = append(items, chooserPaneItem(ps, ps.ID == ws.ActivePaneID, icons))
+		}
+	}
+	return items
+}
+
+func (s localChooserSource) toggle(mode chooserMode) *render.ChooserToggle {
+	selected := 0
+	if mode == chooserModeWindow {
+		selected = 1
+	}
+	return &render.ChooserToggle{Options: []string{"Tree", "Window"}, Selected: selected}
+}
+
+func (s localChooserSource) toggleMode(mode chooserMode) chooserMode {
+	if mode == chooserModeWindow {
+		return chooserModeTree
+	}
+	return chooserModeWindow
+}
+
+func (s remoteChooserSource) title() string {
+	return "Remote panes: " + s.host
+}
+
+func (s remoteChooserSource) buildItems(_ chooserMode, icons render.IconSet) []chooserItem {
+	if s.layout == nil {
+		return nil
+	}
+	if len(s.layout.Windows) == 0 {
+		panes := chooserLeafPanes(s.layout.Root, s.layout.Panes)
+		items := make([]chooserItem, 0, len(panes))
+		for _, ps := range panes {
+			items = append(items, remoteChooserPaneItem(ps, ps.ID == s.layout.ActivePaneID, s.host, "", icons))
+		}
+		return items
+	}
+
+	var items []chooserItem
+	for _, ws := range s.layout.Windows {
+		panes := chooserLeafPanes(ws.Root, ws.Panes)
+		if len(panes) == 0 {
+			continue
+		}
+		items = append(items, remoteChooserWindowHeaderItem(ws, panes))
+		for _, ps := range panes {
+			items = append(items, remoteChooserPaneItem(ps, ps.ID == ws.ActivePaneID, s.host, ws.Name, icons))
+		}
+	}
+	return items
+}
+
+func (s remoteChooserSource) toggle(chooserMode) *render.ChooserToggle {
+	return nil
+}
+
+func (s remoteChooserSource) toggleMode(mode chooserMode) chooserMode {
+	return mode
+}
+
+func remoteChooserWindowHeaderItem(ws proto.WindowSnapshot, panes []proto.PaneSnapshot) chooserItem {
+	return chooserItem{
+		text:        strconv.Itoa(ws.Index) + ":" + chooserWindowName(ws) + " (" + chooserPaneCount(len(panes)) + ")",
+		filterValue: strings.ToLower(strings.Join([]string{strconv.Itoa(ws.Index), chooserWindowName(ws)}, " ")),
+		header:      true,
+		rule:        true,
+	}
+}
+
+func remoteChooserPaneItem(ps proto.PaneSnapshot, active bool, host, windowName string, icons render.IconSet) chooserItem {
+	item := chooserPaneItemWithCommand(ps, active, icons, "remote", []string{"attach", host + ":" + ps.Name})
+	filterTerms := append(chooserPaneFilterTerms(ps), host, windowName)
+	item.filterValue = strings.ToLower(strings.Join(filterTerms, " "))
+	if item.desc == "" {
+		item.desc = windowName
+	}
+	return item
+}
+
+func chooserLeafPanes(root proto.CellSnapshot, panes []proto.PaneSnapshot) []proto.PaneSnapshot {
+	byID := make(map[uint32]proto.PaneSnapshot, len(panes))
+	for _, pane := range panes {
+		byID[pane.ID] = pane
+	}
+	var out []proto.PaneSnapshot
+	seen := make(map[uint32]bool, len(panes))
+	var walk func(proto.CellSnapshot)
+	walk = func(cell proto.CellSnapshot) {
+		if cell.IsLeaf {
+			if cell.PaneID == 0 || seen[cell.PaneID] {
+				return
+			}
+			seen[cell.PaneID] = true
+			if pane, ok := byID[cell.PaneID]; ok {
+				out = append(out, pane)
+			}
+			return
+		}
+		for _, child := range cell.Children {
+			walk(child)
+		}
+	}
+	walk(root)
+	return out
+}
+
 func chooserWindowFilterValue(ws proto.WindowSnapshot, includePanes bool) string {
 	parts := []string{strconv.Itoa(ws.Index), chooserWindowName(ws)}
 	if includePanes {
@@ -499,6 +657,28 @@ func chooserHasSelectableItems(items []list.Item) bool {
 	return false
 }
 
+func chooserSelectableIndex(items []list.Item, preferred int) int {
+	if len(items) == 0 {
+		return 0
+	}
+	if preferred < 0 {
+		preferred = 0
+	}
+	if preferred >= len(items) {
+		preferred = len(items) - 1
+	}
+	if row, ok := items[preferred].(chooserListItem); ok && row.selectable {
+		return preferred
+	}
+	for i, item := range items {
+		row, ok := item.(chooserListItem)
+		if ok && row.selectable {
+			return i
+		}
+	}
+	return preferred
+}
+
 // chooserWindowItem builds the row for a window. In tree mode it is a bold
 // section header with a trailing rule; in window mode it is a plain selectable
 // row, marked with a status dot when it is the active window.
@@ -524,6 +704,10 @@ func chooserWindowItem(ws proto.WindowSnapshot, active, treeMode bool, icons ren
 // chooserPaneItem builds the row for a pane: a colored status icon, the pane
 // name in its assigned color, and a dim branch/task suffix.
 func chooserPaneItem(ps proto.PaneSnapshot, active bool, icons render.IconSet) chooserItem {
+	return chooserPaneItemWithCommand(ps, active, icons, "focus", []string{ps.Name})
+}
+
+func chooserPaneItemWithCommand(ps proto.PaneSnapshot, active bool, icons render.IconSet, command string, args []string) chooserItem {
 	icon := icons.PaneBusy
 	switch {
 	case ps.Lead:
@@ -549,8 +733,8 @@ func chooserPaneItem(ps proto.PaneSnapshot, active bool, icons render.IconSet) c
 		iconColor:   iconColor,
 		textColor:   ps.Color,
 		desc:        desc,
-		command:     "focus",
-		args:        []string{ps.Name},
+		command:     command,
+		args:        append([]string(nil), args...),
 	}
 }
 

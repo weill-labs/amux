@@ -415,6 +415,18 @@ func showChooserOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, mode c
 	})
 }
 
+func showRemoteChooserOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, req *proto.ChooserRequest) bool {
+	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if req == nil || req.Kind != proto.ChooserKindRemotePanes || !cr.ShowRemoteChooser(req.Host, req.Layout) {
+			return localRenderResult{value: false}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   true,
+		}
+	})
+}
+
 func showWindowRenamePromptOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg) bool {
 	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
 		if !cr.ShowWindowRenamePrompt() {
@@ -763,6 +775,12 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 				select {
 				case injectCh <- injectedInput{data: msg.Input, paneID: msg.PaneID}:
 				default:
+				}
+			case proto.MsgTypeChooser:
+				if !showRemoteChooserOnRenderLoop(cr, msgCh, msg.Chooser) {
+					if !queueRender(&RenderMsg{Typ: RenderMsgBell}) {
+						return
+					}
 				}
 			case proto.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect.

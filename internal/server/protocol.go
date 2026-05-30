@@ -51,6 +51,9 @@ const (
 
 	// Server → Client — work metadata/status for a restricted pane subscription.
 	MsgTypePaneMetaUpdate = proto.MsgTypePaneMetaUpdate
+
+	// Server → Client — open a client-local chooser populated by server data.
+	MsgTypeChooser = proto.MsgTypeChooser
 )
 
 // WriteMsg encodes and writes a message to w.
