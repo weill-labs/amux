@@ -32,6 +32,7 @@ type statusPaneData struct {
 	remotePane    string
 	reconnectIn   int
 	mirrorLastErr string
+	mailboxUnread int
 }
 
 func (p *statusPaneData) RenderScreen(bool) string { return p.screen }
@@ -53,6 +54,7 @@ func (p *statusPaneData) Idle() bool                          { return p.idle }
 func (p *statusPaneData) IsLead() bool                        { return p.lead }
 func (p *statusPaneData) InCopyMode() bool                    { return p.copyMode }
 func (p *statusPaneData) CopyModeSearch() string              { return p.copySearch }
+func (p *statusPaneData) MailboxUnreadCount() int             { return p.mailboxUnread }
 func (p *statusPaneData) HasCursorBlock() bool                { return false }
 func (p *statusPaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return nil
@@ -827,6 +829,27 @@ func TestBuildPowerlineStatusCellsUsesSeparatorColorTransitions(t *testing.T) {
 	assertCellColors(t, separators[0], config.AccentColor(0), config.Surface1Hex)
 	assertCellColors(t, separators[1], config.Surface1Hex, config.GreenHex)
 	assertCellColors(t, separators[2], config.GreenHex, config.Surface1Hex)
+}
+
+func TestBuildStatusCellsUnreadBadgeUsesYellow(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 40, 4)
+	grid := NewScreenGrid(40, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:            1,
+		name:          "pane-1",
+		color:         config.TextColorHex,
+		mailboxUnread: 3,
+	})
+
+	start := findRowLabel(grid, 0, cell.W, "msg:3")
+	if start < 0 {
+		t.Fatalf("status row %q missing unread badge", gridRowText(grid, 0, cell.W))
+	}
+	for offset := 0; offset < len("msg:3"); offset++ {
+		assertCellColors(t, grid.Get(start+offset, 0), config.YellowHex, config.Surface0Hex)
+	}
 }
 
 func TestRenderPaneStatusPowerlineFullANSI(t *testing.T) {
