@@ -68,6 +68,7 @@ type PaneSnapshot struct {
 	Color         string            `json:"color"`
 	ColumnIndex   int               `json:"column_index"`
 	Idle          bool              `json:"idle"`
+	Mailbox       *CaptureMailbox   `json:"mailbox,omitempty"`
 	KV            map[string]string `json:"kv,omitempty"`
 	GitBranch     string            `json:"git_branch,omitempty"`
 	PR            string            `json:"pr,omitempty"`
@@ -115,6 +116,35 @@ type CaptureMeta struct {
 	TrackedIssues []TrackedIssue    `json:"tracked_issues,omitempty"`
 }
 
+// MailboxAddress identifies a pane in capture-safe mailbox summaries.
+type MailboxAddress struct {
+	ID   uint32 `json:"id"`
+	Name string `json:"name"`
+	Host string `json:"host,omitempty"`
+}
+
+// CaptureMailboxMessage is the body-free summary of one unread message.
+type CaptureMailboxMessage struct {
+	ID          string         `json:"id"`
+	From        MailboxAddress `json:"from"`
+	Subject     string         `json:"subject"`
+	Topics      []string       `json:"topics,omitempty"`
+	Groups      []string       `json:"groups,omitempty"`
+	ThreadID    string         `json:"thread_id"`
+	InReplyTo   string         `json:"in_reply_to,omitempty"`
+	CreatedAt   string         `json:"created_at"`
+	DeliveredAt string         `json:"delivered_at,omitempty"`
+	BodySize    int            `json:"body_size"`
+	PartCount   int            `json:"part_count"`
+}
+
+// CaptureMailbox is the per-pane unread mailbox summary emitted in capture JSON.
+type CaptureMailbox struct {
+	Unread       int                     `json:"unread"`
+	LatestUnread []CaptureMailboxMessage `json:"latest_unread"`
+	Topics       map[string]int          `json:"topics"`
+}
+
 // CaptureError describes an unavailable or invalid JSON capture result.
 type CaptureError struct {
 	Code    string `json:"code"`
@@ -139,6 +169,7 @@ type CapturePane struct {
 	Content     []string         `json:"content"`
 	History     []string         `json:"history,omitempty"`
 	CopyMode    bool             `json:"copy_mode,omitempty"`
+	Mailbox     *CaptureMailbox  `json:"mailbox,omitempty"`
 
 	// CWD/branch metadata.
 	Cwd       string `json:"cwd,omitempty"`
@@ -241,6 +272,29 @@ func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
 	cp.IdleSince = st.IdleSince
 	cp.CurrentCommand = st.CurrentCommand
 	cp.LastOutput = st.LastOutput
+}
+
+func EmptyCaptureMailbox() *CaptureMailbox {
+	return &CaptureMailbox{
+		LatestUnread: []CaptureMailboxMessage{},
+		Topics:       map[string]int{},
+	}
+}
+
+func CloneCaptureMailbox(src *CaptureMailbox) *CaptureMailbox {
+	if src == nil {
+		return EmptyCaptureMailbox()
+	}
+	dst := *src
+	dst.LatestUnread = append([]CaptureMailboxMessage(nil), src.LatestUnread...)
+	if dst.LatestUnread == nil {
+		dst.LatestUnread = []CaptureMailboxMessage{}
+	}
+	dst.Topics = make(map[string]int, len(src.Topics))
+	for topic, count := range src.Topics {
+		dst.Topics[topic] = count
+	}
+	return &dst
 }
 
 // FindCellInSnapshot finds a leaf cell by pane ID in a CellSnapshot tree.

@@ -91,6 +91,7 @@ func (s serverFullSessionCapture) buildJSON(req caputil.Request, agentStatus map
 			KV:            pane.info.KV,
 			TrackedPRs:    pane.info.TrackedPRs,
 			TrackedIssues: pane.info.TrackedIssues,
+			Mailbox:       pane.info.Mailbox,
 			Cursor: caputil.CursorFromState(
 				pane.render.CursorCol,
 				pane.render.CursorRow,
@@ -197,6 +198,7 @@ func (s *Session) captureFullSessionSnapshot() (serverFullSessionCapture, error)
 			}
 		}
 		windowSnap := w.SnapshotWindow(windowIndex)
+		s.applyMailboxSummariesToPaneSnapshots(windowSnap.Panes)
 		idleSnap := s.snapshotIdleState()
 		paneInfo := make(map[uint32]proto.PaneSnapshot, len(windowSnap.Panes))
 		for _, pane := range windowSnap.Panes {

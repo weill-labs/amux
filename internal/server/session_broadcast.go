@@ -189,6 +189,7 @@ func (s *Session) snapshotLayout(idleSnap map[uint32]bool) *proto.LayoutSnapshot
 			snap.Windows[wi].Panes[pi].Idle = idleSnap[snap.Windows[wi].Panes[pi].ID]
 		}
 	}
+	s.applyMailboxSummariesToLayout(snap)
 
 	return snap
 }

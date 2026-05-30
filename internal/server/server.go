@@ -17,6 +17,7 @@ import (
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/debugowner"
+	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
@@ -73,6 +74,9 @@ type Session struct {
 	terminalEventState map[uint32]paneTerminalEventState
 
 	undo *UndoManager
+
+	// Mailbox is server-owned and mutated only on the session event loop.
+	mailbox *mailbox.Store
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
 	VTIdleSettle time.Duration // default: 2s
