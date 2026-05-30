@@ -498,7 +498,7 @@ func mailboxActorAddress(mctx *MutationContext, actorPaneID uint32, role string)
 	if mctx.findWindowByPaneID(actorPaneID) == nil {
 		return mailbox.PaneAddress{}, fmt.Errorf("%s pane %d is not in any window", role, actorPaneID)
 	}
-	return mailboxAddressForPane(pane), nil
+	return mailboxCommandAddressForPane(pane), nil
 }
 
 func resolveMailboxPaneRef(mctx *MutationContext, actorPaneID uint32, ref, role string) (mailbox.PaneAddress, error) {
@@ -509,10 +509,10 @@ func resolveMailboxPaneRef(mctx *MutationContext, actorPaneID uint32, ref, role 
 	if window == nil {
 		return mailbox.PaneAddress{}, fmt.Errorf("%s pane %q is not in any window", role, ref)
 	}
-	return mailboxAddressForPane(pane), nil
+	return mailboxCommandAddressForPane(pane), nil
 }
 
-func mailboxAddressForPane(pane *mux.Pane) mailbox.PaneAddress {
+func mailboxCommandAddressForPane(pane *mux.Pane) mailbox.PaneAddress {
 	if pane == nil {
 		return mailbox.PaneAddress{}
 	}
