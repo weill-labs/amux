@@ -36,9 +36,13 @@ See [README.md -- How it works](README.md#how-it-works) for the project overview
 
 **Inject dependencies, do not add package-level `var` for test seams.** When production code needs a swappable dependency (e.g., clipboard command, time function, exec resolver), pass it as a function parameter or struct field -- never as a mutable package-level `var`. Tests pass stubs directly; production call sites pass the real implementation. This keeps tests parallel and eliminates shared mutable state. See PR #388 for the canonical pattern.
 
+The same lever covers branches that are unreachable through real I/O. When an error or empty-result branch can only be hit behind an SSH dial or a live client connection, lift the decision into a pure function over a small interface and fake it in a unit test, rather than fighting to reach it through the integration path (which also keeps diff coverage honest). See `sendRemoteChooser`/`chooserSender` (the empty-list + send-failure paths) and `mirror.Dialer` for the canonical shape.
+
 **Use the persistent harness when server lifetime matters.** Prefer `newServerHarnessPersistent()` for integration tests that must keep the server alive independent of client detach timing or transient attachment windows. Use the default harness when exit-on-unattached behavior is part of the behavior under test.
 
 **Guard against impossible states.** Focus fallback finds nearest pane when strict overlap matching fails.
+
+**Commands fail loudly on no-ops.** A command must return an error, not a success `Output`, when it performs no observable action -- no pane created, an empty remote pane list, dropped/unforwarded input, an unconfigured host. Three federation bugs fit this "reports success while doing nothing" shape (`spawn --attach` to an unknown host, the chooser on an empty remote list, the local-only `kill` default). When a handler returns `commandpkg.Result{Output: ...}`, confirm the action actually happened first.
 
 **Save/restore cursor state in copy mode motions.** Compound motions (word, paragraph, etc.) call `moveDown()`/`moveUp()` in scanning loops. These helpers mutate `cy`/`oy` on each call, so the caller must save both values before the loop and restore them when returning `ActionNone`. Otherwise the cursor drifts silently on failed motions.
 
