@@ -11,6 +11,7 @@ import (
 type Runtime struct {
 	Stdout             io.Writer
 	Stderr             io.Writer
+	Stdin              io.Reader
 	AttachSession      func(string) error
 	WriteVersionOutput func(io.Writer, []string) error
 	InstallTerminfo    func() error
@@ -44,6 +45,7 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, remoteCLICommands())
+	addCLICommands(commands, msgCLICommands())
 	addCLICommands(commands, doctorCLICommands())
 	commands["reload-server"] = func(inv invocation, args []string) int {
 		return inv.runSessionCommand("reload-server", PrependReloadExecPathArg(reload.ResolveExecutable, args))

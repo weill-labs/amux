@@ -182,6 +182,13 @@ func TestStoreAckBeforeReadAndIdempotentRepeat(t *testing.T) {
 	if !first.ReadAt.IsZero() {
 		t.Fatalf("ReadAt after ack-before-read = %s, want zero", first.ReadAt)
 	}
+	unread, err := store.ListUnread(2)
+	if err != nil {
+		t.Fatalf("ListUnread after ack-before-read: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("ListUnread after ack-before-read length = %d, want 0", len(unread))
+	}
 
 	now = now.Add(time.Minute)
 	repeated, err := store.Ack(msg.ID, 2, AckRequest{Status: "seen", Note: "queued"})
