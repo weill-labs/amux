@@ -704,6 +704,94 @@ func TestStoreAllocatesUniqueStableIDs(t *testing.T) {
 	}
 }
 
+func TestStoreSnapshotRestorePreservesMessagesDeliveriesAndNextID(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+
+	root := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Topics:     []string{"review"},
+		Groups:     []string{"agents"},
+		Subject:    "Root",
+		Body:       []byte("root body"),
+		Metadata: map[string]json.RawMessage{
+			"priority": json.RawMessage(`"high"`),
+		},
+	})
+	if _, err := store.SetLastEventSeq(root.ID, 2, 7); err != nil {
+		t.Fatalf("SetLastEventSeq root: %v", err)
+	}
+
+	now = now.Add(time.Minute)
+	_, readState, err := store.Read(root.ID, 2, ReadOptions{})
+	if err != nil {
+		t.Fatalf("Read root: %v", err)
+	}
+
+	now = now.Add(time.Minute)
+	reply := mustSend(t, store, SendRequest{
+		Sender:     testAddress(2),
+		Recipients: []PaneAddress{testAddress(1)},
+		Subject:    "Reply",
+		Body:       []byte("reply body"),
+		ReplyTo:    root.ID,
+	})
+	if _, err := store.SetLastEventSeq(reply.ID, 1, 8); err != nil {
+		t.Fatalf("SetLastEventSeq reply: %v", err)
+	}
+
+	now = now.Add(time.Minute)
+	ackState, err := store.Ack(reply.ID, 1, AckRequest{Status: "seen", Note: "queued"})
+	if err != nil {
+		t.Fatalf("Ack reply: %v", err)
+	}
+
+	restored, err := RestoreSnapshot(store.Snapshot(), Options{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("RestoreSnapshot: %v", err)
+	}
+
+	restoredRoot, ok := restored.Message(root.ID)
+	if !ok {
+		t.Fatalf("restored root %q not found", root.ID)
+	}
+	if restoredRoot.ThreadID != root.ThreadID || len(restoredRoot.Replies) != 1 || restoredRoot.Replies[0] != reply.ID {
+		t.Fatalf("restored root thread fields = (%q, %#v), want reply %q", restoredRoot.ThreadID, restoredRoot.Replies, reply.ID)
+	}
+	if got := string(restoredRoot.Metadata["priority"]); got != `"high"` {
+		t.Fatalf("restored metadata priority = %s, want high", got)
+	}
+
+	restoredRootDelivery, err := restored.DeliverySummary(root.ID, 2)
+	if err != nil {
+		t.Fatalf("restored root DeliverySummary: %v", err)
+	}
+	if restoredRootDelivery.ReadAt != readState.ReadAt || restoredRootDelivery.LastEventSeq != 7 {
+		t.Fatalf("restored root delivery = %#v, want read_at %s and seq 7", restoredRootDelivery, readState.ReadAt)
+	}
+
+	restoredReply, ok := restored.Message(reply.ID)
+	if !ok {
+		t.Fatalf("restored reply %q not found", reply.ID)
+	}
+	if restoredReply.ThreadID != root.ThreadID || restoredReply.InReplyTo != root.ID {
+		t.Fatalf("restored reply thread fields = (%q, %q), want (%q, %q)", restoredReply.ThreadID, restoredReply.InReplyTo, root.ThreadID, root.ID)
+	}
+	restoredReplyDelivery, err := restored.DeliverySummary(reply.ID, 1)
+	if err != nil {
+		t.Fatalf("restored reply DeliverySummary: %v", err)
+	}
+	if restoredReplyDelivery.AckedAt != ackState.AckedAt || restoredReplyDelivery.AckStatus != "seen" || restoredReplyDelivery.AckNote != "queued" || restoredReplyDelivery.LastEventSeq != 8 {
+		t.Fatalf("restored reply delivery = %#v, want ack state and seq 8", restoredReplyDelivery)
+	}
+
+	next := mustSend(t, restored, validSendRequest("Next", []byte("next body")))
+	assertMessageID(t, next.ID, "msg-000003")
+}
+
 func TestStoreListUnreadSortsByMessageID(t *testing.T) {
 	t.Parallel()
 
