@@ -219,12 +219,13 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			return createPaneSnapshot{}, fmt.Errorf("no active pane")
 		}
 		return createPaneSnapshot{
-			inheritPane:  w.ActivePane,
-			windowWidth:  w.Width,
-			windowHeight: w.Height,
-			inheritHost:  w.ActivePane.Meta.Host,
-			inheritProxy: w.ActivePane.IsProxy(),
-			targetPaneID: w.ActivePane.ID,
+			inheritPane:              w.ActivePane,
+			windowWidth:              w.Width,
+			windowHeight:             w.Height,
+			inheritHost:              w.ActivePane.Meta.Host,
+			inheritProxy:             w.ActivePane.IsProxy(),
+			targetPaneID:             w.ActivePane.ID,
+			treatLeadPaneAsWindowRef: command == "spawn",
 		}, nil
 	})
 }
