@@ -314,33 +314,37 @@ func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Res
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	msg, err := remoteChooserMessage(layout, hostName)
-	if err != nil {
-		return commandpkg.Result{Err: err}
-	}
-	if err := client.client.Send(msg); err != nil {
-		return commandpkg.Result{Err: err}
-	}
-	_ = client.client.Flush()
-	return commandpkg.Result{Output: fmt.Sprintf("Opened remote pane chooser for %s\n", hostName)}
+	return sendRemoteChooser(client.client, layout, hostName)
 }
 
-// remoteChooserMessage builds the MsgTypeChooser push for a remote host's
-// layout, or fails loudly when the remote has no panes to choose. Without the
-// empty check the client shows only a bell (ShowRemoteChooser returns false on
-// an empty list) while the command reports success — a silent no-op.
-func remoteChooserMessage(layout *proto.LayoutSnapshot, hostName string) (*Message, error) {
+// chooserSender is the subset of the client connection that sendRemoteChooser
+// needs, abstracted so the empty-check/send/flush logic is unit-testable
+// without a live client connection.
+type chooserSender interface {
+	Send(*Message) error
+	Flush() error
+}
+
+// sendRemoteChooser pushes the remote pane chooser to the client, or fails
+// loudly when the remote has no panes to choose. Without the empty check the
+// client shows only a bell (ShowRemoteChooser returns false on an empty list)
+// while the command reports success — a silent no-op.
+func sendRemoteChooser(sender chooserSender, layout *proto.LayoutSnapshot, hostName string) commandpkg.Result {
 	if len(remoteLayoutPaneEntries(layout)) == 0 {
-		return nil, fmt.Errorf("no remote panes on %s", hostName)
+		return commandpkg.Result{Err: fmt.Errorf("no remote panes on %s", hostName)}
 	}
-	return &Message{
+	if err := sender.Send(&Message{
 		Type: MsgTypeChooser,
 		Chooser: &proto.ChooserRequest{
 			Kind:   proto.ChooserKindRemotePanes,
 			Host:   hostName,
 			Layout: layout,
 		},
-	}, nil
+	}); err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	_ = sender.Flush()
+	return commandpkg.Result{Output: fmt.Sprintf("Opened remote pane chooser for %s\n", hostName)}
 }
 
 func runRemoteDetach(ctx *CommandContext) commandpkg.Result {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -115,33 +116,63 @@ func TestRunRemoteAttachChooserRequiresAttachedClient(t *testing.T) {
 	}
 }
 
-func TestRemoteChooserMessage(t *testing.T) {
+type fakeChooserSender struct {
+	sent    []*Message
+	sendErr error
+	flushed bool
+}
+
+func (f *fakeChooserSender) Send(m *Message) error {
+	if f.sendErr != nil {
+		return f.sendErr
+	}
+	f.sent = append(f.sent, m)
+	return nil
+}
+
+func (f *fakeChooserSender) Flush() error {
+	f.flushed = true
+	return nil
+}
+
+func TestSendRemoteChooser(t *testing.T) {
 	t.Parallel()
 
-	// Empty remote layout → error, no chooser push (silent no-op guard).
-	if _, err := remoteChooserMessage(&proto.LayoutSnapshot{}, "hetzner-1"); err == nil || err.Error() != "no remote panes on hetzner-1" {
-		t.Fatalf("empty layout error = %v, want \"no remote panes on hetzner-1\"", err)
-	}
-
-	// Layout with a leaf pane → chooser message carrying the layout.
-	layout := &proto.LayoutSnapshot{
+	populated := &proto.LayoutSnapshot{
 		Windows: []proto.WindowSnapshot{{
-			Name: "w",
-			Root: proto.CellSnapshot{IsLeaf: true, PaneID: 1},
-			Panes: []proto.PaneSnapshot{
-				{ID: 1, Name: "remote-agent", Host: "remote"},
-			},
+			Name:  "w",
+			Root:  proto.CellSnapshot{IsLeaf: true, PaneID: 1},
+			Panes: []proto.PaneSnapshot{{ID: 1, Name: "remote-agent", Host: "remote"}},
 		}},
 	}
-	msg, err := remoteChooserMessage(layout, "hetzner-1")
-	if err != nil {
-		t.Fatalf("remoteChooserMessage: %v", err)
+
+	// Empty remote layout → error, nothing sent (silent no-op guard).
+	empty := &fakeChooserSender{}
+	if r := sendRemoteChooser(empty, &proto.LayoutSnapshot{}, "hetzner-1"); r.Err == nil || r.Err.Error() != "no remote panes on hetzner-1" {
+		t.Fatalf("empty layout result.Err = %v, want \"no remote panes on hetzner-1\"", r.Err)
 	}
-	if msg.Type != MsgTypeChooser || msg.Chooser == nil {
-		t.Fatalf("message = %+v, want MsgTypeChooser with chooser payload", msg)
+	if len(empty.sent) != 0 || empty.flushed {
+		t.Fatalf("empty layout must not send/flush: sent=%d flushed=%v", len(empty.sent), empty.flushed)
 	}
-	if msg.Chooser.Kind != proto.ChooserKindRemotePanes || msg.Chooser.Host != "hetzner-1" || msg.Chooser.Layout != layout {
-		t.Fatalf("chooser request = %+v, want remote-panes for hetzner-1 carrying the layout", msg.Chooser)
+
+	// Send failure → propagated.
+	failing := &fakeChooserSender{sendErr: errors.New("send boom")}
+	if r := sendRemoteChooser(failing, populated, "hetzner-1"); r.Err == nil || r.Err.Error() != "send boom" {
+		t.Fatalf("send-error result.Err = %v, want \"send boom\"", r.Err)
+	}
+
+	// Populated layout → chooser pushed, flushed, success output.
+	ok := &fakeChooserSender{}
+	r := sendRemoteChooser(ok, populated, "hetzner-1")
+	if r.Err != nil || !strings.Contains(r.Output, "Opened remote pane chooser for hetzner-1") {
+		t.Fatalf("populated result = %+v, want success output", r)
+	}
+	if len(ok.sent) != 1 || !ok.flushed {
+		t.Fatalf("populated must send once + flush: sent=%d flushed=%v", len(ok.sent), ok.flushed)
+	}
+	if msg := ok.sent[0]; msg.Type != MsgTypeChooser || msg.Chooser == nil ||
+		msg.Chooser.Kind != proto.ChooserKindRemotePanes || msg.Chooser.Host != "hetzner-1" || msg.Chooser.Layout != populated {
+		t.Fatalf("sent message = %+v, want MsgTypeChooser remote-panes for hetzner-1 carrying the layout", ok.sent[0])
 	}
 }
 
