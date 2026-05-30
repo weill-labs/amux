@@ -9,8 +9,12 @@ import (
 )
 
 type msgCommandSendJSON struct {
-	ID         string `json:"id"`
-	Subject    string `json:"subject"`
+	ID         string   `json:"id"`
+	Subject    string   `json:"subject"`
+	Topics     []string `json:"topics"`
+	Groups     []string `json:"groups"`
+	ThreadID   string   `json:"thread_id"`
+	InReplyTo  string   `json:"in_reply_to"`
 	Recipients []struct {
 		ID   uint32 `json:"id"`
 		Name string `json:"name"`
@@ -20,8 +24,29 @@ type msgCommandSendJSON struct {
 type msgCommandInboxJSON []struct {
 	ID        string `json:"id"`
 	Subject   string `json:"subject"`
+	ReadAt    string `json:"read_at"`
+	AckedAt   string `json:"acked_at"`
 	BodySize  int    `json:"body_size"`
 	PartCount int    `json:"part_count"`
+}
+
+type msgCommandReadJSON struct {
+	ID       string                     `json:"id"`
+	Body     string                     `json:"body"`
+	ReadAt   string                     `json:"read_at"`
+	Metadata map[string]json.RawMessage `json:"metadata"`
+	Delivery struct {
+		AckStatus string `json:"ack_status"`
+		AckNote   string `json:"ack_note"`
+	} `json:"delivery"`
+}
+
+type msgCommandAckJSON struct {
+	ID       string `json:"id"`
+	Delivery struct {
+		AckStatus string `json:"ack_status"`
+		AckNote   string `json:"ack_note"`
+	} `json:"delivery"`
 }
 
 func setupMsgCommandSession(t *testing.T) (*Server, *Session, func()) {
@@ -56,6 +81,26 @@ func parseMsgCommandInboxJSON(t *testing.T, raw string) msgCommandInboxJSON {
 	var out msgCommandInboxJSON
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		t.Fatalf("json.Unmarshal(inbox output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
+func parseMsgCommandReadJSON(t *testing.T, raw string) msgCommandReadJSON {
+	t.Helper()
+
+	var out msgCommandReadJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(read output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
+func parseMsgCommandAckJSON(t *testing.T, raw string) msgCommandAckJSON {
+	t.Helper()
+
+	var out msgCommandAckJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(ack output): %v\nraw:\n%s", err, raw)
 	}
 	return out
 }
@@ -146,6 +191,98 @@ func TestMsgCommandDefaultsToActorPane(t *testing.T) {
 	}
 }
 
+func TestMsgCommandTextAndDetailedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	first := runTestCommand(t, srv, sess, "msg", "send",
+		"--from", "pane-1",
+		"--to", "pane-2,3",
+		"--subject", "Thread root",
+		"--topic", "build,review",
+		"--group", "agents",
+		"--metadata", `{"priority":"high"}`,
+		"--body", "root body",
+	)
+	if first.cmdErr != "" {
+		t.Fatalf("msg send text error: %s", first.cmdErr)
+	}
+	if !strings.Contains(first.output, "Sent msg-000001 to pane-2,shared") {
+		t.Fatalf("msg send text output = %q, want recipients", first.output)
+	}
+
+	inboxText := runTestCommand(t, srv, sess, "msg", "inbox", "pane-2")
+	if inboxText.cmdErr != "" {
+		t.Fatalf("msg inbox text error: %s", inboxText.cmdErr)
+	}
+	if !strings.Contains(inboxText.output, "msg-000001 from pane-1: Thread root (9 bytes)") {
+		t.Fatalf("msg inbox text output = %q, want summary", inboxText.output)
+	}
+
+	peek := runTestCommand(t, srv, sess, "msg", "read", "msg-000001", "--for", "pane-2", "--peek", "--format", "json")
+	if peek.cmdErr != "" {
+		t.Fatalf("msg read peek JSON error: %s", peek.cmdErr)
+	}
+	peekJSON := parseMsgCommandReadJSON(t, peek.output)
+	if peekJSON.Body != "root body" || peekJSON.ReadAt != "" {
+		t.Fatalf("peek JSON = %#v, want body without read_at", peekJSON)
+	}
+	if got := string(peekJSON.Metadata["priority"]); got != `"high"` {
+		t.Fatalf("metadata priority = %s, want high", got)
+	}
+
+	read := runTestCommand(t, srv, sess, "msg", "read", "msg-000001", "--for", "pane-2")
+	if read.cmdErr != "" {
+		t.Fatalf("msg read text error: %s", read.cmdErr)
+	}
+	if read.output != "root body\n" {
+		t.Fatalf("msg read text output = %q, want body with trailing newline", read.output)
+	}
+
+	ackText := runTestCommand(t, srv, sess, "msg", "ack", "msg-000001", "--for", "pane-2")
+	if ackText.cmdErr != "" {
+		t.Fatalf("msg ack text error: %s", ackText.cmdErr)
+	}
+	if ackText.output != "Acked msg-000001 for pane-2\n" {
+		t.Fatalf("msg ack text output = %q, want no-status ack", ackText.output)
+	}
+
+	allInbox := runTestCommand(t, srv, sess, "msg", "inbox", "pane-2", "--format", "json")
+	if allInbox.cmdErr != "" {
+		t.Fatalf("msg inbox all JSON error: %s", allInbox.cmdErr)
+	}
+	all := parseMsgCommandInboxJSON(t, allInbox.output)
+	if len(all) != 1 || all[0].ReadAt == "" || all[0].AckedAt == "" {
+		t.Fatalf("all inbox JSON = %#v, want read and ack timestamps", all)
+	}
+
+	reply := runTestCommand(t, srv, sess, "msg", "send",
+		"--from", "pane-2",
+		"--to", "pane-1",
+		"--reply-to", "msg-000001",
+		"--body", "reply body",
+		"--format", "json",
+	)
+	if reply.cmdErr != "" {
+		t.Fatalf("msg reply send error: %s", reply.cmdErr)
+	}
+	replyJSON := parseMsgCommandSendJSON(t, reply.output)
+	if replyJSON.InReplyTo != "msg-000001" || replyJSON.ThreadID != "msg-000001" {
+		t.Fatalf("reply JSON = %#v, want reply in root thread", replyJSON)
+	}
+
+	ackJSONRaw := runTestCommand(t, srv, sess, "msg", "ack", replyJSON.ID, "--for", "pane-1", "--status", "seen", "--note", "queued", "--format", "json")
+	if ackJSONRaw.cmdErr != "" {
+		t.Fatalf("msg ack JSON error: %s", ackJSONRaw.cmdErr)
+	}
+	ackJSON := parseMsgCommandAckJSON(t, ackJSONRaw.output)
+	if ackJSON.ID != replyJSON.ID || ackJSON.Delivery.AckStatus != "seen" || ackJSON.Delivery.AckNote != "queued" {
+		t.Fatalf("ack JSON = %#v, want seen note", ackJSON)
+	}
+}
+
 func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 	t.Parallel()
 
@@ -178,6 +315,66 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			name: "invalid message ID",
 			args: []string{"read", "msg-999999", "--for", "pane-2"},
 			want: "not found",
+		},
+		{
+			name: "missing subcommand",
+			args: nil,
+			want: "usage: msg",
+		},
+		{
+			name: "unknown subcommand",
+			args: []string{"wait"},
+			want: "usage: msg",
+		},
+		{
+			name: "missing actor default",
+			args: []string{"inbox"},
+			want: "inbox target pane is required",
+		},
+		{
+			name: "unsupported format",
+			args: []string{"send", "--from", "pane-1", "--to", "pane-2", "--body", "body", "--format", "yaml"},
+			want: "unsupported msg format",
+		},
+		{
+			name: "invalid metadata",
+			args: []string{"send", "--from", "pane-1", "--to", "pane-2", "--body", "body", "--metadata", "null"},
+			want: "metadata must be a JSON object",
+		},
+		{
+			name: "unknown send flag",
+			args: []string{"send", "--unknown"},
+			want: "usage: msg send",
+		},
+		{
+			name: "unknown inbox flag",
+			args: []string{"inbox", "--bad"},
+			want: "usage: msg inbox",
+		},
+		{
+			name: "duplicate inbox target",
+			args: []string{"inbox", "pane-1", "pane-2"},
+			want: "usage: msg inbox",
+		},
+		{
+			name: "missing read id",
+			args: []string{"read"},
+			want: "usage: msg read",
+		},
+		{
+			name: "unknown read flag",
+			args: []string{"read", "msg-000001", "--bad"},
+			want: "usage: msg read",
+		},
+		{
+			name: "missing ack id",
+			args: []string{"ack"},
+			want: "usage: msg ack",
+		},
+		{
+			name: "unknown ack flag",
+			args: []string{"ack", "msg-000001", "--bad"},
+			want: "usage: msg ack",
 		},
 	}
 
