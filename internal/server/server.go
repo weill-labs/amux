@@ -73,14 +73,11 @@ type Session struct {
 	// duplicate terminal events.
 	terminalEventState map[uint32]paneTerminalEventState
 
-	// Mailbox state is session-scoped and mutated on the session event loop.
+	// Mailbox is server-owned and mutated only on the session event loop.
 	mailbox         *mailbox.Store
 	mailboxEventSeq uint64
 
 	undo *UndoManager
-
-	// Mailbox is server-owned and mutated only on the session event loop.
-	mailbox *mailbox.Store
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
 	VTIdleSettle time.Duration // default: 2s

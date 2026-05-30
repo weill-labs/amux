@@ -4,19 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
-	"time"
 
 	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/proto"
 )
-
-func (s *Session) ensureMailbox() *mailbox.Store {
-	if s.mailbox == nil {
-		s.mailbox = mailbox.NewStore(mailbox.Options{Now: func() time.Time { return s.clock().Now() }})
-	}
-	return s.mailbox
-}
 
 func (s *Session) enqueueMailboxSend(ctx context.Context, req mailbox.SendRequest) (mailbox.Message, error) {
 	var msg mailbox.Message
@@ -165,19 +157,12 @@ func mailboxSummaryToProto(summary mailbox.DeliverySummary) *proto.MailboxMessag
 	}
 }
 
-func mailboxAddressToProto(addr mailbox.PaneAddress) proto.MailboxPaneSummary {
-	return proto.MailboxPaneSummary{
+func mailboxAddressToProto(addr mailbox.PaneAddress) proto.MailboxAddress {
+	return proto.MailboxAddress{
 		ID:   addr.ID,
 		Name: addr.Name,
 		Host: addr.Host,
 	}
-}
-
-func formatMailboxTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339Nano)
 }
 
 type mailboxWaitSubscribeResult struct {
