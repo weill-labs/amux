@@ -27,7 +27,7 @@ const (
 	remoteStatusUsage    = "usage: remote status"
 	remoteRmUsage        = "usage: remote rm <name>"
 	remotePanesUsage     = "usage: remote panes <name>"
-	remoteAttachUsage    = "usage: remote attach <name>:<pane-name>"
+	remoteAttachUsage    = "usage: remote attach (<name>|<name>:<pane-name>)"
 	remoteDetachUsage    = "usage: remote detach <local-pane>"
 	remoteResizeUsage    = "usage: remote resize <local-pane>"
 	remoteCommandTimeout = 10 * time.Second
@@ -251,7 +251,10 @@ func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
 	}
 	hostName, paneName, ok := strings.Cut(ctx.Args[1], ":")
-	if !ok || hostName == "" || paneName == "" {
+	if !ok {
+		return runRemoteAttachChooser(ctx, ctx.Args[1])
+	}
+	if hostName == "" || paneName == "" {
 		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
 	}
 	host, err := lookupRemoteHost(hostName)
@@ -290,6 +293,39 @@ func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Result {
+	if strings.TrimSpace(hostName) == "" || strings.HasPrefix(hostName, "-") {
+		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
+	}
+	if ctx == nil || ctx.Sess == nil {
+		return commandpkg.Result{Err: fmt.Errorf("no client attached")}
+	}
+	client, err := ctx.Sess.queryUIClientContext(ctx.context(), "", "")
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	host, err := lookupRemoteHost(hostName)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	layout, err := listRemotePanes(ctx.context(), host)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	if err := client.client.Send(&Message{
+		Type: MsgTypeChooser,
+		Chooser: &proto.ChooserRequest{
+			Kind:   proto.ChooserKindRemotePanes,
+			Host:   hostName,
+			Layout: layout,
+		},
+	}); err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	_ = client.client.Flush()
+	return commandpkg.Result{Output: fmt.Sprintf("Opened remote pane chooser for %s\n", hostName)}
 }
 
 func runRemoteDetach(ctx *CommandContext) commandpkg.Result {

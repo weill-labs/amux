@@ -88,7 +88,8 @@ func TestRunRemoteCommandUsageErrors(t *testing.T) {
 		{name: "rm usage", args: []string{"rm"}, want: remoteRmUsage},
 		{name: "panes usage", args: []string{"panes"}, want: remotePanesUsage},
 		{name: "attach usage", args: []string{"attach"}, want: remoteAttachUsage},
-		{name: "attach malformed target", args: []string{"attach", "remote"}, want: remoteAttachUsage},
+		{name: "attach malformed target", args: []string{"attach", "remote:"}, want: remoteAttachUsage},
+		{name: "attach flag-like chooser host", args: []string{"attach", "--bad"}, want: remoteAttachUsage},
 		{name: "detach usage", args: []string{"detach"}, want: remoteDetachUsage},
 		{name: "resize usage", args: []string{"resize"}, want: remoteResizeUsage},
 	}
@@ -102,6 +103,15 @@ func TestRunRemoteCommandUsageErrors(t *testing.T) {
 				t.Fatalf("runRemoteCommand(%v) error = %v, want %q", tt.args, got.Err, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunRemoteAttachChooserRequiresAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	got := runRemoteCommand(&CommandContext{Args: []string{"attach", "remote"}})
+	if got.Err == nil || got.Err.Error() != "no client attached" {
+		t.Fatalf("runRemoteCommand attach chooser error = %v, want no client attached", got.Err)
 	}
 }
 

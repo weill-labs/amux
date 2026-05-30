@@ -128,6 +128,9 @@ const (
 
 	// Server → Client — work metadata/status for a restricted pane subscription.
 	MsgTypePaneMetaUpdate MsgType = 28
+
+	// Server → Client — open a client-local chooser populated by server data.
+	MsgTypeChooser MsgType = 29
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -202,6 +205,9 @@ type Message struct {
 
 	// MsgTypeUIEvent
 	UIEvent string
+
+	// MsgTypeChooser
+	Chooser *ChooserRequest
 }
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB

@@ -35,6 +35,18 @@ type WindowSnapshot struct {
 	Panes        []PaneSnapshot `json:"panes"`
 }
 
+const (
+	ChooserKindRemotePanes = "remote-panes"
+)
+
+// ChooserRequest asks an attached client to open a client-local chooser using
+// a server-populated source.
+type ChooserRequest struct {
+	Kind   string          `json:"kind"`
+	Host   string          `json:"host,omitempty"`
+	Layout *LayoutSnapshot `json:"layout,omitempty"`
+}
+
 // CellSnapshot is a serializable layout tree node.
 type CellSnapshot struct {
 	X        int            `json:"x"`
