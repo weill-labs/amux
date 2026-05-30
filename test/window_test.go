@@ -127,6 +127,39 @@ func TestSpawnAtLeadPaneUsesWindowPlacement(t *testing.T) {
 	assertWorkersStackedInSameColumn(t, "targeted spawn", worker1, worker2)
 }
 
+func TestSpawnFromActiveLeadPaneRoutesToLogicalRoot(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	setLead(t, h, "pane-1")
+
+	// Materialize the pending lead into an anchored multi-pane layout.
+	out := h.runCmd("spawn", "--name", "worker-1")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn should not reject the pending lead pane, got: %s", out)
+	}
+
+	// Re-focus the lead pane so the next default spawn (no --at) targets it.
+	h.runCmd("focus", "pane-1")
+
+	// A default spawn from the active lead pane must route the new pane into
+	// the logical root, exactly like `spawn --at <lead>`, instead of erroring
+	// as though the caller were mutating the anchored lead column.
+	out = h.runCmd("spawn", "--name", "worker-2")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("default spawn from the active lead pane should route to the logical root, got: %s", out)
+	}
+
+	capture := h.captureJSON()
+	lead := h.jsonPane(capture, "pane-1")
+	worker1 := h.jsonPane(capture, "worker-1")
+	worker2 := h.jsonPane(capture, "worker-2")
+	if !lead.Lead {
+		t.Fatal("pane-1 should remain the lead pane after default spawn")
+	}
+	assertLeadPaneLeftOfWorkers(t, lead, worker1, worker2)
+}
+
 func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
 	t.Parallel()
 
