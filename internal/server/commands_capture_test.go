@@ -219,14 +219,17 @@ func TestCaptureJSONMailboxMultiplePanesAndReadAckState(t *testing.T) {
 		Topics:  []string{"status"},
 	})
 
+	var transitionErr error
 	mustSessionMutation(t, sess, func(sess *Session) {
-		if _, _, err := sess.ensureMailbox().Read(msg1.ID, 2, mailbox.ReadOptions{}); err != nil {
-			t.Fatalf("Read pane-2 msg1: %v", err)
+		_, _, transitionErr = sess.ensureMailbox().Read(msg1.ID, 2, mailbox.ReadOptions{})
+		if transitionErr != nil {
+			return
 		}
-		if _, err := sess.ensureMailbox().Ack(msg2.ID, 3, mailbox.AckRequest{Status: "seen"}); err != nil {
-			t.Fatalf("Ack pane-3 msg2: %v", err)
-		}
+		_, transitionErr = sess.ensureMailbox().Ack(msg2.ID, 3, mailbox.AckRequest{Status: "seen"})
 	})
+	if transitionErr != nil {
+		t.Fatalf("seed mailbox read/ack state: %v", transitionErr)
+	}
 
 	res := runTestCommand(t, srv, sess, "capture", "--format", "json")
 	if res.cmdErr != "" {
@@ -785,7 +788,10 @@ func newMailboxCaptureSession(t *testing.T, paneCount int) (*Server, *Session, f
 	}
 
 	srv, sess, cleanup := newCommandTestSession(t)
-	sess.Clock = NewFakeClock(time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC))
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Clock = NewFakeClock(time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC))
+		sess.idle = NewIdleTracker(sess.clock)
+	})
 
 	panes := make([]*mux.Pane, 0, paneCount)
 	for i := 1; i <= paneCount; i++ {
