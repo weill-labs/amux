@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +11,14 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-const msgUsage = "usage: msg <send|inbox|read|ack> ..."
+const (
+	msgUsage      = "usage: msg <send|reply|inbox|read|ack> ..."
+	msgSendUsage  = "usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]"
+	msgReplyUsage = "usage: msg reply <msg-id> [--from pane] [--to pane[,pane...]] [--subject text] [--topic name] [--group name] [--metadata json] [--ack status] [--ack-note text] --body text [--format json]"
+	msgInboxUsage = "usage: msg inbox [pane] [--unread] [--format json]"
+	msgReadUsage  = "usage: msg read <msg-id> [--for pane] [--peek] [--format json]"
+	msgAckUsage   = "usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
+)
 
 type msgFormat string
 
@@ -35,6 +43,20 @@ type msgInboxOptions struct {
 	target     string
 	unreadOnly bool
 	format     msgFormat
+}
+
+type msgReplyOptions struct {
+	id        mailbox.MessageID
+	from      string
+	to        []string
+	subject   string
+	body      []byte
+	topics    []string
+	groups    []string
+	metadata  map[string]json.RawMessage
+	ackStatus string
+	ackNote   string
+	format    msgFormat
 }
 
 type msgReadOptions struct {
@@ -123,6 +145,16 @@ func cmdMsg(ctx *CommandContext) {
 		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 			output, err := runMsgSend(mctx, ctx.ActorPaneID, opts)
+			return commandMutationResult{output: output, err: err}
+		}))
+	case "reply":
+		opts, err := parseMsgReplyOptions(ctx.Args[1:])
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+			output, err := runMsgReply(mctx, ctx.ActorPaneID, opts)
 			return commandMutationResult{output: output, err: err}
 		}))
 	case "inbox":
@@ -232,7 +264,96 @@ func parseMsgSendOptions(args []string) (msgSendOptions, error) {
 			opts.format = format
 			i = next
 		default:
-			return opts, fmt.Errorf("usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]")
+			return opts, errors.New(msgSendUsage)
+		}
+	}
+	return opts, nil
+}
+
+func parseMsgReplyOptions(args []string) (msgReplyOptions, error) {
+	opts := msgReplyOptions{format: msgFormatText}
+	if len(args) == 0 {
+		return opts, errors.New(msgReplyUsage)
+	}
+	opts.id = mailbox.MessageID(args[0])
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--from":
+			value, next, err := requiredFlagValue(args, i, "--from")
+			if err != nil {
+				return opts, err
+			}
+			opts.from = value
+			i = next
+		case "--to":
+			value, next, err := requiredFlagValue(args, i, "--to")
+			if err != nil {
+				return opts, err
+			}
+			opts.to = appendCSVValues(opts.to, value)
+			i = next
+		case "--subject":
+			value, next, err := requiredFlagValue(args, i, "--subject")
+			if err != nil {
+				return opts, err
+			}
+			opts.subject = value
+			i = next
+		case "--body":
+			value, next, err := requiredFlagValue(args, i, "--body")
+			if err != nil {
+				return opts, err
+			}
+			opts.body = []byte(value)
+			i = next
+		case "--topic":
+			value, next, err := requiredFlagValue(args, i, "--topic")
+			if err != nil {
+				return opts, err
+			}
+			opts.topics = appendCSVValues(opts.topics, value)
+			i = next
+		case "--group":
+			value, next, err := requiredFlagValue(args, i, "--group")
+			if err != nil {
+				return opts, err
+			}
+			opts.groups = appendCSVValues(opts.groups, value)
+			i = next
+		case "--metadata":
+			value, next, err := requiredFlagValue(args, i, "--metadata")
+			if err != nil {
+				return opts, err
+			}
+			metadata, err := parseMsgMetadata(value)
+			if err != nil {
+				return opts, err
+			}
+			opts.metadata = metadata
+			i = next
+		case "--ack":
+			value, next, err := requiredFlagValue(args, i, "--ack")
+			if err != nil {
+				return opts, err
+			}
+			opts.ackStatus = value
+			i = next
+		case "--ack-note":
+			value, next, err := requiredFlagValue(args, i, "--ack-note")
+			if err != nil {
+				return opts, err
+			}
+			opts.ackNote = value
+			i = next
+		case "--format":
+			format, next, err := parseMsgFormatFlag(args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.format = format
+			i = next
+		default:
+			return opts, errors.New(msgReplyUsage)
 		}
 	}
 	return opts, nil
@@ -253,10 +374,10 @@ func parseMsgInboxOptions(args []string) (msgInboxOptions, error) {
 			i = next
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return opts, fmt.Errorf("usage: msg inbox [pane] [--unread] [--format json]")
+				return opts, errors.New(msgInboxUsage)
 			}
 			if opts.target != "" {
-				return opts, fmt.Errorf("usage: msg inbox [pane] [--unread] [--format json]")
+				return opts, errors.New(msgInboxUsage)
 			}
 			opts.target = args[i]
 		}
@@ -267,7 +388,7 @@ func parseMsgInboxOptions(args []string) (msgInboxOptions, error) {
 func parseMsgReadOptions(args []string) (msgReadOptions, error) {
 	opts := msgReadOptions{format: msgFormatText}
 	if len(args) == 0 {
-		return opts, fmt.Errorf("usage: msg read <msg-id> [--for pane] [--peek] [--format json]")
+		return opts, errors.New(msgReadUsage)
 	}
 	opts.id = mailbox.MessageID(args[0])
 	for i := 1; i < len(args); i++ {
@@ -289,7 +410,7 @@ func parseMsgReadOptions(args []string) (msgReadOptions, error) {
 			opts.format = format
 			i = next
 		default:
-			return opts, fmt.Errorf("usage: msg read <msg-id> [--for pane] [--peek] [--format json]")
+			return opts, errors.New(msgReadUsage)
 		}
 	}
 	return opts, nil
@@ -298,7 +419,7 @@ func parseMsgReadOptions(args []string) (msgReadOptions, error) {
 func parseMsgAckOptions(args []string) (msgAckOptions, error) {
 	opts := msgAckOptions{format: msgFormatText}
 	if len(args) == 0 {
-		return opts, fmt.Errorf("usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]")
+		return opts, errors.New(msgAckUsage)
 	}
 	opts.id = mailbox.MessageID(args[0])
 	for i := 1; i < len(args); i++ {
@@ -332,7 +453,7 @@ func parseMsgAckOptions(args []string) (msgAckOptions, error) {
 			opts.format = format
 			i = next
 		default:
-			return opts, fmt.Errorf("usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]")
+			return opts, errors.New(msgAckUsage)
 		}
 	}
 	return opts, nil
@@ -424,6 +545,56 @@ func runMsgInbox(mctx *MutationContext, actorPaneID uint32, opts msgInboxOptions
 	return formatMsgInboxText(summaries), nil
 }
 
+func runMsgReply(mctx *MutationContext, actorPaneID uint32, opts msgReplyOptions) (string, error) {
+	sender, err := resolveMailboxSender(mctx, actorPaneID, opts.from)
+	if err != nil {
+		return "", err
+	}
+	parent, ok := mctx.sess.ensureMailbox().Message(opts.id)
+	if !ok {
+		return "", fmt.Errorf("message %q not found", opts.id)
+	}
+	recipients, err := resolveMailboxReplyRecipients(mctx, actorPaneID, sender, parent, opts.to)
+	if err != nil {
+		return "", err
+	}
+	if opts.ackStatus != "" || opts.ackNote != "" {
+		if _, err := mctx.sess.ensureMailbox().DeliverySummary(parent.ID, sender.ID); err != nil {
+			return "", fmt.Errorf("cannot ack reply parent as %s: %w", sender.Name, err)
+		}
+	}
+	topics := opts.topics
+	if len(topics) == 0 {
+		topics = parent.Topics
+	}
+	groups := opts.groups
+	if len(groups) == 0 {
+		groups = parent.Groups
+	}
+	msg, err := mctx.sess.sendMailboxMessage(mailbox.SendRequest{
+		Sender:     sender,
+		Recipients: recipients,
+		Topics:     topics,
+		Groups:     groups,
+		Subject:    opts.subject,
+		Body:       opts.body,
+		Metadata:   opts.metadata,
+		ReplyTo:    parent.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if opts.ackStatus != "" || opts.ackNote != "" {
+		if _, err := mctx.sess.ackMailboxMessage(parent.ID, sender.ID, mailbox.AckRequest{Status: opts.ackStatus, Note: opts.ackNote}); err != nil {
+			return "", err
+		}
+	}
+	if opts.format == msgFormatJSON {
+		return encodeMsgJSON(sendOutputForMessage(msg))
+	}
+	return fmt.Sprintf("Sent %s to %s\n", msg.ID, joinPaneNames(msg.Recipients)), nil
+}
+
 func runMsgRead(mctx *MutationContext, actorPaneID uint32, opts msgReadOptions) (string, error) {
 	recipient, err := resolveMailboxTarget(mctx, actorPaneID, opts.target, "read target")
 	if err != nil {
@@ -456,6 +627,37 @@ func runMsgAck(mctx *MutationContext, actorPaneID uint32, opts msgAckOptions) (s
 		return fmt.Sprintf("Acked %s for %s status=%s\n", opts.id, recipient.Name, opts.status), nil
 	}
 	return fmt.Sprintf("Acked %s for %s\n", opts.id, recipient.Name), nil
+}
+
+func resolveMailboxReplyRecipients(mctx *MutationContext, actorPaneID uint32, sender mailbox.PaneAddress, parent mailbox.Message, refs []string) ([]mailbox.PaneAddress, error) {
+	if len(refs) > 0 {
+		return resolveMailboxRecipients(mctx, actorPaneID, refs)
+	}
+	if sender.ID != parent.Sender.ID {
+		if !messageHasRecipient(parent, sender.ID) {
+			return nil, fmt.Errorf("reply recipient could not be inferred for %s; pass --to", sender.Name)
+		}
+		return []mailbox.PaneAddress{parent.Sender}, nil
+	}
+	recipients := make([]mailbox.PaneAddress, 0, len(parent.Recipients))
+	for _, recipient := range parent.Recipients {
+		if recipient.ID != sender.ID {
+			recipients = append(recipients, recipient)
+		}
+	}
+	if len(recipients) == 0 {
+		return nil, fmt.Errorf("reply recipient could not be inferred for %s; pass --to", sender.Name)
+	}
+	return recipients, nil
+}
+
+func messageHasRecipient(msg mailbox.Message, paneID uint32) bool {
+	for _, recipient := range msg.Recipients {
+		if recipient.ID == paneID {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveMailboxSender(mctx *MutationContext, actorPaneID uint32, ref string) (mailbox.PaneAddress, error) {
