@@ -157,7 +157,15 @@ func TestSpawnFromActiveLeadPaneRoutesToLogicalRoot(t *testing.T) {
 	if !lead.Lead {
 		t.Fatal("pane-1 should remain the lead pane after default spawn")
 	}
+	// The lead stays anchored on the left and both new panes land in the
+	// logical root to its right. Unlike `spawn --at <lead>` (which stacks the
+	// new pane in the existing column), a *default* spawn keeps the normal
+	// default-placement direction and opens a new column -- so the workers sit
+	// in distinct columns rather than stacked.
 	assertLeadPaneLeftOfWorkers(t, lead, worker1, worker2)
+	if worker1.Position.X == worker2.Position.X {
+		t.Fatalf("default spawn from lead should open a new column, got worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
+	}
 }
 
 func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
