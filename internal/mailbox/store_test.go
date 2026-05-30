@@ -271,6 +271,13 @@ func TestStoreRejectsInvalidSendWithoutStoring(t *testing.T) {
 			wantReason: "subject",
 		},
 		{
+			name: "invalid subject utf8",
+			mutate: func(req *SendRequest) {
+				req.Subject = string([]byte{0xff})
+			},
+			wantReason: "UTF-8",
+		},
+		{
 			name: "invalid sender name",
 			mutate: func(req *SendRequest) {
 				req.Sender = PaneAddress{ID: 1}
@@ -564,11 +571,17 @@ func TestStoreRejectsReadAndAckNoOps(t *testing.T) {
 	if _, _, err := store.Read("msg-999999", 2, ReadOptions{}); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("Read unknown error = %v, want not found", err)
 	}
+	if _, _, err := store.Read(msg.ID, 0, ReadOptions{}); err == nil || !strings.Contains(err.Error(), "recipient") {
+		t.Fatalf("Read invalid recipient error = %v, want recipient error", err)
+	}
 	if _, _, err := store.Read(msg.ID, 3, ReadOptions{}); err == nil || !strings.Contains(err.Error(), "not delivered") {
 		t.Fatalf("Read non-recipient error = %v, want not delivered", err)
 	}
 	if _, err := store.Ack("msg-999999", 2, AckRequest{Status: "ok"}); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("Ack unknown error = %v, want not found", err)
+	}
+	if _, err := store.Ack(msg.ID, 0, AckRequest{Status: "ok"}); err == nil || !strings.Contains(err.Error(), "recipient") {
+		t.Fatalf("Ack invalid recipient error = %v, want recipient error", err)
 	}
 	if _, err := store.Ack(msg.ID, 3, AckRequest{Status: "ok"}); err == nil || !strings.Contains(err.Error(), "not delivered") {
 		t.Fatalf("Ack non-recipient error = %v, want not delivered", err)
@@ -650,6 +663,27 @@ func TestStoreAllocatesUniqueStableIDs(t *testing.T) {
 			Body:       []byte("body"),
 		})
 		assertMessageID(t, msg.ID, wantID)
+	}
+}
+
+func TestStoreListUnreadSortsByMessageID(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+
+	first := mustSend(t, store, validSendRequest("First", []byte("one")))
+	second := mustSend(t, store, validSendRequest("Second", []byte("two")))
+
+	unread, err := store.ListUnread(2)
+	if err != nil {
+		t.Fatalf("ListUnread: %v", err)
+	}
+	if len(unread) != 2 {
+		t.Fatalf("ListUnread length = %d, want 2", len(unread))
+	}
+	if unread[0].MessageID != first.ID || unread[1].MessageID != second.ID {
+		t.Fatalf("ListUnread IDs = [%q, %q], want message ID order", unread[0].MessageID, unread[1].MessageID)
 	}
 }
 

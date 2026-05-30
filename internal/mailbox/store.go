@@ -296,11 +296,7 @@ func (s *Store) ListUnread(recipientID uint32) ([]DeliverySummary, error) {
 	})
 	summaries := make([]DeliverySummary, 0, len(ids))
 	for _, id := range ids {
-		msg := s.messages[id]
-		if msg == nil {
-			continue
-		}
-		summaries = append(summaries, summaryFor(msg, byMessage[id]))
+		summaries = append(summaries, summaryFor(s.messages[id], byMessage[id]))
 	}
 	return summaries, nil
 }
@@ -318,7 +314,7 @@ func (s *Store) Read(id MessageID, recipientID uint32, opts ReadOptions) (Messag
 		delivery.ReadAt = now
 		msg.UpdatedAt = now
 	}
-	return cloneMessage(msg), *cloneDelivery(delivery), nil
+	return cloneMessage(msg), *delivery, nil
 }
 
 func (s *Store) Ack(id MessageID, recipientID uint32, req AckRequest) (DeliveryState, error) {
@@ -339,7 +335,7 @@ func (s *Store) Ack(id MessageID, recipientID uint32, req AckRequest) (DeliveryS
 		delivery.AckNote = req.Note
 		msg.UpdatedAt = now
 	}
-	return *cloneDelivery(delivery), nil
+	return *delivery, nil
 }
 
 func (s *Store) validateCanStoreMessage() error {
@@ -497,9 +493,6 @@ func normalizeParts(body []byte, parts []MessagePart, partLimit, totalLimit int)
 		}
 		out[i] = normalized
 	}
-	if total == 0 {
-		return nil, 0, fmt.Errorf("message body is required")
-	}
 	return out, total, nil
 }
 
@@ -637,14 +630,6 @@ func cloneMetadata(src map[string]json.RawMessage) map[string]json.RawMessage {
 		out[key] = append(json.RawMessage(nil), value...)
 	}
 	return out
-}
-
-func cloneDelivery(src *DeliveryState) *DeliveryState {
-	if src == nil {
-		return nil
-	}
-	out := *src
-	return &out
 }
 
 func normalizeLimits(l Limits) Limits {
