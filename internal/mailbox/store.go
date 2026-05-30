@@ -77,22 +77,23 @@ type DeliveryState struct {
 }
 
 type DeliverySummary struct {
-	MessageID   MessageID   `json:"message_id"`
-	Sender      PaneAddress `json:"sender"`
-	Recipient   PaneAddress `json:"recipient"`
-	Subject     string      `json:"subject"`
-	Topics      []string    `json:"topics,omitempty"`
-	Groups      []string    `json:"groups,omitempty"`
-	ThreadID    ThreadID    `json:"thread_id"`
-	InReplyTo   MessageID   `json:"in_reply_to,omitempty"`
-	CreatedAt   time.Time   `json:"created_at"`
-	DeliveredAt time.Time   `json:"delivered_at"`
-	ReadAt      time.Time   `json:"read_at,omitempty"`
-	AckedAt     time.Time   `json:"acked_at,omitempty"`
-	AckStatus   string      `json:"ack_status,omitempty"`
-	AckNote     string      `json:"ack_note,omitempty"`
-	BodySize    int         `json:"body_size"`
-	PartCount   int         `json:"part_count"`
+	MessageID    MessageID   `json:"message_id"`
+	Sender       PaneAddress `json:"sender"`
+	Recipient    PaneAddress `json:"recipient"`
+	Subject      string      `json:"subject"`
+	Topics       []string    `json:"topics,omitempty"`
+	Groups       []string    `json:"groups,omitempty"`
+	ThreadID     ThreadID    `json:"thread_id"`
+	InReplyTo    MessageID   `json:"in_reply_to,omitempty"`
+	CreatedAt    time.Time   `json:"created_at"`
+	DeliveredAt  time.Time   `json:"delivered_at"`
+	ReadAt       time.Time   `json:"read_at,omitempty"`
+	AckedAt      time.Time   `json:"acked_at,omitempty"`
+	AckStatus    string      `json:"ack_status,omitempty"`
+	AckNote      string      `json:"ack_note,omitempty"`
+	LastEventSeq uint64      `json:"last_event_seq,omitempty"`
+	BodySize     int         `json:"body_size"`
+	PartCount    int         `json:"part_count"`
 }
 
 type SendRequest struct {
@@ -299,6 +300,29 @@ func (s *Store) ListUnread(recipientID uint32) ([]DeliverySummary, error) {
 		summaries = append(summaries, summaryFor(s.messages[id], byMessage[id]))
 	}
 	return summaries, nil
+}
+
+func (s *Store) DeliverySummary(id MessageID, recipientID uint32) (DeliverySummary, error) {
+	if s == nil {
+		return DeliverySummary{}, fmt.Errorf("mailbox store is nil")
+	}
+	msg, delivery, err := s.messageDelivery(id, recipientID)
+	if err != nil {
+		return DeliverySummary{}, err
+	}
+	return summaryFor(msg, delivery), nil
+}
+
+func (s *Store) SetLastEventSeq(id MessageID, recipientID uint32, seq uint64) (DeliverySummary, error) {
+	if s == nil {
+		return DeliverySummary{}, fmt.Errorf("mailbox store is nil")
+	}
+	msg, delivery, err := s.messageDelivery(id, recipientID)
+	if err != nil {
+		return DeliverySummary{}, err
+	}
+	delivery.LastEventSeq = seq
+	return summaryFor(msg, delivery), nil
 }
 
 func (s *Store) Read(id MessageID, recipientID uint32, opts ReadOptions) (Message, DeliveryState, error) {
@@ -568,22 +592,23 @@ func metadataByteSize(metadata map[string]json.RawMessage) int {
 
 func summaryFor(msg *Message, delivery *DeliveryState) DeliverySummary {
 	return DeliverySummary{
-		MessageID:   msg.ID,
-		Sender:      msg.Sender,
-		Recipient:   delivery.Recipient,
-		Subject:     msg.Subject,
-		Topics:      append([]string(nil), msg.Topics...),
-		Groups:      append([]string(nil), msg.Groups...),
-		ThreadID:    msg.ThreadID,
-		InReplyTo:   msg.InReplyTo,
-		CreatedAt:   msg.CreatedAt,
-		DeliveredAt: delivery.DeliveredAt,
-		ReadAt:      delivery.ReadAt,
-		AckedAt:     delivery.AckedAt,
-		AckStatus:   delivery.AckStatus,
-		AckNote:     delivery.AckNote,
-		BodySize:    messageBodySize(msg),
-		PartCount:   len(msg.Parts),
+		MessageID:    msg.ID,
+		Sender:       msg.Sender,
+		Recipient:    delivery.Recipient,
+		Subject:      msg.Subject,
+		Topics:       append([]string(nil), msg.Topics...),
+		Groups:       append([]string(nil), msg.Groups...),
+		ThreadID:     msg.ThreadID,
+		InReplyTo:    msg.InReplyTo,
+		CreatedAt:    msg.CreatedAt,
+		DeliveredAt:  delivery.DeliveredAt,
+		ReadAt:       delivery.ReadAt,
+		AckedAt:      delivery.AckedAt,
+		AckStatus:    delivery.AckStatus,
+		AckNote:      delivery.AckNote,
+		LastEventSeq: delivery.LastEventSeq,
+		BodySize:     messageBodySize(msg),
+		PartCount:    len(msg.Parts),
 	}
 }
 

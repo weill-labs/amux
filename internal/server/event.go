@@ -20,6 +20,9 @@ const (
 	EventClientConnect    = eventloop.EventClientConnect
 	EventClientDisconnect = eventloop.EventClientDisconnect
 	EventPaneExit         = eventloop.EventPaneExit
+	EventMessageDelivered = eventloop.EventMessageDelivered
+	EventMessageRead      = eventloop.EventMessageRead
+	EventMessageAck       = eventloop.EventMessageAck
 )
 
 const (
@@ -87,6 +90,8 @@ func (s *Session) currentStateEvents() []Event {
 			})
 		}
 	}
+
+	events = append(events, s.currentMailboxStateEvents(now)...)
 
 	for _, cc := range s.ensureClientManager().snapshotClients() {
 		events = append(events, Event{

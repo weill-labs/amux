@@ -73,10 +73,11 @@ type Session struct {
 	// duplicate terminal events.
 	terminalEventState map[uint32]paneTerminalEventState
 
-	undo *UndoManager
-
 	// Mailbox is server-owned and mutated only on the session event loop.
-	mailbox *mailbox.Store
+	mailbox         *mailbox.Store
+	mailboxEventSeq uint64
+
+	undo *UndoManager
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
 	VTIdleSettle time.Duration // default: 2s
@@ -511,6 +512,7 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 		paneLog:            newPaneLog(defaultPaneLogSize),
 	}
 	sess.idle = NewIdleTracker(sess.clock)
+	sess.mailbox = mailbox.NewStore(mailbox.Options{Now: func() time.Time { return sess.clock().Now() }})
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()

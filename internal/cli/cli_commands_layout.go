@@ -167,7 +167,7 @@ func layoutCLICommands() map[string]commandHandler {
 		},
 		"wait": func(inv invocation, args []string) int {
 			if len(args) < 1 {
-				fmt.Fprintln(inv.runtime.Stderr, "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...")
+				fmt.Fprintln(inv.runtime.Stderr, waitUsage)
 				return 1
 			}
 			return inv.runSessionCommand("wait", args)

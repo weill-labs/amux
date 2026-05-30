@@ -100,7 +100,7 @@ func TestMainWaitUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...") {
+	if !strings.Contains(out, "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ...") {
 		t.Fatalf("wait usage output = %q", out)
 	}
 }

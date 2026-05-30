@@ -289,7 +289,7 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			name:        "wait needs a kind",
 			args:        []string{"wait"},
 			wantHandled: true,
-			wantErrText: "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
+			wantErrText: "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ...",
 		},
 		{
 			name:        "rename needs pane and new name",
@@ -611,7 +611,7 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			name:        "wait long help reflects idle rename",
 			args:        []string{"wait", "--help"},
 			wantHandled: true,
-			wantStdout:  "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...\n",
+			wantStdout:  "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ...\n",
 		},
 		{
 			name:        "last-window help",
