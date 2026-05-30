@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/weill-labs/amux/internal/dialutil"
 	"github.com/weill-labs/amux/internal/server"
@@ -11,10 +12,15 @@ import (
 type ServerCommandRunner struct {
 	SessionName string
 	ActorPaneID uint32
+	DialUnix    func(string) (net.Conn, error)
 }
 
 func (r ServerCommandRunner) RunCommand(ctx context.Context, name string, args []string) (string, error) {
-	conn, err := dialutil.DialUnix(server.SocketPath(r.SessionName))
+	dial := r.DialUnix
+	if dial == nil {
+		dial = dialutil.DialUnix
+	}
+	conn, err := dial(server.SocketPath(r.SessionName))
 	if err != nil {
 		return "", fmt.Errorf("connecting to server: %w", err)
 	}
