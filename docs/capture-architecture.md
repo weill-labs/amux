@@ -116,6 +116,8 @@ Existing scripts continue working. Most scripts call `amux capture --format json
 
 ## Effort Estimate
 
+_Original pre-implementation estimate, retained as a planning record. The work shipped across the LAB-1644 / LAB-1645 / LAB-1753 / LAB-1760 PRs._
+
 - **Single-pane text/JSON capture server-side**: about half a day. The pieces already exist; this calls them from a different goroutine. It fixes most of LAB-1634's visible flicker because most agent capture invocations are single-pane.
 - **Full-session composited capture server-side**: two to three days. This is mostly mechanical, centered on a `serverPaneData` adapter wrapping `*mux.Pane`, with one design call about how to handle client UI state.
 - **Non-blocking client-side capture**: about half a day. Refactor `prevGrid` to publish through `atomic.Pointer[ScreenGrid]`, then replace `withRendererActorValue` in `CaptureDisplay` with an atomic load.
