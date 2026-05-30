@@ -102,6 +102,10 @@ type paneMirrorStatusProvider interface {
 	MirrorStatus() (state, remotePaneName string, reconnectInSeconds int, lastError string, ok bool)
 }
 
+type paneMailboxStatusProvider interface {
+	MailboxUnreadCount() int
+}
+
 const (
 	mirrorStateConnected    = "connected"
 	mirrorStateConnecting   = "connecting"
@@ -270,6 +274,7 @@ func buildPaneStatusSegmentsWithIcons(cellWidth int, isActive bool, pd PaneData,
 		}
 		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
 	}
+	segments = appendPaneStatusMailboxSegments(segments, cellWidth, isActive, pd, icons)
 
 	if mirrorStatus, ok := paneMirrorStatusForPane(pd); ok {
 		return buildMirrorPaneStatusSegments(cellWidth, segments, pd, icons, mirrorStatus)
@@ -425,6 +430,42 @@ func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
 		usedWidth += runewidth.StringWidth(segment.text)
 	}
 	return usedWidth
+}
+
+func appendPaneStatusMailboxSegments(segments []paneStatusSegment, cellWidth int, isActive bool, pd PaneData, icons IconSet) []paneStatusSegment {
+	badgeText := paneStatusMailboxBadgeText(paneStatusMailboxUnreadCount(pd))
+	if badgeText == "" || !paneStatusMailboxBadgeFits(cellWidth, isActive, pd, icons, badgeText) {
+		return segments
+	}
+	segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+	return appendPaneStatusSegment(segments, badgeText, paneStatusSegmentYellow)
+}
+
+func paneStatusMailboxUnreadCount(pd PaneData) int {
+	provider, ok := pd.(paneMailboxStatusProvider)
+	if !ok {
+		return 0
+	}
+	unread := provider.MailboxUnreadCount()
+	if unread < 0 {
+		return 0
+	}
+	return unread
+}
+
+func paneStatusMailboxBadgeText(unread int) string {
+	if unread <= 0 {
+		return ""
+	}
+	if unread > 9 {
+		return "msg:9+"
+	}
+	return "msg:" + strconv.Itoa(unread)
+}
+
+func paneStatusMailboxBadgeFits(cellWidth int, isActive bool, pd PaneData, icons IconSet, badgeText string) bool {
+	required := paneStatusBaseWidthWithIcons(isActive, pd, icons) + 1 + runewidth.StringWidth(badgeText)
+	return required <= cellWidth
 }
 
 func clipPaneStatusSegments(segments []paneStatusSegment, maxWidth int) []paneStatusSegment {
@@ -718,7 +759,7 @@ func availableMetadataWidthWithIcons(cellWidth int, isActive bool, pd PaneData, 
 	if len(paneStatusMetadataItemsForPaneWithIcons(pd, icons)) == 0 {
 		return 0
 	}
-	return cellWidth - paneStatusUsedWidthWithoutMetadataWithIcons(isActive, pd, icons) - 1
+	return cellWidth - paneStatusUsedWidthWithoutMetadataWithIcons(cellWidth, isActive, pd, icons) - 1
 }
 
 func normalizeTrackedStatus(status proto.TrackedStatus) proto.TrackedStatus {
@@ -832,7 +873,23 @@ func powerlinePaneStatusIcons(icons IconSet) IconSet {
 	return icons
 }
 
-func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, icons IconSet) int {
+func paneStatusUsedWidthWithoutMetadataWithIcons(cellWidth int, isActive bool, pd PaneData, icons IconSet) int {
+	icons = normalizeIconSet(icons)
+	usedWidth := paneStatusBaseWidthWithIcons(isActive, pd, icons)
+	if badgeText := paneStatusMailboxBadgeText(paneStatusMailboxUnreadCount(pd)); badgeText != "" &&
+		paneStatusMailboxBadgeFits(cellWidth, isActive, pd, icons, badgeText) {
+		usedWidth += 1 + runewidth.StringWidth(badgeText)
+	}
+	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
+		usedWidth += 1 + runewidth.StringWidth(icons.RemoteHost) + runewidth.StringWidth(pd.Host())
+	}
+	if taskText := paneStatusTaskText(pd.Task(), icons); taskText != "" {
+		usedWidth += 1 + runewidth.StringWidth(taskText)
+	}
+	return usedWidth
+}
+
+func paneStatusBaseWidthWithIcons(isActive bool, pd PaneData, icons IconSet) int {
 	icons = normalizeIconSet(icons)
 	usedWidth := runewidth.StringWidth(paneStatusStateIcon(isActive, pd, icons)) + 1 + runewidth.StringWidth(paneStatusNameText(pd.Name(), icons))
 	if pd.IsLead() {
@@ -843,12 +900,6 @@ func paneStatusUsedWidthWithoutMetadataWithIcons(isActive bool, pd PaneData, ico
 		if search := pd.CopyModeSearch(); search != "" {
 			usedWidth += 1 + runewidth.StringWidth(search)
 		}
-	}
-	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
-		usedWidth += 1 + runewidth.StringWidth(icons.RemoteHost) + runewidth.StringWidth(pd.Host())
-	}
-	if taskText := paneStatusTaskText(pd.Task(), icons); taskText != "" {
-		usedWidth += 1 + runewidth.StringWidth(taskText)
 	}
 	return usedWidth
 }

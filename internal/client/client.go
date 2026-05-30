@@ -1241,6 +1241,12 @@ func (c *clientPaneData) Task() string  { return c.info.Task }
 func (c *clientPaneData) Color() string { return c.info.Color }
 func (c *clientPaneData) Idle() bool    { return c.info.Idle }
 func (c *clientPaneData) IsLead() bool  { return c.info.Lead }
+func (c *clientPaneData) MailboxUnreadCount() int {
+	if c.info.Mailbox == nil {
+		return 0
+	}
+	return c.info.Mailbox.Unread
+}
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil
 }

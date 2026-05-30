@@ -330,11 +330,17 @@ func (p *snapshotPaneData) Issue() string {
 	}
 	return p.info.KV["issue"]
 }
-func (p *snapshotPaneData) Host() string     { return p.info.Host }
-func (p *snapshotPaneData) Task() string     { return p.info.Task }
-func (p *snapshotPaneData) Color() string    { return p.info.Color }
-func (p *snapshotPaneData) Idle() bool       { return p.info.Idle }
-func (p *snapshotPaneData) IsLead() bool     { return p.info.Lead }
+func (p *snapshotPaneData) Host() string  { return p.info.Host }
+func (p *snapshotPaneData) Task() string  { return p.info.Task }
+func (p *snapshotPaneData) Color() string { return p.info.Color }
+func (p *snapshotPaneData) Idle() bool    { return p.info.Idle }
+func (p *snapshotPaneData) IsLead() bool  { return p.info.Lead }
+func (p *snapshotPaneData) MailboxUnreadCount() int {
+	if p.info.Mailbox == nil {
+		return 0
+	}
+	return p.info.Mailbox.Unread
+}
 func (p *snapshotPaneData) InCopyMode() bool { return false }
 func (p *snapshotPaneData) CopyModeSearch() string {
 	return ""

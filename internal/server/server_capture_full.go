@@ -175,11 +175,17 @@ func (p *serverPaneData) Issue() string {
 	}
 	return p.pane.info.KV["issue"]
 }
-func (p *serverPaneData) Host() string           { return p.pane.info.Host }
-func (p *serverPaneData) Task() string           { return p.pane.info.Task }
-func (p *serverPaneData) Color() string          { return p.pane.info.Color }
-func (p *serverPaneData) Idle() bool             { return p.pane.info.Idle }
-func (p *serverPaneData) IsLead() bool           { return p.pane.info.Lead }
+func (p *serverPaneData) Host() string  { return p.pane.info.Host }
+func (p *serverPaneData) Task() string  { return p.pane.info.Task }
+func (p *serverPaneData) Color() string { return p.pane.info.Color }
+func (p *serverPaneData) Idle() bool    { return p.pane.info.Idle }
+func (p *serverPaneData) IsLead() bool  { return p.pane.info.Lead }
+func (p *serverPaneData) MailboxUnreadCount() int {
+	if p.pane.info.Mailbox == nil {
+		return 0
+	}
+	return p.pane.info.Mailbox.Unread
+}
 func (p *serverPaneData) InCopyMode() bool       { return false }
 func (p *serverPaneData) CopyModeSearch() string { return "" }
 
