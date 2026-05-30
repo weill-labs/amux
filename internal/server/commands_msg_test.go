@@ -26,6 +26,8 @@ type msgCommandInboxJSON []struct {
 	Subject   string `json:"subject"`
 	ReadAt    string `json:"read_at"`
 	AckedAt   string `json:"acked_at"`
+	AckStatus string `json:"ack_status"`
+	AckNote   string `json:"ack_note"`
 	BodySize  int    `json:"body_size"`
 	PartCount int    `json:"part_count"`
 }
@@ -188,6 +190,80 @@ func TestMsgCommandDefaultsToActorPane(t *testing.T) {
 	}
 	if !strings.Contains(read.output, "actor body") {
 		t.Fatalf("actor-default read output = %q, want body", read.output)
+	}
+}
+
+func TestMsgCommandReplyInfersRecipientAndThread(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	root := runTestCommand(t, srv, sess, "msg", "send",
+		"--from", "pane-1",
+		"--to", "pane-2",
+		"--subject", "Proof",
+		"--topic", "handoff",
+		"--group", "agents",
+		"--body", "root body",
+		"--format", "json",
+	)
+	if root.cmdErr != "" {
+		t.Fatalf("msg send root error: %s", root.cmdErr)
+	}
+	rootJSON := parseMsgCommandSendJSON(t, root.output)
+
+	reply := runTestCommandWithActor(t, srv, sess, 2, "msg", "reply", rootJSON.ID, "--body", "reply body", "--format", "json")
+	if reply.cmdErr != "" {
+		t.Fatalf("msg reply error: %s", reply.cmdErr)
+	}
+	replyJSON := parseMsgCommandSendJSON(t, reply.output)
+	if replyJSON.InReplyTo != rootJSON.ID || replyJSON.ThreadID != rootJSON.ID {
+		t.Fatalf("reply JSON = %#v, want reply in root thread", replyJSON)
+	}
+	if len(replyJSON.Recipients) != 1 || replyJSON.Recipients[0].Name != "pane-1" {
+		t.Fatalf("reply recipients = %#v, want original sender pane-1", replyJSON.Recipients)
+	}
+	if got := strings.Join(replyJSON.Topics, ","); got != "handoff" {
+		t.Fatalf("reply topics = %q, want inherited handoff", got)
+	}
+	if got := strings.Join(replyJSON.Groups, ","); got != "agents" {
+		t.Fatalf("reply groups = %q, want inherited agents", got)
+	}
+
+	read := runTestCommand(t, srv, sess, "msg", "read", replyJSON.ID, "--for", "pane-1")
+	if read.cmdErr != "" {
+		t.Fatalf("msg read reply error: %s", read.cmdErr)
+	}
+	if read.output != "reply body\n" {
+		t.Fatalf("reply body = %q, want reply body", read.output)
+	}
+}
+
+func TestMsgCommandReplyCanAckParent(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	root := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "please ack", "--format", "json")
+	if root.cmdErr != "" {
+		t.Fatalf("msg send root error: %s", root.cmdErr)
+	}
+	rootJSON := parseMsgCommandSendJSON(t, root.output)
+
+	reply := runTestCommandWithActor(t, srv, sess, 2, "msg", "reply", rootJSON.ID, "--body", "acked", "--ack", "ok", "--ack-note", "handled", "--format", "json")
+	if reply.cmdErr != "" {
+		t.Fatalf("msg reply --ack error: %s", reply.cmdErr)
+	}
+
+	inbox := runTestCommand(t, srv, sess, "msg", "inbox", "pane-2", "--format", "json")
+	if inbox.cmdErr != "" {
+		t.Fatalf("msg inbox error: %s", inbox.cmdErr)
+	}
+	all := parseMsgCommandInboxJSON(t, inbox.output)
+	if len(all) != 1 || all[0].AckStatus != "ok" || all[0].AckNote != "handled" {
+		t.Fatalf("pane-2 inbox = %#v, want parent acked ok with note", all)
 	}
 }
 
@@ -360,6 +436,16 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			name: "missing read id",
 			args: []string{"read"},
 			want: "usage: msg read",
+		},
+		{
+			name: "missing reply id",
+			args: []string{"reply"},
+			want: "usage: msg reply",
+		},
+		{
+			name: "unknown reply flag",
+			args: []string{"reply", "msg-000001", "--bad"},
+			want: "usage: msg reply",
 		},
 		{
 			name: "unknown read flag",
