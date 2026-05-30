@@ -67,49 +67,25 @@ amux -s my-project
 **Agent**
 
 ```bash
-# Inspect the current session
+# Inspect the session as structured JSON
 amux capture --format json
 
-# Inspect what the attached client last rendered
-amux capture --client
-
-# Capture the full browsable buffer for one pane
-amux capture --history pane-1
-
 # Send a command to a pane and wait for it to finish
-amux send-keys pane-1 "ls" Enter
+amux send-keys pane-1 "make test" Enter
 amux wait exited pane-1
+
+# Hand a task to an agent pane once its screen goes quiet
+amux wait idle pane-31 --timeout 30s
+amux send-keys pane-31 "Fix the auth timeout bug" Enter
 
 # Broadcast the same command to multiple panes
 amux broadcast --panes pane-1,pane-2 "make test" Enter
 
-# Send a task to an agent pane after its screen output goes quiet
-amux wait idle pane-31 --timeout 30s
-amux send-keys pane-31 "Fix the auth timeout bug" Enter
-
-# Compose higher-level prompt orchestration in your own script
-amux wait idle pane-31 --timeout 30s
-amux send-keys pane-31 "Summarize the failing tests and propose a fix" Enter
-amux wait busy pane-31 --timeout 5s
-
 # Subscribe to state changes
 amux events --filter idle
-
-# Tag the current pane when you start a Linear issue
-scripts/set-pane-issue.sh LAB-445
-
-# Find worker PRs with failing CI and see which pane owns each one
-scripts/check-worker-ci.sh
-
-# Find worker PRs that are ready for human merge and notify the owning pane
-go run ./cmd/check-pr-ready
-
-# Discover attached clients
-amux list-clients
-
-# Inspect recent client attach/detach history
-amux log clients
 ```
+
+See the [CLI Reference](#agent-api-1) for the full command surface.
 
 ## Agent API
 
@@ -170,64 +146,30 @@ Returns a JSON object with session metadata, window info, and per-pane state:
 }
 ```
 
-Examples abbreviate `terminal.palette` for readability. Real capture output always includes all 256 palette entries in stable ANSI index order.
-Pane JSON includes a nested `meta` object for pane metadata, including the raw kv store under `meta.kv` plus compatibility fields for `task`, `git_branch`, `pr`, `tracked_prs`, and `tracked_issues`. The legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility.
+Examples abbreviate `terminal.palette`; real output always includes all 256 entries in stable ANSI index order. Pane JSON also carries a nested `meta` object (raw kv store plus `task`, `git_branch`, `pr`, `tracked_prs`, `tracked_issues`); the legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility. Capture JSON is additive — ignore unknown fields so future releases can extend the schema without breaking parsers.
 
-`cursor.style` is one of `block`, `underline`, or `bar`. `terminal.palette` is the pane's effective 256-color ANSI palette in stable index order, encoded as lowercase hex without `#`. `terminal.hyperlink` is present when OSC 8 hyperlink state is active at the cursor. Capture JSON is additive: agents should ignore unknown fields so future releases can extend the schema without breaking existing parsers.
-
-For full-session JSON capture, `amux capture --history --format json` prepends each pane's retained scrollback to that pane's `content` array so agents can read the full pane buffer from one field.
-
-Client display capture reads the attached client's last rendered frame:
+Single-pane, history, and per-pane scrollback variants follow the same pattern:
 
 ```bash
-amux capture --client
-amux capture --client pane-1
+amux capture --format json pane-1     # one pane
+amux capture --history pane-1         # retained scrollback + visible screen
+amux capture --history --rewrap 120 pane-1   # reflow narrow rows to a wider width
 ```
 
-Capture a single pane:
-
-```bash
-amux capture --format json pane-1
-```
-
-Single-pane capture reads server-owned pane state by default and works without an attached interactive client. Use `--client` when you need the attached client's displayed view.
-
-History-aware pane capture:
-
-```bash
-amux capture pane-1
-amux capture --history pane-1
-amux capture --history --rewrap 120 pane-1
-amux capture --history --format json pane-1
-amux capture --history --rewrap 120 --format json pane-1
-```
-
-`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. `capture --history --rewrap WIDTH pane-1` best-effort reconstructs narrow-pane rows at a wider width, which is useful when agent output was captured in dense layouts. The JSON form keeps history and visible content separate as `history` and `content`, and `--rewrap` applies there too. By default amux retains up to `5000` scrollback lines per pane; override that with `scrollback_lines` in `config.toml` or on a specific host. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
-
-`--rewrap` is exact for live rows captured in the current process lifetime, where amux tracks the width each scrollback row was wrapped at. Restored/base history from attach bootstrap, reload checkpoints, and crash checkpoints is still stored as raw text rows, so rewrap can only improve live rows and current visible content. Hard newlines that happened exactly at pane width remain ambiguous without tmux-style wrapped-line metadata.
+`--history` prepends each pane's retained scrollback; `--rewrap` best-effort reflows narrow-pane rows to a wider width (exact for rows captured live, best-effort for restored history). amux retains `scrollback_lines` per pane (default `5000`). The [CLI Reference](#agent-api-1) lists every capture variant, and [docs/capture-architecture.md](docs/capture-architecture.md) covers the server-side vs client-side (`--client`) capture model.
 
 Because retained history is server-owned, `capture --history` works after detach/reattach, after `reload-server`, and after crash recovery, and it does not require an attached interactive client. Copy mode remains per-client UI state over that shared history.
 
 ### Wait Commands
 
-Block until a condition is met. No polling.
-
-| Command | Description | Default timeout |
-|---------|-------------|-----------------|
-| `wait idle <pane>` | Block until pane terminal output settles | 60s |
-| `wait ready <pane>` | Block until pane terminal output settles and no foreground process remains | 10s |
-| `wait exited <pane>` | Block until pane has no foreground process | 5s |
-| `wait busy <pane>` | Block until pane has a foreground process | 5s |
-| `wait content <pane> <substring>` | Block until substring appears in pane content | 10s |
-| `wait layout [--after N]` | Block until layout generation exceeds N | 3s |
-| `wait clipboard [--after N]` | Block until clipboard content changes | 3s |
-| `wait checkpoint [--after N]` | Block until a crash checkpoint write completes | 15s |
-| `wait ui <event> [--client client-1] [--after N]` | Block until a client-local UI state is reached | 5s |
-| `cursor layout` | Show the current layout cursor | n/a |
-| `cursor clipboard` | Show the current clipboard cursor | n/a |
-| `cursor ui [--client client-1]` | Show the current client UI cursor | n/a |
-
-`wait idle` also accepts `--settle <duration>` (default `2s`). `wait ready` adds the process-idle requirement on top of screen quiescence, and `wait exited` stays process-based. All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
+Block until a condition is met — no polling. The signals come in two families:
+**output quiescence** (`wait idle` — the pane's screen output has settled for
+`--settle`, default `2s`) and **foreground process** (`wait exited` / `wait busy`,
+read from the terminal's foreground process group). `wait ready` requires both;
+`wait content` waits for a substring; and `wait layout` / `wait clipboard` /
+`wait checkpoint` / `wait ui` block on generation counters. All accept
+`--timeout`. See the [CLI Reference](#agent-api-1) for the full list with default
+timeouts.
 
 ### Event Stream
 
@@ -252,7 +194,7 @@ Use `amux list-clients` to discover attached client IDs for `send-keys --client`
 
 The terminal-event example above abbreviates `terminal.palette`; the real event payload always includes all 256 entries.
 
-Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no foreground process remains. `terminal` is pane-scoped and fires when preserved terminal metadata changes (cursor style, colors, hyperlink state, alt-screen state, palette view, and similar non-text state). By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
+Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, plus a client-generated `reconnect`. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no foreground process remains; `terminal` fires when preserved pane metadata changes (cursor style, colors, hyperlink, alt-screen, palette). New subscribers receive the current state as an initial snapshot (including attached clients as `client-connect` events), so nothing is missed between subscribe and the first event. Output events are throttled per pane (`--throttle`, default 50ms; `0s` disables); other events pass through immediately. The stream auto-reconnects with backoff unless `--no-reconnect` is set.
 
 ### Agent Loop Example
 
