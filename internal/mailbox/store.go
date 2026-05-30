@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -161,6 +162,12 @@ type Store struct {
 	limits     Limits
 }
 
+type Snapshot struct {
+	NextSeq    uint64          `json:"next_seq,omitempty"`
+	Messages   []Message       `json:"messages,omitempty"`
+	Deliveries []DeliveryState `json:"deliveries,omitempty"`
+}
+
 func NewStore(opts Options) *Store {
 	limits := normalizeLimits(opts.Limits)
 	now := opts.Now
@@ -182,6 +189,125 @@ func (s *Store) Len() int {
 		return 0
 	}
 	return len(s.messages)
+}
+
+func (s *Store) Snapshot() Snapshot {
+	if s == nil {
+		return Snapshot{}
+	}
+
+	ids := make([]MessageID, 0, len(s.messages))
+	for id := range s.messages {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+
+	messages := make([]Message, 0, len(ids))
+	for _, id := range ids {
+		messages = append(messages, cloneMessage(s.messages[id]))
+	}
+
+	recipientIDs := make([]uint32, 0, len(s.deliveries))
+	for recipientID := range s.deliveries {
+		recipientIDs = append(recipientIDs, recipientID)
+	}
+	sort.Slice(recipientIDs, func(i, j int) bool {
+		return recipientIDs[i] < recipientIDs[j]
+	})
+
+	var deliveries []DeliveryState
+	for _, recipientID := range recipientIDs {
+		byMessage := s.deliveries[recipientID]
+		messageIDs := make([]MessageID, 0, len(byMessage))
+		for id := range byMessage {
+			messageIDs = append(messageIDs, id)
+		}
+		sort.Slice(messageIDs, func(i, j int) bool {
+			return messageIDs[i] < messageIDs[j]
+		})
+		for _, id := range messageIDs {
+			deliveries = append(deliveries, *byMessage[id])
+		}
+	}
+
+	return Snapshot{
+		NextSeq:    s.nextSeq,
+		Messages:   messages,
+		Deliveries: deliveries,
+	}
+}
+
+func RestoreSnapshot(snapshot Snapshot, opts Options) (*Store, error) {
+	store := NewStore(opts)
+	if snapshot.NextSeq != 0 {
+		store.nextSeq = snapshot.NextSeq
+	}
+
+	var maxSeq uint64
+	for _, src := range snapshot.Messages {
+		msg := cloneMessage(&src)
+		if msg.ID == "" {
+			return nil, fmt.Errorf("mailbox snapshot message ID is required")
+		}
+		if _, exists := store.messages[msg.ID]; exists {
+			return nil, fmt.Errorf("duplicate mailbox snapshot message %q", msg.ID)
+		}
+		if seq, ok := parseMessageSeq(msg.ID); ok && seq > maxSeq {
+			maxSeq = seq
+		}
+		if msg.ThreadID != "" {
+			store.threads[msg.ThreadID] = append(store.threads[msg.ThreadID], msg.ID)
+		}
+		store.messages[msg.ID] = &msg
+	}
+
+	for _, src := range snapshot.Deliveries {
+		delivery := src
+		if delivery.MessageID == "" {
+			return nil, fmt.Errorf("mailbox snapshot delivery message ID is required")
+		}
+		if delivery.Recipient.ID == 0 {
+			return nil, fmt.Errorf("mailbox snapshot delivery recipient pane ID is required")
+		}
+		if store.messages[delivery.MessageID] == nil {
+			return nil, fmt.Errorf("mailbox snapshot delivery references missing message %q", delivery.MessageID)
+		}
+		byMessage := store.deliveries[delivery.Recipient.ID]
+		if byMessage == nil {
+			byMessage = make(map[MessageID]*DeliveryState)
+			store.deliveries[delivery.Recipient.ID] = byMessage
+		}
+		if _, exists := byMessage[delivery.MessageID]; exists {
+			return nil, fmt.Errorf("duplicate mailbox snapshot delivery for message %q recipient pane %d", delivery.MessageID, delivery.Recipient.ID)
+		}
+		byMessage[delivery.MessageID] = &delivery
+	}
+
+	if store.nextSeq == 0 {
+		store.nextSeq = 1
+	}
+	if maxSeq >= store.nextSeq {
+		store.nextSeq = maxSeq + 1
+	}
+
+	return store, nil
+}
+
+func (s *Store) MaxLastEventSeq() uint64 {
+	if s == nil {
+		return 0
+	}
+	var maxSeq uint64
+	for _, byMessage := range s.deliveries {
+		for _, delivery := range byMessage {
+			if delivery.LastEventSeq > maxSeq {
+				maxSeq = delivery.LastEventSeq
+			}
+		}
+	}
+	return maxSeq
 }
 
 func (s *Store) Send(req SendRequest) (Message, error) {
@@ -410,6 +536,18 @@ func (s *Store) allocateID() MessageID {
 	id := MessageID(fmt.Sprintf("msg-%06d", s.nextSeq))
 	s.nextSeq++
 	return id
+}
+
+func parseMessageSeq(id MessageID) (uint64, bool) {
+	raw := string(id)
+	if !strings.HasPrefix(raw, "msg-") {
+		return 0, false
+	}
+	seq, err := strconv.ParseUint(strings.TrimPrefix(raw, "msg-"), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return seq, true
 }
 
 func (s *Store) messageDelivery(id MessageID, recipientID uint32) (*Message, *DeliveryState, error) {

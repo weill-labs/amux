@@ -11,6 +11,7 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -45,60 +46,7 @@ func (s *Server) Reload(execPath string) error {
 	sess.shutdown.Store(true)
 
 	// Build checkpoint
-	cp, err := enqueueSessionQueryOnState(sess.context(), sess, func(sess *Session) (*checkpoint.ServerCheckpoint, error) {
-		if len(sess.Windows) == 0 {
-			return nil, fmt.Errorf("no window to checkpoint")
-		}
-
-		idleSnap := sess.snapshotIdleState()
-		snap := sess.snapshotLayout(idleSnap)
-		cp := &checkpoint.ServerCheckpoint{
-			Version:       checkpoint.ServerCheckpointVersion,
-			SessionName:   sess.Name,
-			StartedAt:     sess.startedAt,
-			Counter:       sess.counter.Load(),
-			WindowCounter: sess.windowCounter.Load(),
-			Generation:    sess.generation.Load(),
-			Layout:        *snap,
-		}
-
-		paneSnapshots := snapshotPaneHistoryScreens(sess.Panes, (*mux.Pane).HistoryScreenSnapshot)
-		cp.Panes = make([]checkpoint.PaneCheckpoint, len(sess.Panes))
-		for i, p := range sess.Panes {
-			snapshot := paneSnapshots[i]
-			pc := checkpoint.PaneCheckpoint{
-				ID:           p.ID,
-				Meta:         p.Meta,
-				ManualBranch: p.MetaManualBranch(),
-				History:      snapshot.history,
-				Screen:       snapshot.screen,
-				CreatedAt:    p.CreatedAt(),
-				IsProxy:      p.IsProxy(),
-			}
-			if p.IsProxy() {
-				pc.PtmxFd = -1
-				pc.PID = 0
-				if sess.mirror != nil {
-					if ref, ok := sess.mirror.RemoteRef(p.ID); ok {
-						pc.RemoteRef = ref
-					}
-				}
-			} else {
-				pc.PtmxFd = p.PtmxFd()
-				pc.PID = p.ProcessPid()
-			}
-			for _, w := range sess.Windows {
-				if cell := w.Root.FindPane(p.ID); cell != nil {
-					pc.Cols = cell.W
-					pc.Rows = mux.PaneContentHeight(cell.H)
-					break
-				}
-			}
-			cp.Panes[i] = pc
-		}
-
-		return cp, nil
-	})
+	cp, err := sess.buildReloadCheckpoint()
 	if err != nil {
 		sess.shutdown.Store(false)
 		return err
@@ -190,6 +138,89 @@ func (s *Server) Reload(execPath string) error {
 	return fmt.Errorf("server exec: %w", execErr)
 }
 
+func (s *Session) buildReloadCheckpoint() (*checkpoint.ServerCheckpoint, error) {
+	return enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (*checkpoint.ServerCheckpoint, error) {
+		if len(sess.Windows) == 0 {
+			return nil, fmt.Errorf("no window to checkpoint")
+		}
+
+		idleSnap := sess.snapshotIdleState()
+		snap := sess.snapshotLayout(idleSnap)
+		cp := &checkpoint.ServerCheckpoint{
+			Version:       checkpoint.ServerCheckpointVersion,
+			SessionName:   sess.Name,
+			StartedAt:     sess.startedAt,
+			Counter:       sess.counter.Load(),
+			WindowCounter: sess.windowCounter.Load(),
+			Generation:    sess.generation.Load(),
+			Layout:        *snap,
+			MailboxSeq:    sess.mailboxEventSeq,
+		}
+		cp.Mailbox = mailboxCheckpointSnapshot(sess.mailbox)
+
+		paneSnapshots := snapshotPaneHistoryScreens(sess.Panes, (*mux.Pane).HistoryScreenSnapshot)
+		cp.Panes = make([]checkpoint.PaneCheckpoint, len(sess.Panes))
+		for i, p := range sess.Panes {
+			snapshot := paneSnapshots[i]
+			pc := checkpoint.PaneCheckpoint{
+				ID:           p.ID,
+				Meta:         p.Meta,
+				ManualBranch: p.MetaManualBranch(),
+				History:      snapshot.history,
+				Screen:       snapshot.screen,
+				CreatedAt:    p.CreatedAt(),
+				IsProxy:      p.IsProxy(),
+			}
+			if p.IsProxy() {
+				pc.PtmxFd = -1
+				pc.PID = 0
+				if sess.mirror != nil {
+					if ref, ok := sess.mirror.RemoteRef(p.ID); ok {
+						pc.RemoteRef = ref
+					}
+				}
+			} else {
+				pc.PtmxFd = p.PtmxFd()
+				pc.PID = p.ProcessPid()
+			}
+			for _, w := range sess.Windows {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					pc.Cols = cell.W
+					pc.Rows = mux.PaneContentHeight(cell.H)
+					break
+				}
+			}
+			cp.Panes[i] = pc
+		}
+
+		return cp, nil
+	})
+}
+
+func mailboxCheckpointSnapshot(store *mailbox.Store) *mailbox.Snapshot {
+	if store == nil || store.Len() == 0 {
+		return nil
+	}
+	snapshot := store.Snapshot()
+	return &snapshot
+}
+
+func (s *Session) restoreMailbox(snapshot *mailbox.Snapshot, eventSeq uint64) error {
+	if s == nil || snapshot == nil {
+		return nil
+	}
+	store, err := mailbox.RestoreSnapshot(*snapshot, mailbox.Options{Now: func() time.Time { return s.clock().Now() }})
+	if err != nil {
+		return err
+	}
+	s.mailbox = store
+	s.mailboxEventSeq = eventSeq
+	if maxSeq := store.MaxLastEventSeq(); maxSeq > s.mailboxEventSeq {
+		s.mailboxEventSeq = maxSeq
+	}
+	return nil
+}
+
 func restorePaneRuntimeState(pane *mux.Pane, manualBranch bool) {
 	pane.SetMetaManualBranch(manualBranch)
 }
@@ -240,6 +271,11 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 	sess.generation.Store(cp.Generation)
+	if err := sess.restoreMailbox(cp.Mailbox, cp.MailboxSeq); err != nil {
+		listener.Close()
+		closeSessionLock(sessionLock)
+		return nil, fmt.Errorf("restoring mailbox: %w", err)
+	}
 
 	s := &Server{
 		listener:     listener,

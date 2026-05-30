@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -28,6 +29,8 @@ type CrashCheckpoint struct {
 	Generation    uint64               `json:"generation"`
 	Layout        proto.LayoutSnapshot `json:"layout"`
 	PaneStates    []CrashPaneState     `json:"pane_states"`
+	Mailbox       *mailbox.Snapshot    `json:"mailbox,omitempty"`
+	MailboxSeq    uint64               `json:"mailbox_seq,omitempty"`
 	Timestamp     time.Time            `json:"timestamp"`
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -60,6 +61,8 @@ type ServerCheckpoint struct {
 	SessionLockFd int
 	Layout        proto.LayoutSnapshot
 	Panes         []PaneCheckpoint
+	Mailbox       *mailbox.Snapshot
+	MailboxSeq    uint64
 }
 
 // Write gob-encodes the checkpoint to a temp file and returns the path.

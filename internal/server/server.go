@@ -289,6 +289,8 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			WindowCounter: s.windowCounter.Load(),
 			Generation:    s.generation.Load(),
 			Layout:        *layout,
+			Mailbox:       mailboxCheckpointSnapshot(s.mailbox),
+			MailboxSeq:    s.mailboxEventSeq,
 			Timestamp:     time.Now(),
 		}
 
@@ -603,6 +605,11 @@ func newServerFromCrashCheckpointWithScrollbackConfigListenerLogger(sessionName 
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 	sess.generation.Store(cp.Generation)
+	if err := sess.restoreMailbox(cp.Mailbox, cp.MailboxSeq); err != nil {
+		listener.Close()
+		closeSessionLock(sessionLock)
+		return nil, fmt.Errorf("restoring mailbox: %w", err)
+	}
 
 	s := &Server{
 		listener:     listener,
