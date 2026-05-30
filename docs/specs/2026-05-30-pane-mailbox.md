@@ -11,7 +11,7 @@ delivery state, and it forces agents to parse terminal text to distinguish work
 from notification noise.
 
 The primitive in this spec is a **pane-addressed, session-scoped,
-server-owned mailbox**. It belongs to amux, not to orca or any agent runtime.
+server-owned mailbox**. It belongs to amux rather than any agent runtime.
 amux stores messages, tracks per-recipient read/ack state, emits mailbox events,
 and exposes a generic CLI. External tools can build policy on top of it, but the
 mailbox itself stays a small transport and state primitive.
@@ -105,7 +105,7 @@ changing the core data model.
 
 Valid topic and group names should be short ASCII identifiers:
 `[A-Za-z0-9][A-Za-z0-9._/-]{0,63}`. Invalid names fail loudly. amux should not
-ship built-in meanings for names like `task`, `review`, `orca`, or `a2a`.
+ship built-in meanings for labels that imply workflow policy.
 
 If a later bead adds first-class group membership, it should be additive:
 `msg send --group reviewers` can expand to panes then, while messages that only
@@ -584,10 +584,10 @@ with `-count=100` before the implementation bead is called done.
 
 ## Non-Goals
 
-- No orca task semantics.
-- No A2A bridge.
-- No Linear, GitHub PR, or review policy.
-- No Codex, Claude Code, Aider, Gemini, or other agent-specific behavior.
+- No runtime-specific task semantics.
+- No runtime-specific bridge.
+- No issue-tracker, PR, or review policy.
+- No tool-specific behavior.
 - No PTY prompt injection.
 - No cross-session or cross-host delivery.
 - No mailbox ACL model beyond the existing same-user amux socket boundary.

@@ -196,6 +196,69 @@ The terminal-event example above abbreviates `terminal.palette`; the real event 
 
 Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, plus a client-generated `reconnect`. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no foreground process remains; `terminal` fires when preserved pane metadata changes (cursor style, colors, hyperlink, alt-screen, palette). New subscribers receive the current state as an initial snapshot (including attached clients as `client-connect` events), so nothing is missed between subscribe and the first event. Output events are throttled per pane (`--throttle`, default 50ms; `0s` disables); other events pass through immediately. The stream auto-reconnects with backoff unless `--no-reconnect` is set.
 
+### Pane Mailbox
+
+`amux msg` is an out-of-band mailbox for panes. Sending a message stores it in
+the amux server and records delivery state; it does not write to the
+recipient's PTY, change focus, or interrupt whatever is running. A human in
+another terminal or any agent or process can use it when pane-to-pane
+coordination needs an explicit unread/read/ack flow instead of keystrokes.
+
+Send a message with an explicit sender and one or more recipients:
+
+```bash
+amux msg send --from pane-1 --to pane-2 \
+  --subject "Logs ready" \
+  --body "The latest run is in /tmp/run.log."
+
+printf 'multi-line body\n' | amux msg send --from pane-1 --to pane-2 --subject "Report"
+amux msg send --from pane-1 --to pane-2 --body-file /tmp/message.txt --format json
+```
+
+Recipients check for unread summaries:
+
+```bash
+amux msg inbox pane-2 --unread
+amux msg inbox pane-2 --unread --format json
+```
+
+`inbox` output is summary-only: message ID, sender, subject, timestamps, ack
+state, and body size. It does not include message bodies or metadata values.
+This is the mailbox's notification boundary: a recipient must check its mailbox
+with `msg inbox --unread` or an equivalent loop, because amux does not
+automatically type into the pane.
+
+After a message is read or acked by that recipient, it no longer appears in
+`--unread`; use `msg inbox` without `--unread` to see retained deliveries. Pane
+status lines may also show a compact `msg:N` unread badge when there is room,
+but the badge is only a summary cue.
+
+Read and ack are separate. `read` returns the body and marks that delivery read
+for the recipient, unless `--peek` is set. `ack` records an explicit
+acknowledgement; `--status` is a generic token, commonly `seen`, `ok`, or
+`error`.
+
+```bash
+amux msg read msg-000001 --for pane-2
+amux msg read msg-000001 --for pane-2 --peek --format json
+amux msg ack msg-000001 --for pane-2 --status seen
+amux msg ack msg-000001 --for pane-2 --status error --note "Need the full log."
+```
+
+Reply by sending a new message with `--reply-to`; amux links it into the
+original thread but does not assign workflow meaning to the reply.
+
+```bash
+amux msg send --from pane-2 --to pane-1 \
+  --reply-to msg-000001 \
+  --body "Saw it; please include stderr too."
+```
+
+When a command is run from an attached pane context, amux can default omitted
+sender or target flags to that actor pane. For scripts and humans running from
+ordinary terminals, pass `--from` on `send` and `--for` on `read`/`ack` so
+delivery state is unambiguous.
+
 ### Agent Loop Example
 
 ```bash
@@ -315,6 +378,10 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux list-clients` | List attached clients and client-local UI state |
 | `amux log clients` | Show recent client attach/detach history |
 | `amux log panes` | Show recent pane create/exit history with exit cwd, git branch, and reason |
+| `amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text\|--body-file path\|stdin) [--format json]` | Send an out-of-band mailbox message to panes |
+| `amux msg inbox [pane] [--unread] [--format json]` | List mailbox summaries, optionally unread only |
+| `amux msg read <msg-id> [--for pane] [--peek] [--format json]` | Return a message body for a recipient and mark it read unless `--peek` is set |
+| `amux msg ack <msg-id> [--for pane] [--status ok\|error\|seen] [--note text] [--format json]` | Acknowledge a message for a recipient |
 
 ### Windows
 
