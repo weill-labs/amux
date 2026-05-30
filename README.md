@@ -245,13 +245,15 @@ amux msg ack msg-000001 --for pane-2 --status seen
 amux msg ack msg-000001 --for pane-2 --status error --note "Need the full log."
 ```
 
-Reply by sending a new message with `--reply-to`; amux links it into the
-original thread but does not assign workflow meaning to the reply.
+Reply with `msg reply` when the current pane is responding to a message it
+received. It infers the original sender as the recipient, links the reply into
+the original thread, and inherits the original topics and groups unless you
+override them. Use `--ack` when the reply should also mark the original delivery
+handled for the replying pane.
 
 ```bash
-amux msg send --from pane-2 --to pane-1 \
-  --reply-to msg-000001 \
-  --body "Saw it; please include stderr too."
+amux msg reply msg-000001 --from pane-2 --body "Saw it; please include stderr too."
+amux msg reply msg-000001 --from pane-2 --body "Done" --ack ok --ack-note "handled"
 ```
 
 When a command is run from an attached pane context, amux can default omitted
@@ -379,6 +381,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux log clients` | Show recent client attach/detach history |
 | `amux log panes` | Show recent pane create/exit history with exit cwd, git branch, and reason |
 | `amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text\|--body-file path\|stdin) [--format json]` | Send an out-of-band mailbox message to panes |
+| `amux msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] [--subject text] [--topic name] [--group name] [--metadata json] [--ack ok\|error\|seen] [--ack-note text] (--body text\|--body-file path\|stdin) [--format json]` | Reply to a mailbox message, inferring the original sender when `--to` is omitted |
 | `amux msg inbox [pane] [--unread] [--format json]` | List mailbox summaries, optionally unread only |
 | `amux msg read <msg-id> [--for pane] [--peek] [--format json]` | Return a message body for a recipient and mark it read unless `--peek` is set |
 | `amux msg ack <msg-id> [--for pane] [--status ok\|error\|seen] [--note text] [--format json]` | Acknowledge a message for a recipient |

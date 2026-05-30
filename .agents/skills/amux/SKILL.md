@@ -121,6 +121,41 @@ amux events --pane pane-1
 amux events --filter idle,busy,exited
 ```
 
+### Mailbox Messaging
+
+Use mailbox messages when panes need to coordinate without writing into another
+pane's PTY. Delivery is out-of-band: the recipient must check or wait on its
+mailbox; amux does not paste the body into the prompt.
+
+```bash
+# Send a message. Omit --from only when AMUX_PANE identifies the actor pane.
+amux msg send --from pane-1 --to pane-2 --subject "Logs ready" --body "See /tmp/run.log"
+printf 'multi-line body\n' | amux msg send --from pane-1 --to pane-2 --topic review
+
+# Check summaries. Bodies are not included in inbox output.
+amux msg inbox pane-2 --unread --format json
+
+# Read the body as the recipient. Omit --for only when AMUX_PANE identifies that pane.
+amux msg read msg-000001 --for pane-2 --format json
+
+# Reply to the original sender, inheriting the thread and topics.
+amux msg reply msg-000001 --from pane-2 --body "Ack, looking now." --format json
+
+# Reply and mark the original delivery handled for this recipient.
+amux msg reply msg-000001 --from pane-2 --body "Done" --ack ok --ack-note "handled"
+
+# Acknowledge without replying.
+amux msg ack msg-000001 --for pane-2 --status seen
+
+# Wait until a pane has an unread message matching a topic.
+amux wait msg pane-2 --topic review --timeout 5m --format json
+```
+
+For an agent handoff, send a mailbox message, then bootstrap or rely on a
+separate watcher to tell the target agent to run `amux msg inbox --unread`.
+Once the agent has read a message, prefer `amux msg reply <msg-id>` over
+manually rebuilding `--to`, `--reply-to`, and `--topic`.
+
 ### Pane Management
 
 ```bash
