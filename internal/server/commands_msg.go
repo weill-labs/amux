@@ -460,11 +460,15 @@ func runMsgAck(mctx *MutationContext, actorPaneID uint32, opts msgAckOptions) (s
 
 func (s *Session) ensureMailbox() *mailbox.Store {
 	if s.mailbox == nil {
-		s.mailbox = mailbox.NewStore(mailbox.Options{Now: func() time.Time {
-			return s.clock().Now()
-		}})
+		s.mailbox = s.newMailboxStore()
 	}
 	return s.mailbox
+}
+
+func (s *Session) newMailboxStore() *mailbox.Store {
+	return mailbox.NewStore(mailbox.Options{Now: func() time.Time {
+		return s.clock().Now()
+	}})
 }
 
 func resolveMailboxSender(mctx *MutationContext, actorPaneID uint32, ref string) (mailbox.PaneAddress, error) {
@@ -538,7 +542,7 @@ func sendOutputForMessage(msg mailbox.Message) msgSendOutput {
 		Groups:     append([]string(nil), msg.Groups...),
 		ThreadID:   msg.ThreadID,
 		InReplyTo:  msg.InReplyTo,
-		CreatedAt:  msg.CreatedAt.Format(rfc3339NanoUTC),
+		CreatedAt:  msg.CreatedAt.Format(time.RFC3339Nano),
 		BodySize:   messageOutputBodySize(msg),
 		PartCount:  len(msg.Parts),
 	}
@@ -562,18 +566,18 @@ func summaryOutput(summary mailbox.DeliverySummary) msgSummaryOutput {
 		Groups:      append([]string(nil), summary.Groups...),
 		ThreadID:    summary.ThreadID,
 		InReplyTo:   summary.InReplyTo,
-		CreatedAt:   summary.CreatedAt.Format(rfc3339NanoUTC),
-		DeliveredAt: summary.DeliveredAt.Format(rfc3339NanoUTC),
+		CreatedAt:   summary.CreatedAt.Format(time.RFC3339Nano),
+		DeliveredAt: summary.DeliveredAt.Format(time.RFC3339Nano),
 		AckStatus:   summary.AckStatus,
 		AckNote:     summary.AckNote,
 		BodySize:    summary.BodySize,
 		PartCount:   summary.PartCount,
 	}
 	if !summary.ReadAt.IsZero() {
-		out.ReadAt = summary.ReadAt.Format(rfc3339NanoUTC)
+		out.ReadAt = summary.ReadAt.Format(time.RFC3339Nano)
 	}
 	if !summary.AckedAt.IsZero() {
-		out.AckedAt = summary.AckedAt.Format(rfc3339NanoUTC)
+		out.AckedAt = summary.AckedAt.Format(time.RFC3339Nano)
 	}
 	return out
 }
@@ -588,7 +592,7 @@ func readOutputForMessage(msg mailbox.Message, delivery mailbox.DeliveryState, b
 		Groups:     append([]string(nil), msg.Groups...),
 		ThreadID:   msg.ThreadID,
 		InReplyTo:  msg.InReplyTo,
-		CreatedAt:  msg.CreatedAt.Format(rfc3339NanoUTC),
+		CreatedAt:  msg.CreatedAt.Format(time.RFC3339Nano),
 		Body:       body,
 		BodySize:   messageOutputBodySize(msg),
 		PartCount:  len(msg.Parts),
@@ -596,12 +600,10 @@ func readOutputForMessage(msg mailbox.Message, delivery mailbox.DeliveryState, b
 		Metadata:   msg.Metadata,
 	}
 	if !delivery.ReadAt.IsZero() {
-		out.ReadAt = delivery.ReadAt.Format(rfc3339NanoUTC)
+		out.ReadAt = delivery.ReadAt.Format(time.RFC3339Nano)
 	}
 	return out
 }
-
-const rfc3339NanoUTC = "2006-01-02T15:04:05.999999999Z07:00"
 
 func encodeMsgJSON(v any) (string, error) {
 	data, err := json.Marshal(v)

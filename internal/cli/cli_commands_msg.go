@@ -9,7 +9,7 @@ import (
 func msgCLICommands() map[string]commandHandler {
 	return map[string]commandHandler{
 		"msg": func(inv invocation, args []string) int {
-			if hasHelpFlag(args) {
+			if wantsMsgHelp(args) {
 				fmt.Fprintln(inv.runtime.Stdout, msgUsage)
 				return 0
 			}
@@ -25,6 +25,11 @@ func msgCLICommands() map[string]commandHandler {
 			return inv.runSessionCommand("msg", serverArgs)
 		},
 	}
+}
+
+func wantsMsgHelp(args []string) bool {
+	return len(args) == 1 && isHelpFlag(args[0]) ||
+		len(args) == 2 && isHelpFlag(args[1])
 }
 
 func prepareMsgCLIArgs(stdin io.Reader, args []string) ([]string, error) {

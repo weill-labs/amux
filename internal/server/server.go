@@ -524,9 +524,7 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 	sess.input = newInputRouter()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.undo = newUndoManager(undoManagerConfig{})
-	sess.mailbox = mailbox.NewStore(mailbox.Options{Now: func() time.Time {
-		return sess.clock().Now()
-	}})
+	sess.mailbox = sess.newMailboxStore()
 	sess.startEventLoop()
 	return sess
 }
