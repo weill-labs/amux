@@ -10,6 +10,7 @@ import (
 	"time"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
+	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -81,6 +82,175 @@ func TestCaptureDefaultSinglePaneJSONDoesNotSendClientCaptureRequest(t *testing.
 	}
 	if msg, err := readMsgOnConn(captureClient); err == nil {
 		t.Fatalf("attached client received %v, want no client capture request", msg.Type)
+	}
+}
+
+func TestCaptureJSONMailboxZeroUnread(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newMailboxCaptureSession(t, 1)
+	defer cleanup()
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+
+	pane := decodeCapturePaneMap(t, res.output)
+	mailbox := mailboxMap(t, pane)
+	assertJSONNumber(t, mailbox, "unread", 0)
+	assertJSONArrayLen(t, mailbox, "latest_unread", 0)
+	assertJSONMapLen(t, mailbox, "topics", 0)
+}
+
+func TestCaptureJSONMailboxOmitsBodiesAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newMailboxCaptureSession(t, 2)
+	defer cleanup()
+
+	seedMailboxMessage(t, sess, "pane-1", []string{"pane-2"}, mailbox.SendRequest{
+		Subject: "Review ready",
+		Body:    []byte("FULL_BODY_SECRET_DO_NOT_CAPTURE"),
+		Topics:  []string{"review"},
+		Groups:  []string{"backend"},
+		Metadata: map[string]json.RawMessage{
+			"priority": json.RawMessage(`"METADATA_SECRET_DO_NOT_CAPTURE"`),
+		},
+	})
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+	if strings.Contains(res.output, "FULL_BODY_SECRET_DO_NOT_CAPTURE") {
+		t.Fatalf("capture output leaked message body:\n%s", res.output)
+	}
+	if strings.Contains(res.output, "METADATA_SECRET_DO_NOT_CAPTURE") || strings.Contains(res.output, "metadata") {
+		t.Fatalf("capture output leaked message metadata:\n%s", res.output)
+	}
+
+	capture := decodeCaptureMap(t, res.output)
+	pane1 := capturePaneMap(t, capture, "pane-1")
+	assertJSONNumber(t, mailboxMap(t, pane1), "unread", 0)
+
+	pane2 := capturePaneMap(t, capture, "pane-2")
+	mailbox := mailboxMap(t, pane2)
+	assertJSONNumber(t, mailbox, "unread", 1)
+	assertTopicCount(t, mailbox, "review", 1)
+
+	latest := latestUnread(t, mailbox)
+	if len(latest) != 1 {
+		t.Fatalf("latest_unread length = %d, want 1", len(latest))
+	}
+	summary := latest[0]
+	assertJSONString(t, summary, "id", "msg-000001")
+	assertJSONString(t, summary, "subject", "Review ready")
+	assertJSONString(t, summary, "thread_id", "msg-000001")
+	assertJSONNumber(t, summary, "body_size", len("FULL_BODY_SECRET_DO_NOT_CAPTURE"))
+	assertJSONNumber(t, summary, "part_count", 1)
+	assertStringSlice(t, summary["topics"], []string{"review"})
+	assertStringSlice(t, summary["groups"], []string{"backend"})
+
+	from := jsonObject(t, summary, "from")
+	assertJSONNumber(t, from, "id", 1)
+	assertJSONString(t, from, "name", "pane-1")
+	assertJSONString(t, from, "host", mux.DefaultHost)
+
+	for _, forbidden := range []string{"body", "parts", "bytes", "metadata", "read_at", "acked_at", "ack_status", "ack_note"} {
+		if _, ok := summary[forbidden]; ok {
+			t.Fatalf("latest unread summary includes %q: %#v", forbidden, summary)
+		}
+	}
+}
+
+func TestCaptureJSONMailboxLatestUnreadLimitAndTopicCounts(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newMailboxCaptureSession(t, 2)
+	defer cleanup()
+
+	for i := 1; i <= 6; i++ {
+		topic := "status"
+		if i%2 == 0 {
+			topic = "review"
+		}
+		seedMailboxMessage(t, sess, "pane-1", []string{"pane-2"}, mailbox.SendRequest{
+			Subject: fmt.Sprintf("message %d", i),
+			Body:    []byte(fmt.Sprintf("body-%d", i)),
+			Topics:  []string{topic},
+		})
+	}
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json", "pane-2")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+
+	pane := decodeCapturePaneMap(t, res.output)
+	mailbox := mailboxMap(t, pane)
+	assertJSONNumber(t, mailbox, "unread", 6)
+	assertTopicCount(t, mailbox, "review", 3)
+	assertTopicCount(t, mailbox, "status", 3)
+
+	latest := latestUnread(t, mailbox)
+	if len(latest) != 5 {
+		t.Fatalf("latest_unread length = %d, want fixed limit 5", len(latest))
+	}
+	for i, wantID := range []string{"msg-000006", "msg-000005", "msg-000004", "msg-000003", "msg-000002"} {
+		assertJSONString(t, latest[i], "id", wantID)
+	}
+}
+
+func TestCaptureJSONMailboxMultiplePanesAndReadAckState(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newMailboxCaptureSession(t, 3)
+	defer cleanup()
+
+	msg1 := seedMailboxMessage(t, sess, "pane-1", []string{"pane-2", "pane-3"}, mailbox.SendRequest{
+		Subject: "fanout",
+		Body:    []byte("shared"),
+		Topics:  []string{"review"},
+	})
+	msg2 := seedMailboxMessage(t, sess, "pane-1", []string{"pane-3"}, mailbox.SendRequest{
+		Subject: "direct",
+		Body:    []byte("direct"),
+		Topics:  []string{"status"},
+	})
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		if _, _, err := sess.ensureMailbox().Read(msg1.ID, 2, mailbox.ReadOptions{}); err != nil {
+			t.Fatalf("Read pane-2 msg1: %v", err)
+		}
+		if _, err := sess.ensureMailbox().Ack(msg2.ID, 3, mailbox.AckRequest{Status: "seen"}); err != nil {
+			t.Fatalf("Ack pane-3 msg2: %v", err)
+		}
+	})
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q, want empty", res.cmdErr)
+	}
+
+	capture := decodeCaptureMap(t, res.output)
+	assertJSONNumber(t, mailboxMap(t, capturePaneMap(t, capture, "pane-1")), "unread", 0)
+	assertJSONNumber(t, mailboxMap(t, capturePaneMap(t, capture, "pane-2")), "unread", 0)
+
+	pane3Mailbox := mailboxMap(t, capturePaneMap(t, capture, "pane-3"))
+	assertJSONNumber(t, pane3Mailbox, "unread", 2)
+	assertTopicCount(t, pane3Mailbox, "review", 1)
+	assertTopicCount(t, pane3Mailbox, "status", 1)
+	latest := latestUnread(t, pane3Mailbox)
+	if len(latest) != 2 {
+		t.Fatalf("pane-3 latest_unread length = %d, want 2", len(latest))
+	}
+	assertJSONString(t, latest[0], "id", string(msg2.ID))
+	assertJSONString(t, latest[1], "id", string(msg1.ID))
+	for _, summary := range latest {
+		if _, ok := summary["acked_at"]; ok {
+			t.Fatalf("capture summary leaked ack state: %#v", summary)
+		}
 	}
 }
 
@@ -606,4 +776,210 @@ func respondToNextCaptureRequest(t *testing.T, sess *Session, conn net.Conn, out
 		})
 	}()
 	return requestCh, errCh
+}
+
+func newMailboxCaptureSession(t *testing.T, paneCount int) (*Server, *Session, func()) {
+	t.Helper()
+	if paneCount < 1 {
+		t.Fatal("paneCount must be positive")
+	}
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	sess.Clock = NewFakeClock(time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC))
+
+	panes := make([]*mux.Pane, 0, paneCount)
+	for i := 1; i <= paneCount; i++ {
+		name := fmt.Sprintf("pane-%d", i)
+		pane := newStandaloneProxyPane(uint32(i), name)
+		pane.FeedOutput([]byte(strings.ToUpper(name) + "\r\n"))
+		panes = append(panes, pane)
+	}
+	window := newTestWindowWithPanes(t, sess, 1, "main", panes...)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, panes...)
+	return srv, sess, cleanup
+}
+
+func seedMailboxMessage(t *testing.T, sess *Session, senderName string, recipientNames []string, req mailbox.SendRequest) mailbox.Message {
+	t.Helper()
+
+	var msg mailbox.Message
+	var err error
+	mustSessionMutation(t, sess, func(sess *Session) {
+		req.Sender, err = mailboxAddressByName(sess, senderName)
+		if err != nil {
+			return
+		}
+		req.Recipients = make([]mailbox.PaneAddress, 0, len(recipientNames))
+		for _, name := range recipientNames {
+			var recipient mailbox.PaneAddress
+			recipient, err = mailboxAddressByName(sess, name)
+			if err != nil {
+				return
+			}
+			req.Recipients = append(req.Recipients, recipient)
+		}
+		msg, err = sess.ensureMailbox().Send(req)
+	})
+	if err != nil {
+		t.Fatalf("seed mailbox message: %v", err)
+	}
+	return msg
+}
+
+func mailboxAddressByName(sess *Session, name string) (mailbox.PaneAddress, error) {
+	for _, pane := range sess.Panes {
+		if pane != nil && pane.Meta.Name == name {
+			return mailbox.PaneAddress{ID: pane.ID, Name: pane.Meta.Name, Host: pane.Meta.Host}, nil
+		}
+	}
+	return mailbox.PaneAddress{}, fmt.Errorf("pane %q not found", name)
+}
+
+func decodeCaptureMap(t *testing.T, raw string) map[string]any {
+	t.Helper()
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal capture: %v\n%s", err, raw)
+	}
+	return out
+}
+
+func decodeCapturePaneMap(t *testing.T, raw string) map[string]any {
+	t.Helper()
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal pane capture: %v\n%s", err, raw)
+	}
+	return out
+}
+
+func capturePaneMap(t *testing.T, capture map[string]any, name string) map[string]any {
+	t.Helper()
+
+	panes, ok := capture["panes"].([]any)
+	if !ok {
+		t.Fatalf("capture panes = %#v, want array", capture["panes"])
+	}
+	for _, raw := range panes {
+		pane, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("pane entry = %#v, want object", raw)
+		}
+		if pane["name"] == name {
+			return pane
+		}
+	}
+	t.Fatalf("pane %q not found in %#v", name, capture["panes"])
+	return nil
+}
+
+func mailboxMap(t *testing.T, pane map[string]any) map[string]any {
+	t.Helper()
+	return jsonObject(t, pane, "mailbox")
+}
+
+func latestUnread(t *testing.T, mailbox map[string]any) []map[string]any {
+	t.Helper()
+
+	rawLatest, ok := mailbox["latest_unread"].([]any)
+	if !ok {
+		t.Fatalf("latest_unread = %#v, want array", mailbox["latest_unread"])
+	}
+	latest := make([]map[string]any, 0, len(rawLatest))
+	for _, raw := range rawLatest {
+		summary, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("latest unread entry = %#v, want object", raw)
+		}
+		latest = append(latest, summary)
+	}
+	return latest
+}
+
+func jsonObject(t *testing.T, parent map[string]any, key string) map[string]any {
+	t.Helper()
+
+	object, ok := parent[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want object", key, parent[key])
+	}
+	return object
+}
+
+func assertJSONNumber(t *testing.T, object map[string]any, key string, want int) {
+	t.Helper()
+
+	got, ok := object[key].(float64)
+	if !ok {
+		t.Fatalf("%s = %#v, want number", key, object[key])
+	}
+	if int(got) != want || got != float64(want) {
+		t.Fatalf("%s = %v, want %d", key, got, want)
+	}
+}
+
+func assertJSONString(t *testing.T, object map[string]any, key, want string) {
+	t.Helper()
+
+	got, ok := object[key].(string)
+	if !ok {
+		t.Fatalf("%s = %#v, want string", key, object[key])
+	}
+	if got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
+	}
+}
+
+func assertJSONArrayLen(t *testing.T, object map[string]any, key string, want int) {
+	t.Helper()
+
+	got, ok := object[key].([]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want array", key, object[key])
+	}
+	if len(got) != want {
+		t.Fatalf("%s length = %d, want %d", key, len(got), want)
+	}
+}
+
+func assertJSONMapLen(t *testing.T, object map[string]any, key string, want int) {
+	t.Helper()
+
+	got, ok := object[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want object", key, object[key])
+	}
+	if len(got) != want {
+		t.Fatalf("%s length = %d, want %d", key, len(got), want)
+	}
+}
+
+func assertTopicCount(t *testing.T, mailbox map[string]any, topic string, want int) {
+	t.Helper()
+
+	topics := jsonObject(t, mailbox, "topics")
+	assertJSONNumber(t, topics, topic, want)
+}
+
+func assertStringSlice(t *testing.T, raw any, want []string) {
+	t.Helper()
+
+	gotRaw, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("slice = %#v, want array", raw)
+	}
+	if len(gotRaw) != len(want) {
+		t.Fatalf("slice length = %d, want %d (%#v)", len(gotRaw), len(want), raw)
+	}
+	for i, wantValue := range want {
+		got, ok := gotRaw[i].(string)
+		if !ok {
+			t.Fatalf("slice[%d] = %#v, want string", i, gotRaw[i])
+		}
+		if got != wantValue {
+			t.Fatalf("slice[%d] = %q, want %q", i, got, wantValue)
+		}
+	}
 }
