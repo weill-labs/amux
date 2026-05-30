@@ -94,7 +94,7 @@ func TestWaitMessageErrors(t *testing.T) {
 
 	boom := errors.New("boom")
 	failed := Wait(messageWaitContext{err: boom}, 0, []string{"msg", "pane-2"})
-	if failed.Err != boom {
+	if !errors.Is(failed.Err, boom) {
 		t.Fatalf("Wait msg context error = %v, want boom", failed.Err)
 	}
 }
