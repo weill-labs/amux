@@ -33,7 +33,7 @@ const (
 	selectWindowUsage = "usage: amux select-window <index|name>"
 	statusUsage       = "usage: amux status"
 	undoUsage         = "usage: amux undo"
-	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
+	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ..."
 	newWindowUsage    = "usage: amux new-window [--name NAME]"
 	nextWindowUsage   = "usage: amux next-window"
 	prevWindowUsage   = "usage: amux prev-window"

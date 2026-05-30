@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	waitCommandUsage   = "usage: wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
+	waitCommandUsage   = "usage: wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ..."
 	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
@@ -213,6 +213,56 @@ func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error 
 		return err
 	}
 	return waitForPaneIdle(ctx.context(), ctx.Sess, paneRef, pane.paneID, opts)
+}
+
+func (ctx waitCommandContext) WaitMessage(actorPaneID uint32, opts waitcmd.MessageWaitOptions) (proto.MailboxMessageSummary, error) {
+	pane, err := ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, opts.PaneRef)
+	if err != nil {
+		return proto.MailboxMessageSummary{}, err
+	}
+
+	sub := ctx.Sess.enqueueMailboxWaitSubscribe(ctx.context(), pane.paneID)
+	if sub.sub == nil {
+		return proto.MailboxMessageSummary{}, fmt.Errorf("session shutting down")
+	}
+	defer ctx.Sess.enqueueEventUnsubscribe(sub.sub)
+
+	matchOpts := mailboxWaitOptions{
+		topic:          opts.Topic,
+		afterMessageID: opts.AfterMessageID,
+		afterEventSeq:  opts.AfterEventSeq,
+	}
+	for _, data := range sub.initialState {
+		ev, ok := mailboxEventSummaryFromJSON(data)
+		if ok && mailboxEventMatchesWait(ev, matchOpts) {
+			return *ev.Message, nil
+		}
+	}
+	if !sub.targetExists {
+		return proto.MailboxMessageSummary{}, fmt.Errorf("pane %q disappeared while waiting for message", opts.PaneRef)
+	}
+
+	timer := time.NewTimer(opts.Timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case data := <-sub.sub.Ch:
+			ev, ok := mailboxEventSummaryFromJSON(data)
+			if !ok {
+				continue
+			}
+			if ev.Type == EventPaneExit {
+				return proto.MailboxMessageSummary{}, fmt.Errorf("pane %q disappeared while waiting for message", opts.PaneRef)
+			}
+			if mailboxEventMatchesWait(ev, matchOpts) {
+				return *ev.Message, nil
+			}
+		case <-timer.C:
+			return proto.MailboxMessageSummary{}, fmt.Errorf("timeout waiting for message for %s", opts.PaneRef)
+		case <-ctx.context().Done():
+			return proto.MailboxMessageSummary{}, ctx.context().Err()
+		}
+	}
 }
 
 func cmdCursor(ctx *CommandContext) {

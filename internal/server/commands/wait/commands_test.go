@@ -3,6 +3,8 @@ package wait
 import (
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type stubWaitContext struct{}
@@ -34,6 +36,10 @@ func (stubWaitContext) WaitUI(string, string, uint64, bool, time.Duration) error
 func (stubWaitContext) WaitReady(uint32, []string) error { return nil }
 
 func (stubWaitContext) WaitIdle(uint32, []string) error { return nil }
+
+func (stubWaitContext) WaitMessage(uint32, MessageWaitOptions) (proto.MailboxMessageSummary, error) {
+	return proto.MailboxMessageSummary{}, nil
+}
 
 func TestCursorUsage(t *testing.T) {
 	t.Parallel()

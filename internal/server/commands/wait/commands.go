@@ -1,21 +1,32 @@
 package wait
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 )
 
 const (
-	waitCommandUsage   = "usage: wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
+	waitCommandUsage   = "usage: wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ..."
 	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
 type CheckpointRecord struct {
 	Generation uint64
 	Path       string
+}
+
+type MessageWaitOptions struct {
+	PaneRef        string
+	Topic          string
+	AfterMessageID string
+	AfterEventSeq  uint64
+	Timeout        time.Duration
+	FormatJSON     bool
 }
 
 type Context interface {
@@ -32,6 +43,7 @@ type Context interface {
 	WaitUI(eventName, requestedClientID string, afterGen uint64, afterSet bool, timeout time.Duration) error
 	WaitReady(actorPaneID uint32, args []string) error
 	WaitIdle(actorPaneID uint32, args []string) error
+	WaitMessage(actorPaneID uint32, opts MessageWaitOptions) (proto.MailboxMessageSummary, error)
 }
 
 func Cursor(ctx Context, args []string) commandpkg.Result {
@@ -75,6 +87,8 @@ func Wait(ctx Context, actorPaneID uint32, args []string) commandpkg.Result {
 		return WaitBusy(ctx, actorPaneID, args[1:])
 	case "ui":
 		return WaitUI(ctx, args[1:])
+	case "msg":
+		return WaitMessage(ctx, actorPaneID, args[1:])
 	default:
 		return commandpkg.Result{Err: fmt.Errorf("unknown wait kind: %s", args[0])}
 	}
@@ -213,4 +227,23 @@ func WaitUI(ctx Context, args []string) commandpkg.Result {
 		return commandpkg.Result{Err: err}
 	}
 	return commandpkg.Result{Output: eventName + "\n"}
+}
+
+func WaitMessage(ctx Context, actorPaneID uint32, args []string) commandpkg.Result {
+	opts, err := ParseWaitMessageArgs(args)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	summary, err := ctx.WaitMessage(actorPaneID, opts)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	if opts.FormatJSON {
+		data, err := json.Marshal(summary)
+		if err != nil {
+			return commandpkg.Result{Err: err}
+		}
+		return commandpkg.Result{Output: string(data) + "\n"}
+	}
+	return commandpkg.Result{Output: summary.ID + "\n"}
 }

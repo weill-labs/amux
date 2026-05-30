@@ -19,6 +19,9 @@ const (
 	EventClientConnect    = "client-connect"
 	EventClientDisconnect = "client-disconnect"
 	EventPaneExit         = "pane-exit"
+	EventMessageDelivered = "message-delivered"
+	EventMessageRead      = "message-read"
+	EventMessageAck       = "message-ack"
 )
 
 const (
@@ -33,17 +36,18 @@ const DefaultEventThrottle = 50 * time.Millisecond
 
 // Event is a single event in the NDJSON event stream.
 type Event struct {
-	Type       string                 `json:"type"`
-	Timestamp  string                 `json:"ts"`
-	Generation uint64                 `json:"generation,omitempty"`
-	PaneID     uint32                 `json:"pane_id,omitempty"`
-	PaneName   string                 `json:"pane_name,omitempty"`
-	Host       string                 `json:"host,omitempty"`
-	ActivePane string                 `json:"active_pane,omitempty"`
-	ClientID   string                 `json:"client_id,omitempty"`
-	Reason     string                 `json:"reason,omitempty"`
-	Cursor     *proto.CaptureCursor   `json:"cursor,omitempty"`
-	Terminal   *proto.CaptureTerminal `json:"terminal,omitempty"`
+	Type       string                       `json:"type"`
+	Timestamp  string                       `json:"ts"`
+	Generation uint64                       `json:"generation,omitempty"`
+	PaneID     uint32                       `json:"pane_id,omitempty"`
+	PaneName   string                       `json:"pane_name,omitempty"`
+	Host       string                       `json:"host,omitempty"`
+	ActivePane string                       `json:"active_pane,omitempty"`
+	ClientID   string                       `json:"client_id,omitempty"`
+	Reason     string                       `json:"reason,omitempty"`
+	Cursor     *proto.CaptureCursor         `json:"cursor,omitempty"`
+	Terminal   *proto.CaptureTerminal       `json:"terminal,omitempty"`
+	Message    *proto.MailboxMessageSummary `json:"message,omitempty"`
 }
 
 // Subscriber is a subscriber to the event stream.
