@@ -2,13 +2,55 @@ package mirror
 
 import (
 	"context"
+	"errors"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+// TestManagerWindowMirrorRetryBudgetEndsDead drives the window-mirror connect
+// retry loop to exhaustion against a failing dialer, covering the retry/error
+// state machine (runWindow, attachAndReadWindow, prepareWindowAttempt,
+// recordWindowError, markWindowDead).
+func TestManagerWindowMirrorRetryBudgetEndsDead(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager(Config{
+		Hosts:       map[string]config.Host{"remote": {SSH: "ignored", Session: "main", SocketPath: "/tmp/amux-test"}},
+		Dialer:      failingDialer{err: errors.New("dial failed")},
+		RetryPolicy: remoteRetryPolicyForTest(2),
+	})
+	t.Cleanup(mgr.Close)
+
+	if err := mgr.TrackWindow(7, WindowRef{Host: "remote", Session: "main", WindowName: "amux"}, 80, 24); err != nil {
+		t.Fatalf("TrackWindow: %v", err)
+	}
+
+	waitForWindowMirrorState(t, mgr, 7, StateDead)
+	snap, ok := mgr.WindowSnapshot(7)
+	if !ok || snap.LastError == "" {
+		t.Fatalf("expected dead window mirror with an error, got %+v ok=%v", snap, ok)
+	}
+}
+
+// waitForWindowMirrorState polls the window mirror state, yielding the processor
+// (runtime.Gosched) between checks rather than blocking, so no sleep is needed.
+func waitForWindowMirrorState(t *testing.T, mgr *Manager, id uint32, want State) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if snap, ok := mgr.WindowSnapshot(id); ok && snap.State == want {
+			return
+		}
+		runtime.Gosched()
+	}
+	snap, _ := mgr.WindowSnapshot(id)
+	t.Fatalf("window mirror state = %s, want %s (last error %q)", snap.State, want, snap.LastError)
+}
 
 func TestManagerTrackWindowDeliversLayoutUpdates(t *testing.T) {
 	t.Parallel()
