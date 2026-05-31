@@ -265,19 +265,19 @@ func (s *Session) captureResponseTimeout() time.Duration {
 // Unlike the hot-reload checkpoint, this omits FDs/PIDs (they can't survive a crash)
 // and captures retained history, screen content, and cwd for each pane.
 func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
+	return s.buildCrashCheckpointWithSnapshot((*mux.Pane).HistoryScreenSnapshot)
+}
+
+func (s *Session) buildCrashCheckpointWithSnapshot(snapshotFn paneHistoryScreenSnapshotFunc) *checkpoint.CrashCheckpoint {
 	type pidEntry struct {
 		index int
 		pane  *mux.Pane
 		pid   int
 	}
-	type crashSnapshot struct {
-		cp      *checkpoint.CrashCheckpoint
-		cwdWork []pidEntry
-	}
 
-	snap, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (crashSnapshot, error) {
+	snap, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (crashCheckpointWork, error) {
 		if len(s.Windows) == 0 {
-			return crashSnapshot{}, nil
+			return crashCheckpointWork{}, nil
 		}
 
 		idleSnap := make(map[uint32]bool)
@@ -289,49 +289,42 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			WindowCounter: s.windowCounter.Load(),
 			Generation:    s.generation.Load(),
 			Layout:        *layout,
-			Mailbox:       mailboxCheckpointSnapshot(s.mailbox),
 			MailboxSeq:    s.mailboxEventSeq,
 			Timestamp:     time.Now(),
 		}
 
-		paneSnapshots := snapshotPaneHistoryScreens(s.Panes, (*mux.Pane).HistoryScreenSnapshot)
-		cp.PaneStates = make([]checkpoint.CrashPaneState, len(s.Panes))
-		var cwdWork []pidEntry
-		for i, p := range s.Panes {
-			snapshot := paneSnapshots[i]
-			ps := checkpoint.CrashPaneState{
-				ID:           p.ID,
-				Meta:         p.Meta,
-				ManualBranch: p.MetaManualBranch(),
-				History:      snapshot.history,
-				Screen:       snapshot.screen,
-				CreatedAt:    p.CreatedAt(),
-				IsProxy:      p.IsProxy(),
-			}
-
-			for _, w := range s.Windows {
-				if cell := w.Root.FindPane(p.ID); cell != nil {
-					ps.Cols = cell.W
-					ps.Rows = mux.PaneContentHeight(cell.H)
-					break
-				}
-			}
-
-			if !p.IsProxy() {
-				cwdWork = append(cwdWork, pidEntry{index: i, pane: p, pid: p.ProcessPid()})
-			} else if s.mirror != nil {
-				if ref, ok := s.mirror.RemoteRef(p.ID); ok {
-					ps.RemoteRef = ref
-				}
-			}
-
-			cp.PaneStates[i] = ps
-		}
-
-		return crashSnapshot{cp: cp, cwdWork: cwdWork}, nil
+		return crashCheckpointWork{
+			cp:      cp,
+			panes:   s.collectCheckpointPaneWork(),
+			mailbox: mailboxCheckpointSnapshotSource(s.mailbox),
+		}, nil
 	})
 	if err != nil || snap.cp == nil {
 		return nil
+	}
+
+	snap.cp.Mailbox = materializeMailboxCheckpointSnapshot(snap.mailbox)
+	paneSnapshots := snapshotPaneHistoryScreens(checkpointPaneRefs(snap.panes), snapshotFn)
+	snap.cp.PaneStates = make([]checkpoint.CrashPaneState, len(snap.panes))
+	var cwdWork []pidEntry
+	for i, pane := range snap.panes {
+		paneSnapshot := paneSnapshots[i]
+		ps := checkpoint.CrashPaneState{
+			ID:           pane.id,
+			Meta:         pane.meta,
+			ManualBranch: pane.manualBranch,
+			Cols:         pane.cols,
+			Rows:         pane.rows,
+			History:      paneSnapshot.history,
+			Screen:       paneSnapshot.screen,
+			CreatedAt:    pane.createdAt,
+			IsProxy:      pane.isProxy,
+			RemoteRef:    pane.remoteRef,
+		}
+		if !pane.isProxy {
+			cwdWork = append(cwdWork, pidEntry{index: i, pane: pane.pane, pid: pane.pid})
+		}
+		snap.cp.PaneStates[i] = ps
 	}
 
 	// Resolve cwds and agent status outside the lock concurrently —
@@ -342,8 +335,8 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		wasIdle bool
 		command string
 	}
-	ch := make(chan cwdResult, len(snap.cwdWork))
-	for _, w := range snap.cwdWork {
+	ch := make(chan cwdResult, len(cwdWork))
+	for _, w := range cwdWork {
 		go func(w pidEntry) {
 			jobState := w.pane.ForegroundJobState()
 			status := w.pane.AgentStatus()
@@ -355,7 +348,7 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			}
 		}(w)
 	}
-	for range snap.cwdWork {
+	for range cwdWork {
 		r := <-ch
 		snap.cp.PaneStates[r.index].Cwd = r.cwd
 		snap.cp.PaneStates[r.index].WasIdle = r.wasIdle

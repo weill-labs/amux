@@ -139,9 +139,13 @@ func (s *Server) Reload(execPath string) error {
 }
 
 func (s *Session) buildReloadCheckpoint() (*checkpoint.ServerCheckpoint, error) {
-	return enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (*checkpoint.ServerCheckpoint, error) {
+	return s.buildReloadCheckpointWithSnapshot((*mux.Pane).HistoryScreenSnapshot)
+}
+
+func (s *Session) buildReloadCheckpointWithSnapshot(snapshot paneHistoryScreenSnapshotFunc) (*checkpoint.ServerCheckpoint, error) {
+	work, err := enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (reloadCheckpointWork, error) {
 		if len(sess.Windows) == 0 {
-			return nil, fmt.Errorf("no window to checkpoint")
+			return reloadCheckpointWork{}, fmt.Errorf("no window to checkpoint")
 		}
 
 		idleSnap := sess.snapshotIdleState()
@@ -156,53 +160,44 @@ func (s *Session) buildReloadCheckpoint() (*checkpoint.ServerCheckpoint, error) 
 			Layout:        *snap,
 			MailboxSeq:    sess.mailboxEventSeq,
 		}
-		cp.Mailbox = mailboxCheckpointSnapshot(sess.mailbox)
 
-		paneSnapshots := snapshotPaneHistoryScreens(sess.Panes, (*mux.Pane).HistoryScreenSnapshot)
-		cp.Panes = make([]checkpoint.PaneCheckpoint, len(sess.Panes))
-		for i, p := range sess.Panes {
-			snapshot := paneSnapshots[i]
-			pc := checkpoint.PaneCheckpoint{
-				ID:           p.ID,
-				Meta:         p.Meta,
-				ManualBranch: p.MetaManualBranch(),
-				History:      snapshot.history,
-				Screen:       snapshot.screen,
-				CreatedAt:    p.CreatedAt(),
-				IsProxy:      p.IsProxy(),
-			}
-			if p.IsProxy() {
-				pc.PtmxFd = -1
-				pc.PID = 0
-				if sess.mirror != nil {
-					if ref, ok := sess.mirror.RemoteRef(p.ID); ok {
-						pc.RemoteRef = ref
-					}
-				}
-			} else {
-				pc.PtmxFd = p.PtmxFd()
-				pc.PID = p.ProcessPid()
-			}
-			for _, w := range sess.Windows {
-				if cell := w.Root.FindPane(p.ID); cell != nil {
-					pc.Cols = cell.W
-					pc.Rows = mux.PaneContentHeight(cell.H)
-					break
-				}
-			}
-			cp.Panes[i] = pc
-		}
-
-		return cp, nil
+		return reloadCheckpointWork{
+			cp:      cp,
+			panes:   sess.collectCheckpointPaneWork(),
+			mailbox: mailboxCheckpointSnapshotSource(sess.mailbox),
+		}, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	work.cp.Mailbox = materializeMailboxCheckpointSnapshot(work.mailbox)
+	paneSnapshots := snapshotPaneHistoryScreens(checkpointPaneRefs(work.panes), snapshot)
+	work.cp.Panes = make([]checkpoint.PaneCheckpoint, len(work.panes))
+	for i, pane := range work.panes {
+		snapshot := paneSnapshots[i]
+		pc := checkpoint.PaneCheckpoint{
+			ID:           pane.id,
+			Meta:         pane.meta,
+			ManualBranch: pane.manualBranch,
+			PtmxFd:       pane.ptmxFd,
+			PID:          pane.pid,
+			Cols:         pane.cols,
+			Rows:         pane.rows,
+			History:      snapshot.history,
+			Screen:       snapshot.screen,
+			CreatedAt:    pane.createdAt,
+			IsProxy:      pane.isProxy,
+			RemoteRef:    pane.remoteRef,
+		}
+		work.cp.Panes[i] = pc
+	}
+
+	return work.cp, nil
 }
 
 func mailboxCheckpointSnapshot(store *mailbox.Store) *mailbox.Snapshot {
-	if store == nil || store.Len() == 0 {
-		return nil
-	}
-	snapshot := store.Snapshot()
-	return &snapshot
+	return materializeMailboxCheckpointSnapshot(mailboxCheckpointSnapshotSource(store))
 }
 
 func (s *Session) restoreMailbox(snapshot *mailbox.Snapshot, eventSeq uint64) error {

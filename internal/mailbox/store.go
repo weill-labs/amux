@@ -168,6 +168,16 @@ type Snapshot struct {
 	Deliveries []DeliveryState `json:"deliveries,omitempty"`
 }
 
+// SnapshotSource is a stable, shallow copy of the store state that can be
+// materialized away from the session event loop. Message body and metadata
+// bytes are immutable after Send, so Snapshot performs the expensive byte
+// copies later.
+type SnapshotSource struct {
+	NextSeq    uint64
+	Messages   []Message
+	Deliveries []DeliveryState
+}
+
 func NewStore(opts Options) *Store {
 	limits := normalizeLimits(opts.Limits)
 	now := opts.Now
@@ -192,48 +202,62 @@ func (s *Store) Len() int {
 }
 
 func (s *Store) Snapshot() Snapshot {
+	return s.SnapshotSource().Snapshot()
+}
+
+func (s *Store) SnapshotSource() SnapshotSource {
 	if s == nil {
+		return SnapshotSource{}
+	}
+
+	messages := make([]Message, 0, len(s.messages))
+	for _, msg := range s.messages {
+		messages = append(messages, cloneMessageSnapshotSource(msg))
+	}
+
+	var deliveries []DeliveryState
+	for _, byMessage := range s.deliveries {
+		for _, delivery := range byMessage {
+			deliveries = append(deliveries, *delivery)
+		}
+	}
+
+	return SnapshotSource{
+		NextSeq:    s.nextSeq,
+		Messages:   messages,
+		Deliveries: deliveries,
+	}
+}
+
+func (s SnapshotSource) Empty() bool {
+	return len(s.Messages) == 0 && len(s.Deliveries) == 0
+}
+
+func (s SnapshotSource) Snapshot() Snapshot {
+	if s.NextSeq == 0 && s.Empty() {
 		return Snapshot{}
 	}
 
-	ids := make([]MessageID, 0, len(s.messages))
-	for id := range s.messages {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		return ids[i] < ids[j]
+	messages := append([]Message(nil), s.Messages...)
+	sort.Slice(messages, func(i, j int) bool {
+		return messages[i].ID < messages[j].ID
 	})
-
-	messages := make([]Message, 0, len(ids))
-	for _, id := range ids {
-		messages = append(messages, cloneMessage(s.messages[id]))
+	for i := range messages {
+		messages[i] = cloneMessage(&messages[i])
 	}
 
-	recipientIDs := make([]uint32, 0, len(s.deliveries))
-	for recipientID := range s.deliveries {
-		recipientIDs = append(recipientIDs, recipientID)
-	}
-	sort.Slice(recipientIDs, func(i, j int) bool {
-		return recipientIDs[i] < recipientIDs[j]
+	deliveries := append([]DeliveryState(nil), s.Deliveries...)
+	sort.Slice(deliveries, func(i, j int) bool {
+		left := deliveries[i]
+		right := deliveries[j]
+		if left.Recipient.ID != right.Recipient.ID {
+			return left.Recipient.ID < right.Recipient.ID
+		}
+		return left.MessageID < right.MessageID
 	})
-
-	var deliveries []DeliveryState
-	for _, recipientID := range recipientIDs {
-		byMessage := s.deliveries[recipientID]
-		messageIDs := make([]MessageID, 0, len(byMessage))
-		for id := range byMessage {
-			messageIDs = append(messageIDs, id)
-		}
-		sort.Slice(messageIDs, func(i, j int) bool {
-			return messageIDs[i] < messageIDs[j]
-		})
-		for _, id := range messageIDs {
-			deliveries = append(deliveries, *byMessage[id])
-		}
-	}
 
 	return Snapshot{
-		NextSeq:    s.nextSeq,
+		NextSeq:    s.NextSeq,
 		Messages:   messages,
 		Deliveries: deliveries,
 	}
@@ -778,6 +802,22 @@ func cloneMessage(msg *Message) Message {
 	out.Replies = append([]MessageID(nil), msg.Replies...)
 	out.Parts = cloneParts(msg.Parts)
 	out.Metadata = cloneMetadata(msg.Metadata)
+	return out
+}
+
+func cloneMessageSnapshotSource(msg *Message) Message {
+	out := *msg
+	out.Recipients = append([]PaneAddress(nil), msg.Recipients...)
+	out.Topics = append([]string(nil), msg.Topics...)
+	out.Groups = append([]string(nil), msg.Groups...)
+	out.Replies = append([]MessageID(nil), msg.Replies...)
+	out.Parts = append([]MessagePart(nil), msg.Parts...)
+	if len(msg.Metadata) > 0 {
+		out.Metadata = make(map[string]json.RawMessage, len(msg.Metadata))
+		for key, value := range msg.Metadata {
+			out.Metadata[key] = value
+		}
+	}
 	return out
 }
 
