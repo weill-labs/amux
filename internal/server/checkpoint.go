@@ -175,22 +175,7 @@ func (s *Session) buildReloadCheckpointWithSnapshot(snapshot paneHistoryScreenSn
 	paneSnapshots := snapshotPaneHistoryScreens(checkpointPaneRefs(work.panes), snapshot)
 	work.cp.Panes = make([]checkpoint.PaneCheckpoint, len(work.panes))
 	for i, pane := range work.panes {
-		snapshot := paneSnapshots[i]
-		pc := checkpoint.PaneCheckpoint{
-			ID:           pane.id,
-			Meta:         pane.meta,
-			ManualBranch: pane.manualBranch,
-			PtmxFd:       pane.ptmxFd,
-			PID:          pane.pid,
-			Cols:         pane.cols,
-			Rows:         pane.rows,
-			History:      snapshot.history,
-			Screen:       snapshot.screen,
-			CreatedAt:    pane.createdAt,
-			IsProxy:      pane.isProxy,
-			RemoteRef:    pane.remoteRef,
-		}
-		work.cp.Panes[i] = pc
+		work.cp.Panes[i] = pane.paneCheckpoint(paneSnapshots[i])
 	}
 
 	return work.cp, nil

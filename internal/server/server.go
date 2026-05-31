@@ -308,19 +308,7 @@ func (s *Session) buildCrashCheckpointWithSnapshot(snapshotFn paneHistoryScreenS
 	snap.cp.PaneStates = make([]checkpoint.CrashPaneState, len(snap.panes))
 	var cwdWork []pidEntry
 	for i, pane := range snap.panes {
-		paneSnapshot := paneSnapshots[i]
-		ps := checkpoint.CrashPaneState{
-			ID:           pane.id,
-			Meta:         pane.meta,
-			ManualBranch: pane.manualBranch,
-			Cols:         pane.cols,
-			Rows:         pane.rows,
-			History:      paneSnapshot.history,
-			Screen:       paneSnapshot.screen,
-			CreatedAt:    pane.createdAt,
-			IsProxy:      pane.isProxy,
-			RemoteRef:    pane.remoteRef,
-		}
+		ps := pane.crashPaneState(paneSnapshots[i])
 		if !pane.isProxy {
 			cwdWork = append(cwdWork, pidEntry{index: i, pane: pane.pane, pid: pane.pid})
 		}

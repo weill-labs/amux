@@ -37,6 +37,38 @@ type checkpointPaneWork struct {
 	pid          int
 }
 
+func (w checkpointPaneWork) paneCheckpoint(snapshot paneHistoryScreenSnapshot) checkpoint.PaneCheckpoint {
+	return checkpoint.PaneCheckpoint{
+		ID:           w.id,
+		Meta:         w.meta,
+		ManualBranch: w.manualBranch,
+		PtmxFd:       w.ptmxFd,
+		PID:          w.pid,
+		Cols:         w.cols,
+		Rows:         w.rows,
+		History:      snapshot.history,
+		Screen:       snapshot.screen,
+		CreatedAt:    w.createdAt,
+		IsProxy:      w.isProxy,
+		RemoteRef:    w.remoteRef,
+	}
+}
+
+func (w checkpointPaneWork) crashPaneState(snapshot paneHistoryScreenSnapshot) checkpoint.CrashPaneState {
+	return checkpoint.CrashPaneState{
+		ID:           w.id,
+		Meta:         w.meta,
+		ManualBranch: w.manualBranch,
+		Cols:         w.cols,
+		Rows:         w.rows,
+		History:      snapshot.history,
+		Screen:       snapshot.screen,
+		CreatedAt:    w.createdAt,
+		IsProxy:      w.isProxy,
+		RemoteRef:    w.remoteRef,
+	}
+}
+
 func (s *Session) collectCheckpointPaneWork() []checkpointPaneWork {
 	work := make([]checkpointPaneWork, len(s.Panes))
 	for i, p := range s.Panes {
