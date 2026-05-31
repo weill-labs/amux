@@ -114,7 +114,9 @@ type Session struct {
 	checkpointCoordinator crashCheckpointCoordinator
 	// watchdogRecoveryCheckpoint is a cheap last-known-good reload snapshot
 	// captured on the event loop immediately before each command handler starts.
-	watchdogRecoveryCheckpoint *checkpoint.ServerCheckpoint
+	watchdogRecoveryCheckpoint           *checkpoint.ServerCheckpoint
+	watchdogRecoveryCheckpointAt         time.Time
+	watchdogRecoveryCheckpointGeneration uint64
 
 	// Async session event loop — phase 1 serializes callback-driven writes.
 	sessionCtx       context.Context

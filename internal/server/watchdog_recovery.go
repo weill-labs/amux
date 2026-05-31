@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	maxWatchdogRecoveryAttempts = 3
-	watchdogRecoveryWindow      = 10 * time.Minute
+	maxWatchdogRecoveryAttempts         = 3
+	watchdogRecoveryWindow              = 10 * time.Minute
+	watchdogRecoverySnapshotMinInterval = time.Second
 
 	watchdogRecoveryAttemptsEnv = "AMUX_WATCHDOG_RECOVERY_ATTEMPTS"
 	watchdogRecoveryFirstEnv    = "AMUX_WATCHDOG_RECOVERY_FIRST_UNIX"
@@ -36,6 +37,16 @@ func (s *Session) captureWatchdogRecoveryCheckpoint() {
 	if s == nil {
 		return
 	}
+	now := s.clock().Now()
+	generation := s.generation.Load()
+	if s.watchdogRecoveryCheckpoint != nil &&
+		s.watchdogRecoveryCheckpointGeneration == generation &&
+		!s.watchdogRecoveryCheckpointAt.IsZero() {
+		elapsed := now.Sub(s.watchdogRecoveryCheckpointAt)
+		if elapsed >= 0 && elapsed < watchdogRecoverySnapshotMinInterval {
+			return
+		}
+	}
 	cp, err := s.buildWatchdogRecoveryCheckpoint()
 	if err != nil {
 		if errors.Is(err, errNoWatchdogRecoveryWindow) {
@@ -51,6 +62,8 @@ func (s *Session) captureWatchdogRecoveryCheckpoint() {
 		return
 	}
 	s.watchdogRecoveryCheckpoint = cp
+	s.watchdogRecoveryCheckpointAt = now
+	s.watchdogRecoveryCheckpointGeneration = cp.Generation
 }
 
 func (s *Session) buildWatchdogRecoveryCheckpoint() (*checkpoint.ServerCheckpoint, error) {
