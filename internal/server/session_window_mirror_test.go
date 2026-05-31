@@ -4,8 +4,34 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/server/mirror"
 )
+
+// TestPushMirrorWindowSize covers forwarding a local mirror window's size to the
+// remote (and the non-mirror-window early return).
+func TestPushMirrorWindowSize(t *testing.T) {
+	t.Parallel()
+
+	mgr := mirror.NewManager(mirror.Config{})
+	t.Cleanup(mgr.Close)
+	if err := mgr.TrackWindow(5, mirror.WindowRef{Host: "h", Session: "main", WindowName: "amux"}, 80, 24); err != nil {
+		t.Fatalf("TrackWindow: %v", err)
+	}
+	s := &Session{mirror: mgr, windowMirrorSigs: map[uint32]string{5: "sig"}}
+
+	// Non-mirror window: no-op (size stays at the tracked 80x24).
+	s.pushMirrorWindowSize(&mux.Window{ID: 99, Width: 150, Height: 40})
+	if info := mgr.WindowMirrorInfos()[5]; info.Cols != 80 || info.Rows != 24 {
+		t.Fatalf("unexpected size change for non-mirror window: %+v", info)
+	}
+
+	// Mirror window: size is forwarded to the manager.
+	s.pushMirrorWindowSize(&mux.Window{ID: 5, Width: 150, Height: 40})
+	if info := mgr.WindowMirrorInfos()[5]; info.Cols != 150 || info.Rows != 40 {
+		t.Fatalf("size = %dx%d, want 150x40", info.Cols, info.Rows)
+	}
+}
 
 // TestWindowMirrorCheckpointAndRestore covers the checkpoint capture and restore
 // of window-layout subscriptions. The host is left unconfigured so the mirror

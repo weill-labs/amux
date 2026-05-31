@@ -46,7 +46,22 @@ func TestAttachWindowStreamsLayoutUpdates(t *testing.T) {
 
 	// A structural change to the window must push a fresh layout.
 	h.runCmd("spawn", "--vertical")
+	waitForWindowLayout(t, conn, "new pane", func(layout *proto.LayoutSnapshot) bool {
+		return activeWindowPaneCount(layout) > before
+	})
 
+	// A resize sent over the subscription resizes the remote window (the size a
+	// window mirror pushes to match its local dimensions).
+	if err := writeMsgOnConn(conn, &server.Message{Type: proto.MsgTypeResize, Cols: 123, Rows: 45}); err != nil {
+		t.Fatalf("resize write: %v", err)
+	}
+	waitForWindowLayout(t, conn, "resized window", func(layout *proto.LayoutSnapshot) bool {
+		return layout.Width == 123
+	})
+}
+
+func waitForWindowLayout(t *testing.T, conn net.Conn, what string, match func(*proto.LayoutSnapshot) bool) {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if err := conn.SetReadDeadline(deadline); err != nil {
@@ -54,13 +69,13 @@ func TestAttachWindowStreamsLayoutUpdates(t *testing.T) {
 		}
 		msg, err := readMsgOnConn(conn)
 		if err != nil {
-			t.Fatalf("did not receive layout update with new pane (before=%d): %v", before, err)
+			t.Fatalf("did not receive layout update (%s): %v", what, err)
 		}
 		if msg.Type != proto.MsgTypeLayout || msg.Layout == nil {
 			continue
 		}
-		if activeWindowPaneCount(msg.Layout) > before {
-			return // resync delivered the new pane
+		if match(msg.Layout) {
+			return
 		}
 	}
 }
