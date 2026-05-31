@@ -32,6 +32,10 @@ type windowMirrorState struct {
 	link          *remote.Link
 	running       bool
 	lastErr       string
+	// resizePending/resizing coalesce size pushes so the write happens off the
+	// caller's goroutine (the session event loop) with at most one writer.
+	resizePending bool
+	resizing      bool
 }
 
 // TrackWindow opens a layout subscription to a remote window. The Manager
@@ -247,9 +251,10 @@ func (m *Manager) readLoopWindow(localWindowID uint32, owner *windowMirrorState,
 }
 
 // ResizeWindow updates the desired size for a mirrored window and pushes it to
-// the remote so the remote re-renders the window at the local dimensions. A
-// no-op when the size is unchanged or the link is not connected yet (the size
-// is also carried on the next attach).
+// the remote so the remote re-renders the window at the local dimensions. The
+// actual link write happens on a dedicated goroutine so a slow remote link can
+// never block the caller (the session event loop). The size is also carried on
+// the next attach, so a push that lands before the link connects is not lost.
 func (m *Manager) ResizeWindow(localWindowID uint32, cols, rows int) {
 	if m == nil || localWindowID == 0 || cols <= 0 || rows <= 0 {
 		return
@@ -262,11 +267,37 @@ func (m *Manager) ResizeWindow(localWindowID uint32, cols, rows int) {
 	}
 	ws.cols = cols
 	ws.rows = rows
-	link := ws.link
-	connected := ws.state == StateConnected
+	ws.resizePending = true
+	if ws.resizing {
+		// A drainer goroutine is already running; it will pick up the new size.
+		m.mu.Unlock()
+		return
+	}
+	ws.resizing = true
+	m.wg.Add(1)
 	m.mu.Unlock()
+	go m.drainWindowResizes(localWindowID, ws)
+}
 
-	if connected && link != nil {
+// drainWindowResizes writes pending size pushes to the remote link until none
+// remain, off the event loop. At most one drainer runs per window mirror, and
+// it always sends the latest requested size.
+func (m *Manager) drainWindowResizes(localWindowID uint32, owner *windowMirrorState) {
+	defer m.wg.Done()
+	for {
+		m.mu.Lock()
+		ws := m.windowMirrors[localWindowID]
+		if ws != owner || !ws.resizePending || ws.state != StateConnected || ws.link == nil {
+			if ws == owner {
+				ws.resizing = false
+			}
+			m.mu.Unlock()
+			return
+		}
+		ws.resizePending = false
+		cols, rows, link := ws.cols, ws.rows, ws.link
+		m.mu.Unlock()
+
 		_ = link.WriteMsg(&proto.Message{Type: proto.MsgTypeResize, Cols: cols, Rows: rows})
 	}
 }

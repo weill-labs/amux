@@ -99,9 +99,9 @@ func TestManagerResizeWindowPushesSize(t *testing.T) {
 	}
 	<-connected
 
-	// net.Pipe is synchronous, so drive the write concurrently with the read
-	// (a real socket buffers and would not block here).
-	go mgr.ResizeWindow(7, 120, 30)
+	// ResizeWindow is non-blocking (the write happens on a drainer goroutine),
+	// so the read below drains the synchronous net.Pipe.
+	mgr.ResizeWindow(7, 120, 30)
 
 	resize, err := reader.ReadMsg()
 	if err != nil {
