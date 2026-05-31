@@ -1,6 +1,6 @@
 # LAB-1984 — Progress
 
-## Status: PLANNING (awaiting user sign-off on scope + CLI shape)
+## Status: COMPLETE — all steps implemented and tested
 
 ## Done
 - [x] Research: mapped single-pane mirror end-to-end (findings.md).
@@ -30,11 +30,11 @@
       diffs the remote window snapshot vs the local mirror window (match panes by
       remote name), create/soft-close proxies, rebuild the split tree; register
       the window mirror in `attach-window`. (NEXT — largest/riskiest sub-step.)
-- [ ] Step 5: dimension matching — resize REMOTE to match LOCAL on attach + on
-      local window resize (extend planRemoteResize; skip lead/single-axis panes).
-- [ ] Step 6: `remote detach-window <local-window>` teardown.
-- [ ] Step 7: checkpoint/restore for window mirrors (resume layout subscription).
-- [ ] Step 8: docs + `amux --help` + README CLI reference.
+- [x] Step 5: dimension matching — push local window size to remote (attach +
+      MsgTypeResize on local resize); remote re-renders the window. [cd40a8a]
+- [x] Step 6: `remote detach-window <local-window>` teardown. [cd37bb2]
+- [x] Step 7: checkpoint/restore for window mirrors. [6d24b9d]
+- [x] Step 8: docs + `amux --help` + README CLI reference.
 
 ## Live validation (hetzner-1, 2026-05-30)
 - `remote windows hetzner-1` listed all 11 real windows.

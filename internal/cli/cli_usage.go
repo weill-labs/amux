@@ -23,7 +23,7 @@ const (
 	msgReadUsage      = "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]"
 	msgAckUsage       = "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	remoteUsage       = "usage: amux remote <add|list|rm|panes|status|attach|detach|resize> ..."
+	remoteUsage       = "usage: amux remote <add|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
 	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
@@ -216,8 +216,14 @@ Usage:
   amux [-s session] respawn <pane>     Restart a pane shell in place
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
-  amux [-s session] remote <add|list|rm|panes|status|attach|detach|resize> ...
-                                       Manage remote amux hosts and mirror panes
+  amux [-s session] remote <add|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ...
+                                       Manage remote amux hosts; mirror remote panes and windows
+  amux [-s session] remote windows <name>
+                                       List a remote host's windows
+  amux [-s session] remote attach-window <name>:<window>
+                                       Mirror a whole remote window into a new local window
+  amux [-s session] remote detach-window <local-window>
+                                       Tear down a mirrored remote window
   amux [-s session] equalize [--vertical|--all]
                                        Rebalance root columns, column rows, or both
   amux [-s session] kill <pane>        Kill a pane
