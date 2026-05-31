@@ -515,6 +515,10 @@ func (w *Window) restoreZoomedPaneSize() {
 	}
 	cell := w.Root.FindPane(w.ZoomedPaneID)
 	if cell != nil && cell.Pane != nil {
-		_ = cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
+		targetRows := PaneContentHeight(w.Height)
+		if cols, rows := cell.Pane.EmulatorSize(); cols == w.Width && rows == targetRows {
+			return
+		}
+		_ = cell.Pane.Resize(w.Width, targetRows)
 	}
 }
