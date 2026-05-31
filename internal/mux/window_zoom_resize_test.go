@@ -18,6 +18,7 @@ type resizeRecordingEmulator struct {
 	TerminalEmulator
 	cols    int
 	rows    int
+	calls   []recordedResize
 	changes []recordedResize
 }
 
@@ -35,6 +36,7 @@ func newResizeRecordingPane(id uint32, cols, rows int) (*Pane, *resizeRecordingE
 }
 
 func (r *resizeRecordingEmulator) Resize(cols, rows int) {
+	r.calls = append(r.calls, recordedResize{cols: cols, rows: rows})
 	if r.cols != cols || r.rows != rows {
 		r.changes = append(r.changes, recordedResize{cols: cols, rows: rows})
 	}
@@ -48,6 +50,7 @@ func (r *resizeRecordingEmulator) Size() (int, int) {
 }
 
 func (r *resizeRecordingEmulator) reset() {
+	r.calls = nil
 	r.changes = nil
 }
 
@@ -115,6 +118,9 @@ func TestZoomPreservingMutationsDoNotResizeZoomedPaneToHiddenCell(t *testing.T) 
 
 			tt.mutate(t, w, p3)
 
+			if len(recorder.calls) != 0 {
+				t.Fatalf("zoomed pane resize calls = %v, want none while zoom viewport is unchanged", recorder.calls)
+			}
 			fullSize := recordedResize{cols: w.Width, rows: PaneContentHeight(w.Height)}
 			for _, got := range recorder.changes {
 				if got != fullSize {

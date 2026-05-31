@@ -154,7 +154,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		if next.zoomedPaneID != 0 {
 			if emu := nextEmulators[next.zoomedPaneID]; emu != nil {
 				layoutH := st.compositor.LayoutHeight()
-				emu.Resize(next.width, mux.PaneContentHeight(layoutH))
+				resizeEmulatorIfNeeded(emu, next.width, mux.PaneContentHeight(layoutH))
 			}
 		}
 
@@ -784,12 +784,23 @@ func (r *Renderer) resizeSnapshotEmulators(next *rendererSnapshot, emulators map
 		if emu := emulators[next.zoomedPaneID]; emu != nil {
 			layoutH := next.height - render.GlobalBarHeight
 			contentH := mux.PaneContentHeight(layoutH)
-			emu.Resize(next.width, contentH)
-			if r.OnPaneResize != nil {
+			if resizeEmulatorIfNeeded(emu, next.width, contentH) && r.OnPaneResize != nil {
 				r.OnPaneResize(next.zoomedPaneID, next.width, contentH)
 			}
 		}
 	}
+}
+
+func resizeEmulatorIfNeeded(emu mux.TerminalEmulator, width, height int) bool {
+	if emu == nil {
+		return false
+	}
+	currentW, currentH := emu.Size()
+	if currentW == width && currentH == height {
+		return false
+	}
+	emu.Resize(width, height)
+	return true
 }
 
 // HandleCaptureRequest processes capture args and returns a proto.Message
