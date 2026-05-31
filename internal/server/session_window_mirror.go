@@ -156,6 +156,53 @@ func (s *Session) resizeMirrorTargetWindow(w *mux.Window, cols, rows int) {
 	w.Resize(cols, rows)
 }
 
+// windowMirrorCheckpoints builds checkpoint records for the session's active
+// window mirrors so their layout subscriptions can resume after a reload.
+func windowMirrorCheckpoints(s *Session) map[uint32]checkpoint.RemoteWindowRef {
+	if s == nil || s.mirror == nil || len(s.windowMirrorSigs) == 0 {
+		return nil
+	}
+	infos := s.mirror.WindowMirrorInfos()
+	out := make(map[uint32]checkpoint.RemoteWindowRef, len(s.windowMirrorSigs))
+	for id, sig := range s.windowMirrorSigs {
+		info, ok := infos[id]
+		if !ok {
+			continue
+		}
+		out[id] = checkpoint.RemoteWindowRef{
+			Host:       info.Ref.Host,
+			Session:    info.Ref.Session,
+			WindowName: info.Ref.WindowName,
+			Cols:       info.Cols,
+			Rows:       info.Rows,
+			Signature:  sig,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// restoreWindowMirrors re-establishes window layout subscriptions after a reload
+// and re-seeds their structural signatures so the first broadcast is a no-op.
+func (s *Session) restoreWindowMirrors(refs map[uint32]checkpoint.RemoteWindowRef) {
+	if s == nil || s.mirror == nil || len(refs) == 0 {
+		return
+	}
+	if s.windowMirrorSigs == nil {
+		s.windowMirrorSigs = make(map[uint32]string, len(refs))
+	}
+	for id, ref := range refs {
+		s.windowMirrorSigs[id] = ref.Signature
+		_ = s.mirror.TrackWindow(id, mirrorpkg.WindowRef{
+			Host:       ref.Host,
+			Session:    ref.Session,
+			WindowName: ref.WindowName,
+		}, ref.Cols, ref.Rows)
+	}
+}
+
 // pushMirrorWindowSize forwards a local mirror window's size to the remote so it
 // re-renders the window to match. A no-op for non-mirror windows. Event-loop only.
 func (s *Session) pushMirrorWindowSize(w *mux.Window) {

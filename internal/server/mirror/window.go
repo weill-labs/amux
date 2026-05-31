@@ -96,6 +96,31 @@ func (m *Manager) DetachWindow(localWindowID uint32) {
 	}
 }
 
+// WindowMirrorInfo describes a tracked window mirror for checkpointing.
+type WindowMirrorInfo struct {
+	Ref  WindowRef
+	Cols int
+	Rows int
+}
+
+// WindowMirrorInfos returns the live window mirrors keyed by local window ID, so
+// the owner can persist them for restore after a reload.
+func (m *Manager) WindowMirrorInfos() map[uint32]WindowMirrorInfo {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[uint32]WindowMirrorInfo, len(m.windowMirrors))
+	for id, ws := range m.windowMirrors {
+		if ws == nil || ws.state == StateDetached || ws.state == StateDead {
+			continue
+		}
+		out[id] = WindowMirrorInfo{Ref: ws.ref, Cols: ws.cols, Rows: ws.rows}
+	}
+	return out
+}
+
 // WindowSnapshot reports the current state of a window-layout subscription.
 func (m *Manager) WindowSnapshot(localWindowID uint32) (Snapshot, bool) {
 	if m == nil {

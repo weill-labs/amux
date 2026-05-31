@@ -49,6 +49,19 @@ type RemoteRef struct {
 	PaneName string
 }
 
+// RemoteWindowRef captures a mirrored remote window so its layout subscription
+// can be re-established after a reload. Keyed by local window ID in the
+// checkpoint. Signature is the last applied structural signature, so the first
+// post-reload layout broadcast is a no-op when nothing changed.
+type RemoteWindowRef struct {
+	Host       string
+	Session    string
+	WindowName string
+	Cols       int
+	Rows       int
+	Signature  string
+}
+
 // ServerCheckpoint captures the full server state for reload.
 type ServerCheckpoint struct {
 	Version       int
@@ -63,6 +76,9 @@ type ServerCheckpoint struct {
 	Panes         []PaneCheckpoint
 	Mailbox       *mailbox.Snapshot
 	MailboxSeq    uint64
+	// WindowMirrors maps local window ID -> mirrored remote window, so window
+	// layout subscriptions resume after reload.
+	WindowMirrors map[uint32]RemoteWindowRef
 }
 
 // Write gob-encodes the checkpoint to a temp file and returns the path.
