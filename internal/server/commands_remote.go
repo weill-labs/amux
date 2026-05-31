@@ -21,17 +21,18 @@ import (
 )
 
 const (
-	remoteCommandUsage   = "usage: remote <add|list|rm|panes|status|attach|detach|resize> ..."
-	remoteAddUsage       = "usage: remote add <name> --ssh <target> --socket <path> [--session <name>]"
-	remoteListUsage      = "usage: remote list"
-	remoteStatusUsage    = "usage: remote status"
-	remoteRmUsage        = "usage: remote rm <name>"
-	remotePanesUsage     = "usage: remote panes <name>"
-	remoteWindowsUsage   = "usage: remote windows <name>"
-	remoteAttachUsage    = "usage: remote attach (<name>|<name>:<pane-name>)"
-	remoteDetachUsage    = "usage: remote detach <local-pane>"
-	remoteResizeUsage    = "usage: remote resize <local-pane>"
-	remoteCommandTimeout = 10 * time.Second
+	remoteCommandUsage      = "usage: remote <add|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
+	remoteAddUsage          = "usage: remote add <name> --ssh <target> --socket <path> [--session <name>]"
+	remoteListUsage         = "usage: remote list"
+	remoteStatusUsage       = "usage: remote status"
+	remoteRmUsage           = "usage: remote rm <name>"
+	remotePanesUsage        = "usage: remote panes <name>"
+	remoteWindowsUsage      = "usage: remote windows <name>"
+	remoteAttachUsage       = "usage: remote attach (<name>|<name>:<pane-name>)"
+	remoteAttachWindowUsage = "usage: remote attach-window <name>:<window>"
+	remoteDetachUsage       = "usage: remote detach <local-pane>"
+	remoteResizeUsage       = "usage: remote resize <local-pane>"
+	remoteCommandTimeout    = 10 * time.Second
 )
 
 type remoteAddArgs struct {
@@ -94,6 +95,8 @@ func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 		return runRemoteWindows(ctx)
 	case "attach":
 		return runRemoteAttach(ctx)
+	case "attach-window":
+		return runRemoteAttachWindow(ctx)
 	case "detach":
 		return runRemoteDetach(ctx)
 	case "resize":
@@ -285,6 +288,62 @@ func formatRemoteWindows(layout *proto.LayoutSnapshot) string {
 	return b.String()
 }
 
+// remoteWindowLeaf pairs one remote leaf pane with the data needed to build a
+// local proxy pane for it: the remote pane ID, its name (for the RemoteRef), and
+// its cell content dimensions.
+type remoteWindowLeaf struct {
+	remoteID uint32
+	name     string
+	cols     int
+	rows     int
+}
+
+// planRemoteWindowLeaves walks a remote window snapshot's layout tree in leaf
+// order and pairs each leaf with its pane name and content dimensions. Pure and
+// unit-testable so the attach mutation stays thin. Returns an error when a leaf
+// lacks a usable pane snapshot or the window has no panes.
+func planRemoteWindowLeaves(ws proto.WindowSnapshot) ([]remoteWindowLeaf, error) {
+	snapshots := paneSnapshotsByID(ws.Panes)
+	leaves := make([]remoteWindowLeaf, 0)
+	if err := collectRemoteWindowLeaves(ws.Root, snapshots, ws.Name, &leaves); err != nil {
+		return nil, err
+	}
+	if len(leaves) == 0 {
+		return nil, fmt.Errorf("remote window %q has no panes", ws.Name)
+	}
+	return leaves, nil
+}
+
+// collectRemoteWindowLeaves appends one remoteWindowLeaf per leaf cell, in
+// left-to-right tree order, resolving each leaf's pane name from snapshots.
+func collectRemoteWindowLeaves(cell proto.CellSnapshot, snapshots map[uint32]proto.PaneSnapshot, windowName string, out *[]remoteWindowLeaf) error {
+	if cell.IsLeaf {
+		if cell.PaneID == 0 {
+			return nil
+		}
+		pane, ok := snapshots[cell.PaneID]
+		if !ok {
+			return fmt.Errorf("remote window %q: no pane snapshot for leaf %d", windowName, cell.PaneID)
+		}
+		if pane.Name == "" {
+			return fmt.Errorf("remote window %q: pane %d has no name", windowName, cell.PaneID)
+		}
+		*out = append(*out, remoteWindowLeaf{
+			remoteID: cell.PaneID,
+			name:     pane.Name,
+			cols:     cell.W,
+			rows:     mux.PaneContentHeight(cell.H),
+		})
+		return nil
+	}
+	for _, child := range cell.Children {
+		if err := collectRemoteWindowLeaves(child, snapshots, windowName, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
 		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
@@ -332,6 +391,108 @@ func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
+	if len(ctx.Args) != 2 {
+		return commandpkg.Result{Err: errors.New(remoteAttachWindowUsage)}
+	}
+	hostName, windowRef, ok := strings.Cut(ctx.Args[1], ":")
+	if !ok || hostName == "" || windowRef == "" {
+		return commandpkg.Result{Err: errors.New(remoteAttachWindowUsage)}
+	}
+	host, err := lookupRemoteHost(hostName)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	layout, err := listRemotePanes(ctx.context(), host)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	ws, err := remote.ResolveWindowFromLayout(layout, windowRef)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	leaves, err := planRemoteWindowLeaves(ws)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	session := remoteCommandSession(host)
+
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		base := mctx.activeWindow()
+		if base == nil {
+			return commandMutationResult{err: fmt.Errorf("no active window")}
+		}
+		paneMap := make(map[uint32]*mux.Pane, len(leaves))
+		refs := make(map[uint32]checkpoint.RemoteRef, len(leaves))
+		created := make([]*mux.Pane, 0, len(leaves))
+		cleanup := func() {
+			for _, p := range created {
+				mctx.removePane(p.ID)
+				mctx.ScheduleClose(p)
+			}
+		}
+		for _, leaf := range leaves {
+			ref := checkpoint.RemoteRef{Host: hostName, Session: session, PaneName: leaf.name}
+			pane, err := mctx.prepareMirrorPane(mux.PaneMeta{}, ref, leaf.cols, leaf.rows)
+			if err != nil {
+				cleanup()
+				return commandMutationResult{err: err}
+			}
+			paneMap[leaf.remoteID] = pane
+			refs[leaf.remoteID] = ref
+			created = append(created, pane)
+		}
+
+		win := mux.RebuildWindowFromSnapshot(ws, base.Width, base.Height, paneMap)
+		win.ID = mctx.nextWindowID()
+		win.Name = uniqueLocalWindowName(mctx, hostName, ws.Name)
+		// Mirror panes are independent local proxies: clear remote-scoped lead and
+		// zoom IDs so they do not dangle (a lead pane would also block the
+		// dimension-matching resize).
+		win.LeadPaneID = 0
+		win.ZoomedPaneID = 0
+
+		for _, leaf := range leaves {
+			if err := mctx.trackMirrorPane(paneMap[leaf.remoteID], refs[leaf.remoteID]); err != nil {
+				cleanup()
+				return commandMutationResult{err: err}
+			}
+		}
+
+		mctx.Windows = append(mctx.Windows, win)
+		mctx.activateWindow(win)
+
+		return commandMutationResult{
+			output:          fmt.Sprintf("Attached %s:%s as window %s (%d panes)\n", hostName, ws.Name, win.Name, len(created)),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+// uniqueLocalWindowName builds a collision-free local window name for a mirrored
+// remote window, preferring "<host>:<remote-window>" and suffixing -N on clash.
+func uniqueLocalWindowName(mctx *MutationContext, host, remoteName string) string {
+	base := fmt.Sprintf("%s:%s", host, remoteName)
+	taken := func(name string) bool {
+		for _, w := range mctx.Windows {
+			if w != nil && w.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !taken(base) {
+		return base
+	}
+	for i := 2; i < 100; i++ {
+		cand := fmt.Sprintf("%s-%d", base, i)
+		if !taken(cand) {
+			return cand
+		}
+	}
+	return base
 }
 
 func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Result {
