@@ -1,18 +1,18 @@
 PASS
-ok  	github.com/weill-labs/amux/internal/auditlog	0.019s
+ok  	github.com/weill-labs/amux/internal/auditlog	0.003s
 PASS
-ok  	github.com/weill-labs/amux/internal/bubblesutil	0.008s
+ok  	github.com/weill-labs/amux/internal/bubblesutil	0.003s
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/capture
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkHexColor-4   	39570198	        27.16 ns/op	       8 B/op	       1 allocs/op
-BenchmarkHexColor-4   	59171594	        19.17 ns/op	       8 B/op	       1 allocs/op
-BenchmarkHexColor-4   	63154766	        19.12 ns/op	       8 B/op	       1 allocs/op
-BenchmarkHexColor-4   	60814771	        19.54 ns/op	       8 B/op	       1 allocs/op
-BenchmarkHexColor-4   	59885704	        19.20 ns/op	       8 B/op	       1 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkHexColor-4   	61893415	        18.65 ns/op	       8 B/op	       1 allocs/op
+BenchmarkHexColor-4   	63399626	        18.54 ns/op	       8 B/op	       1 allocs/op
+BenchmarkHexColor-4   	61485416	        18.41 ns/op	       8 B/op	       1 allocs/op
+BenchmarkHexColor-4   	64511952	        18.48 ns/op	       8 B/op	       1 allocs/op
+BenchmarkHexColor-4   	61163428	        18.47 ns/op	       8 B/op	       1 allocs/op
 PASS
-ok  	github.com/weill-labs/amux/internal/capture	5.773s
+ok  	github.com/weill-labs/amux/internal/capture	5.790s
 PASS
 ok  	github.com/weill-labs/amux/internal/checkpoint	0.004s
 PASS
@@ -20,340 +20,340 @@ ok  	github.com/weill-labs/amux/internal/cli	0.004s
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/client
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1779	    610636 ns/op	   0.42 MB/s	  573538 B/op	     104 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1827	    611657 ns/op	   0.42 MB/s	  573147 B/op	     104 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1767	    614546 ns/op	   0.42 MB/s	  573635 B/op	     104 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1760	    631316 ns/op	   0.41 MB/s	  573694 B/op	     104 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1790	    609411 ns/op	   0.42 MB/s	  573444 B/op	     104 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     416	   2816795 ns/op	   1.45 MB/s	  762470 B/op	     350 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     404	   2838535 ns/op	   1.44 MB/s	  766144 B/op	     351 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     416	   2828208 ns/op	   1.45 MB/s	  762470 B/op	     350 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     415	   2814190 ns/op	   1.46 MB/s	  762769 B/op	     350 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     411	   2810107 ns/op	   1.46 MB/s	  763975 B/op	     350 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      55	  19116479 ns/op	   1.71 MB/s	 1420649 B/op	    2065 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      58	  19268210 ns/op	   1.70 MB/s	 1383709 B/op	    2058 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      58	  19321849 ns/op	   1.70 MB/s	 1383713 B/op	    2058 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      58	  19228324 ns/op	   1.70 MB/s	 1383709 B/op	    2058 allocs/op
-BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      56	  19372061 ns/op	   1.69 MB/s	 1406419 B/op	    2062 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1225	    906511 ns/op	   4.52 MB/s	  242857 B/op	     594 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1164	    924897 ns/op	   4.43 MB/s	  247805 B/op	     597 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1209	    897635 ns/op	   4.56 MB/s	  244687 B/op	     595 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1166	    907309 ns/op	   4.51 MB/s	  247566 B/op	     597 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1171	    901998 ns/op	   4.54 MB/s	  246945 B/op	     597 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  425227	      2452 ns/op	1670.30 MB/s	    5805 B/op	      22 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  444265	      2447 ns/op	1673.77 MB/s	    5800 B/op	      22 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  444658	      2444 ns/op	1675.91 MB/s	    5799 B/op	      22 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  440751	      2441 ns/op	1677.97 MB/s	    5800 B/op	      22 allocs/op
-BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  434977	      2465 ns/op	1661.93 MB/s	    5802 B/op	      22 allocs/op
-BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     585	   2127870 ns/op	   0.48 MB/s	 1058961 B/op	   18722 allocs/op
-BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     582	   2122861 ns/op	   0.48 MB/s	 1059146 B/op	   18725 allocs/op
-BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     578	   2124199 ns/op	   0.48 MB/s	 1059397 B/op	   18728 allocs/op
-BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     565	   2138729 ns/op	   0.48 MB/s	 1060237 B/op	   18740 allocs/op
-BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     576	   2153527 ns/op	   0.48 MB/s	 1059524 B/op	   18730 allocs/op
-BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5720	    204374 ns/op	   0.15 MB/s	  241515 B/op	      86 allocs/op
-BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    6162	    204410 ns/op	   0.15 MB/s	  241500 B/op	      86 allocs/op
-BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5372	    209288 ns/op	   0.15 MB/s	  241528 B/op	      86 allocs/op
-BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5971	    200442 ns/op	   0.15 MB/s	  241506 B/op	      86 allocs/op
-BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5692	    209608 ns/op	   0.15 MB/s	  241516 B/op	      86 allocs/op
-BenchmarkPublishPaneCaptureFullScrollback-4                 	    2742	    513285 ns/op	   0.04 MB/s	  608538 B/op	      99 allocs/op
-BenchmarkPublishPaneCaptureFullScrollback-4                 	    2074	    515022 ns/op	   0.04 MB/s	  608601 B/op	      99 allocs/op
-BenchmarkPublishPaneCaptureFullScrollback-4                 	    2041	    510425 ns/op	   0.05 MB/s	  608606 B/op	      99 allocs/op
-BenchmarkPublishPaneCaptureFullScrollback-4                 	    2034	    514377 ns/op	   0.04 MB/s	  608606 B/op	      99 allocs/op
-BenchmarkPublishPaneCaptureFullScrollback-4                 	    2073	    510947 ns/op	   0.05 MB/s	  608601 B/op	      99 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     747	   1591702 ns/op	   3.52 MB/s	  992520 B/op	     704 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     771	   1559962 ns/op	   3.59 MB/s	  992520 B/op	     704 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     799	   1579610 ns/op	   3.55 MB/s	  992518 B/op	     704 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     763	   1562305 ns/op	   3.58 MB/s	  992517 B/op	     704 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     790	   1557756 ns/op	   3.59 MB/s	  992518 B/op	     704 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2086	    581109 ns/op	   9.64 MB/s	   30968 B/op	      21 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2024	    582295 ns/op	   9.62 MB/s	   30968 B/op	      21 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2041	    581299 ns/op	   9.63 MB/s	   30968 B/op	      21 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2040	    585841 ns/op	   9.56 MB/s	   30968 B/op	      21 allocs/op
-BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2049	    581605 ns/op	   9.63 MB/s	   30968 B/op	      21 allocs/op
-BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     865	   1330428 ns/op	    583552 fg-ns/op	 1363552 B/op	     310 allocs/op
-BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     866	   1388012 ns/op	    606364 fg-ns/op	 1363552 B/op	     310 allocs/op
-BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     860	   1292164 ns/op	    570635 fg-ns/op	 1363554 B/op	     310 allocs/op
-BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     862	   1292754 ns/op	    566029 fg-ns/op	 1363553 B/op	     310 allocs/op
-BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     826	   1365898 ns/op	    605006 fg-ns/op	 1363555 B/op	     310 allocs/op
-BenchmarkCapturePaneRenderSnapshotRender-4                  	  223976	      5253 ns/op	   2.28 MB/s	    9904 B/op	       4 allocs/op
-BenchmarkCapturePaneRenderSnapshotRender-4                  	  231104	      5214 ns/op	   2.30 MB/s	    9904 B/op	       4 allocs/op
-BenchmarkCapturePaneRenderSnapshotRender-4                  	  228956	      5340 ns/op	   2.25 MB/s	    9904 B/op	       4 allocs/op
-BenchmarkCapturePaneRenderSnapshotRender-4                  	  222445	      5331 ns/op	   2.25 MB/s	    9904 B/op	       4 allocs/op
-BenchmarkCapturePaneRenderSnapshotRender-4                  	  225309	      5335 ns/op	   2.25 MB/s	    9904 B/op	       4 allocs/op
-BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   34944	     34728 ns/op	   5.04 MB/s	   30576 B/op	       9 allocs/op
-BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   34548	     34650 ns/op	   5.05 MB/s	   30576 B/op	       9 allocs/op
-BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   34738	     35145 ns/op	   4.98 MB/s	   30576 B/op	       9 allocs/op
-BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   34742	     34659 ns/op	   5.05 MB/s	   30576 B/op	       9 allocs/op
-BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   34182	     35068 ns/op	   4.99 MB/s	   30576 B/op	       9 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    4099	    294082 ns/op	  26.12 MB/s	 1505011 B/op	      49 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3589	    292225 ns/op	  26.28 MB/s	 1592374 B/op	      49 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3376	    299431 ns/op	  25.65 MB/s	 1636891 B/op	      49 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3632	    283417 ns/op	  27.10 MB/s	 1584020 B/op	      49 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3637	    311219 ns/op	  24.68 MB/s	 1583061 B/op	      49 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  170406	      6768 ns/op	1134.80 MB/s	   35337 B/op	       2 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  159798	      6959 ns/op	1103.55 MB/s	   36324 B/op	       2 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  170706	      6657 ns/op	1153.74 MB/s	   35311 B/op	       2 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  172508	      6810 ns/op	1127.79 MB/s	   35156 B/op	       2 allocs/op
-BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  171734	      6644 ns/op	1155.94 MB/s	   35222 B/op	       2 allocs/op
-BenchmarkCaptureJSON/panes_2-4                              	   31797	     37005 ns/op	   69840 B/op	     547 allocs/op
-BenchmarkCaptureJSON/panes_2-4                              	   31137	     37329 ns/op	   69840 B/op	     547 allocs/op
-BenchmarkCaptureJSON/panes_2-4                              	   32895	     36518 ns/op	   69840 B/op	     547 allocs/op
-BenchmarkCaptureJSON/panes_2-4                              	   32968	     36475 ns/op	   69840 B/op	     547 allocs/op
-BenchmarkCaptureJSON/panes_2-4                              	   32128	     37367 ns/op	   69840 B/op	     547 allocs/op
-BenchmarkCaptureJSON/panes_4-4                              	   17215	     69916 ns/op	  139744 B/op	    1092 allocs/op
-BenchmarkCaptureJSON/panes_4-4                              	   17221	     69629 ns/op	  139744 B/op	    1092 allocs/op
-BenchmarkCaptureJSON/panes_4-4                              	   16941	     70470 ns/op	  139744 B/op	    1092 allocs/op
-BenchmarkCaptureJSON/panes_4-4                              	   17138	     69783 ns/op	  139744 B/op	    1092 allocs/op
-BenchmarkCaptureJSON/panes_4-4                              	   17272	     69526 ns/op	  139744 B/op	    1092 allocs/op
-BenchmarkCaptureJSON/panes_8-4                              	    8000	    138207 ns/op	  313344 B/op	    2181 allocs/op
-BenchmarkCaptureJSON/panes_8-4                              	    7454	    140346 ns/op	  313344 B/op	    2181 allocs/op
-BenchmarkCaptureJSON/panes_8-4                              	    7299	    139034 ns/op	  313344 B/op	    2181 allocs/op
-BenchmarkCaptureJSON/panes_8-4                              	    7922	    138634 ns/op	  313344 B/op	    2181 allocs/op
-BenchmarkCaptureJSON/panes_8-4                              	    7857	    138990 ns/op	  313344 B/op	    2181 allocs/op
-BenchmarkCaptureJSON/panes_16-4                             	    4201	    266234 ns/op	  626880 B/op	    4358 allocs/op
-BenchmarkCaptureJSON/panes_16-4                             	    4030	    267560 ns/op	  626880 B/op	    4358 allocs/op
-BenchmarkCaptureJSON/panes_16-4                             	    4146	    266348 ns/op	  626880 B/op	    4358 allocs/op
-BenchmarkCaptureJSON/panes_16-4                             	    4158	    267906 ns/op	  626880 B/op	    4358 allocs/op
-BenchmarkCaptureJSON/panes_16-4                             	    4221	    268122 ns/op	  626880 B/op	    4358 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/build-4                	  110786	     10968 ns/op	   13320 B/op	     270 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/build-4                	  109764	     10777 ns/op	   13320 B/op	     270 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/build-4                	  113047	     10787 ns/op	   13320 B/op	     270 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/build-4                	  109177	     10970 ns/op	   13320 B/op	     270 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/build-4                	  111409	     10954 ns/op	   13320 B/op	     270 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26305	     45421 ns/op	   20669 B/op	       4 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26586	     45289 ns/op	   20666 B/op	       4 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26551	     45259 ns/op	   20665 B/op	       4 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26271	     45597 ns/op	   20671 B/op	       4 allocs/op
-BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26272	     45513 ns/op	   20669 B/op	       4 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/build-4               	    5766	    183444 ns/op	  269408 B/op	    5367 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/build-4               	    5696	    182978 ns/op	  269408 B/op	    5367 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/build-4               	    5722	    183482 ns/op	  269408 B/op	    5367 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/build-4               	    5428	    185222 ns/op	  269408 B/op	    5367 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/build-4               	    5534	    184347 ns/op	  269408 B/op	    5367 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1651	    716582 ns/op	  479036 B/op	       5 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1624	    717769 ns/op	  478857 B/op	       5 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1590	    725761 ns/op	  478355 B/op	       5 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1600	    735504 ns/op	  478580 B/op	       5 allocs/op
-BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1618	    743950 ns/op	  478869 B/op	       5 allocs/op
-BenchmarkRendererHandleLayout/panes_4-4                     	     528	   2490537 ns/op	 4744722 B/op	    1897 allocs/op
-BenchmarkRendererHandleLayout/panes_4-4                     	     530	   2418866 ns/op	 4744718 B/op	    1897 allocs/op
-BenchmarkRendererHandleLayout/panes_4-4                     	     522	   2478085 ns/op	 4744725 B/op	    1897 allocs/op
-BenchmarkRendererHandleLayout/panes_4-4                     	     510	   2439495 ns/op	 4744723 B/op	    1897 allocs/op
-BenchmarkRendererHandleLayout/panes_4-4                     	     484	   2376334 ns/op	 4744738 B/op	    1898 allocs/op
-BenchmarkRendererHandleLayout/panes_10-4                    	     316	   3704297 ns/op	 9416033 B/op	    5129 allocs/op
-BenchmarkRendererHandleLayout/panes_10-4                    	     334	   3666901 ns/op	 9416028 B/op	    5129 allocs/op
-BenchmarkRendererHandleLayout/panes_10-4                    	     310	   3600121 ns/op	 9415993 B/op	    5129 allocs/op
-BenchmarkRendererHandleLayout/panes_10-4                    	     331	   3678427 ns/op	 9415994 B/op	    5129 allocs/op
-BenchmarkRendererHandleLayout/panes_10-4                    	     319	   3649666 ns/op	 9416007 B/op	    5129 allocs/op
-BenchmarkRendererHandleLayout/panes_20-4                    	     219	   5399195 ns/op	17663417 B/op	   10491 allocs/op
-BenchmarkRendererHandleLayout/panes_20-4                    	     216	   5550307 ns/op	17663424 B/op	   10491 allocs/op
-BenchmarkRendererHandleLayout/panes_20-4                    	     213	   5550717 ns/op	17663478 B/op	   10492 allocs/op
-BenchmarkRendererHandleLayout/panes_20-4                    	     220	   5480506 ns/op	17663446 B/op	   10491 allocs/op
-BenchmarkRendererHandleLayout/panes_20-4                    	     211	   5572617 ns/op	17663370 B/op	   10490 allocs/op
-BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     409	   2841414 ns/op	   0.56 MB/s	 3361925 B/op	    1401 allocs/op
-BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     424	   2888484 ns/op	   0.55 MB/s	 3361931 B/op	    1401 allocs/op
-BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     411	   2866121 ns/op	   0.56 MB/s	 3361916 B/op	    1401 allocs/op
-BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     410	   2898904 ns/op	   0.55 MB/s	 3361913 B/op	    1401 allocs/op
-BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     422	   2810399 ns/op	   0.57 MB/s	 3361906 B/op	    1401 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1668	    641937 ns/op	   0.40 MB/s	  574363 B/op	     105 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1717	    639079 ns/op	   0.40 MB/s	  573915 B/op	     104 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1639	    672377 ns/op	   0.38 MB/s	  574635 B/op	     105 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1668	    645587 ns/op	   0.40 MB/s	  574359 B/op	     105 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_256-4               	    1694	    648536 ns/op	   0.39 MB/s	  574120 B/op	     104 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     405	   2831550 ns/op	   1.45 MB/s	  765830 B/op	     351 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     405	   2822464 ns/op	   1.45 MB/s	  765830 B/op	     351 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     404	   2864641 ns/op	   1.43 MB/s	  766145 B/op	     351 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     406	   2826614 ns/op	   1.45 MB/s	  765517 B/op	     350 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_4096-4              	     412	   2827693 ns/op	   1.45 MB/s	  763671 B/op	     350 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      57	  19117450 ns/op	   1.71 MB/s	 1392691 B/op	    2060 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      58	  19081650 ns/op	   1.72 MB/s	 1383711 B/op	    2058 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      56	  19105698 ns/op	   1.72 MB/s	 1406420 B/op	    2062 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      58	  19158623 ns/op	   1.71 MB/s	 1383709 B/op	    2058 allocs/op
+BenchmarkRendererHandlePaneOutput/bytes_32768-4             	      57	  19228055 ns/op	   1.70 MB/s	 1392691 B/op	    2060 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1172	    914179 ns/op	   4.48 MB/s	  246827 B/op	     597 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1167	    913971 ns/op	   4.48 MB/s	  247448 B/op	     597 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1166	    919913 ns/op	   4.45 MB/s	  247566 B/op	     597 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1230	    923477 ns/op	   4.44 MB/s	  242284 B/op	     594 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/visible-4       	    1182	    923640 ns/op	   4.43 MB/s	  245630 B/op	     597 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  488025	      2388 ns/op	1715.57 MB/s	    5818 B/op	      22 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  414231	      2463 ns/op	1662.96 MB/s	    5808 B/op	      22 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  416710	      2441 ns/op	1678.18 MB/s	    5807 B/op	      22 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  428332	      2564 ns/op	1597.61 MB/s	    5804 B/op	      22 allocs/op
+BenchmarkRendererHandlePaneOutputVisibility/hidden-4        	  410352	      2506 ns/op	1634.34 MB/s	    5809 B/op	      22 allocs/op
+BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     597	   2282938 ns/op	   0.45 MB/s	 1058236 B/op	   18712 allocs/op
+BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     570	   2267236 ns/op	   0.45 MB/s	 1059910 B/op	   18735 allocs/op
+BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     577	   2262450 ns/op	   0.45 MB/s	 1059460 B/op	   18729 allocs/op
+BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     582	   2285305 ns/op	   0.45 MB/s	 1059147 B/op	   18725 allocs/op
+BenchmarkCapturePaneRenderSnapshotStyledScrollback1KB-4     	     584	   2262523 ns/op	   0.45 MB/s	 1059022 B/op	   18723 allocs/op
+BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5382	    214311 ns/op	   0.14 MB/s	  241527 B/op	      86 allocs/op
+BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5114	    209212 ns/op	   0.15 MB/s	  241539 B/op	      86 allocs/op
+BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5785	    209439 ns/op	   0.15 MB/s	  241512 B/op	      86 allocs/op
+BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5118	    208339 ns/op	   0.15 MB/s	  241539 B/op	      86 allocs/op
+BenchmarkCapturePaneRenderSnapshotIncrementalScrollback-4   	    5758	    208197 ns/op	   0.15 MB/s	  241513 B/op	      86 allocs/op
+BenchmarkPublishPaneCaptureFullScrollback-4                 	    2058	    514058 ns/op	   0.04 MB/s	  608603 B/op	      99 allocs/op
+BenchmarkPublishPaneCaptureFullScrollback-4                 	    2043	    510550 ns/op	   0.05 MB/s	  608605 B/op	      99 allocs/op
+BenchmarkPublishPaneCaptureFullScrollback-4                 	    1965	    512559 ns/op	   0.04 MB/s	  608616 B/op	      99 allocs/op
+BenchmarkPublishPaneCaptureFullScrollback-4                 	    2715	    510436 ns/op	   0.05 MB/s	  608540 B/op	      99 allocs/op
+BenchmarkPublishPaneCaptureFullScrollback-4                 	    2036	    517076 ns/op	   0.04 MB/s	  608606 B/op	      99 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     843	   1439996 ns/op	   3.89 MB/s	  992518 B/op	     704 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     836	   1415356 ns/op	   3.96 MB/s	  992518 B/op	     704 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     841	   1495515 ns/op	   3.74 MB/s	  992520 B/op	     704 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     860	   1396142 ns/op	   4.01 MB/s	  992519 B/op	     704 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/per-message-4        	     813	   1400531 ns/op	   4.00 MB/s	  992518 B/op	     704 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2071	    575782 ns/op	   9.73 MB/s	   30968 B/op	      21 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2071	    571251 ns/op	   9.80 MB/s	   30968 B/op	      21 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2072	    575045 ns/op	   9.74 MB/s	   30968 B/op	      21 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2085	    577299 ns/op	   9.70 MB/s	   30968 B/op	      21 allocs/op
+BenchmarkPaneOutputCaptureRefreshBurst/batched-4            	    2067	    574726 ns/op	   9.74 MB/s	   30968 B/op	      21 allocs/op
+BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     898	   1315599 ns/op	    588612 fg-ns/op	 1363552 B/op	     310 allocs/op
+BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     896	   1287264 ns/op	    588051 fg-ns/op	 1363552 B/op	     310 allocs/op
+BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     891	   1263824 ns/op	    570824 fg-ns/op	 1363551 B/op	     310 allocs/op
+BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     901	   1285481 ns/op	    575115 fg-ns/op	 1363552 B/op	     310 allocs/op
+BenchmarkRenderCoalescedForegroundWithNoisyBackground-4     	     874	   1321315 ns/op	    595845 fg-ns/op	 1363555 B/op	     310 allocs/op
+BenchmarkCapturePaneRenderSnapshotRender-4                  	  236928	      4968 ns/op	   2.42 MB/s	    9904 B/op	       4 allocs/op
+BenchmarkCapturePaneRenderSnapshotRender-4                  	  253608	      5080 ns/op	   2.36 MB/s	    9904 B/op	       4 allocs/op
+BenchmarkCapturePaneRenderSnapshotRender-4                  	  230014	      4968 ns/op	   2.42 MB/s	    9904 B/op	       4 allocs/op
+BenchmarkCapturePaneRenderSnapshotRender-4                  	  245216	      4926 ns/op	   2.44 MB/s	    9904 B/op	       4 allocs/op
+BenchmarkCapturePaneRenderSnapshotRender-4                  	  242170	      4916 ns/op	   2.44 MB/s	    9904 B/op	       4 allocs/op
+BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   31605	     35643 ns/op	   4.91 MB/s	   30576 B/op	       9 allocs/op
+BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   35325	     33779 ns/op	   5.18 MB/s	   30576 B/op	       9 allocs/op
+BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   35702	     35750 ns/op	   4.90 MB/s	   30576 B/op	       9 allocs/op
+BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   35059	     34173 ns/op	   5.12 MB/s	   30576 B/op	       9 allocs/op
+BenchmarkCapturePaneRenderSnapshotRenderChangedScreen-4     	   35919	     33425 ns/op	   5.24 MB/s	   30576 B/op	       9 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3513	    327884 ns/op	  23.42 MB/s	 1607638 B/op	      49 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3426	    316661 ns/op	  24.25 MB/s	 1625944 B/op	      49 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3571	    319956 ns/op	  24.00 MB/s	 1595930 B/op	      49 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3326	    334692 ns/op	  22.95 MB/s	 1648168 B/op	      49 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/full-4        	    3627	    311252 ns/op	  24.67 MB/s	 1584981 B/op	      49 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  154633	      6979 ns/op	1100.50 MB/s	   33585 B/op	       2 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  153631	      6923 ns/op	1109.27 MB/s	   33670 B/op	       2 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  151130	      6808 ns/op	1128.03 MB/s	   33888 B/op	       2 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  155613	      6881 ns/op	1116.05 MB/s	   33502 B/op	       2 allocs/op
+BenchmarkCapturePaneRenderSnapshotScreenCells/incremental-4 	  153255	      6816 ns/op	1126.78 MB/s	   33702 B/op	       2 allocs/op
+BenchmarkCaptureJSON/panes_2-4                              	   31966	     37378 ns/op	   69840 B/op	     547 allocs/op
+BenchmarkCaptureJSON/panes_2-4                              	   31389	     37677 ns/op	   69840 B/op	     547 allocs/op
+BenchmarkCaptureJSON/panes_2-4                              	   31317	     38096 ns/op	   69840 B/op	     547 allocs/op
+BenchmarkCaptureJSON/panes_2-4                              	   31729	     37693 ns/op	   69840 B/op	     547 allocs/op
+BenchmarkCaptureJSON/panes_2-4                              	   32014	     37831 ns/op	   69840 B/op	     547 allocs/op
+BenchmarkCaptureJSON/panes_4-4                              	   16374	     73411 ns/op	  139744 B/op	    1092 allocs/op
+BenchmarkCaptureJSON/panes_4-4                              	   16602	     71954 ns/op	  139744 B/op	    1092 allocs/op
+BenchmarkCaptureJSON/panes_4-4                              	   16638	     71948 ns/op	  139744 B/op	    1092 allocs/op
+BenchmarkCaptureJSON/panes_4-4                              	   16526	     72160 ns/op	  139744 B/op	    1092 allocs/op
+BenchmarkCaptureJSON/panes_4-4                              	   16512	     72418 ns/op	  139744 B/op	    1092 allocs/op
+BenchmarkCaptureJSON/panes_8-4                              	    7216	    140020 ns/op	  313344 B/op	    2181 allocs/op
+BenchmarkCaptureJSON/panes_8-4                              	    8326	    138747 ns/op	  313344 B/op	    2181 allocs/op
+BenchmarkCaptureJSON/panes_8-4                              	    7266	    140522 ns/op	  313344 B/op	    2181 allocs/op
+BenchmarkCaptureJSON/panes_8-4                              	    7568	    149085 ns/op	  313344 B/op	    2181 allocs/op
+BenchmarkCaptureJSON/panes_8-4                              	    8577	    140646 ns/op	  313344 B/op	    2181 allocs/op
+BenchmarkCaptureJSON/panes_16-4                             	    3765	    294472 ns/op	  626880 B/op	    4358 allocs/op
+BenchmarkCaptureJSON/panes_16-4                             	    3790	    291676 ns/op	  626880 B/op	    4358 allocs/op
+BenchmarkCaptureJSON/panes_16-4                             	    3834	    296379 ns/op	  626880 B/op	    4358 allocs/op
+BenchmarkCaptureJSON/panes_16-4                             	    3666	    293547 ns/op	  626880 B/op	    4358 allocs/op
+BenchmarkCaptureJSON/panes_16-4                             	    4023	    289759 ns/op	  626880 B/op	    4358 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/build-4                	  109704	     10963 ns/op	   13320 B/op	     270 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/build-4                	  102645	     11151 ns/op	   13320 B/op	     270 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/build-4                	  108148	     11159 ns/op	   13320 B/op	     270 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/build-4                	  112485	     11064 ns/op	   13320 B/op	     270 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/build-4                	  108762	     10914 ns/op	   13320 B/op	     270 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   27092	     44542 ns/op	   20670 B/op	       4 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26791	     44928 ns/op	   20670 B/op	       4 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26688	     45290 ns/op	   20673 B/op	       4 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26516	     45631 ns/op	   20669 B/op	       4 allocs/op
+BenchmarkRendererCaptureJSON/panes_1/marshal-4              	   26319	     45401 ns/op	   20669 B/op	       4 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/build-4               	    5265	    204364 ns/op	  269408 B/op	    5367 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/build-4               	    5016	    200306 ns/op	  269408 B/op	    5367 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/build-4               	    5113	    200753 ns/op	  269408 B/op	    5367 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/build-4               	    5184	    204179 ns/op	  269408 B/op	    5367 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/build-4               	    5708	    201045 ns/op	  269408 B/op	    5367 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1513	    745656 ns/op	  478944 B/op	       5 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1593	    738283 ns/op	  478266 B/op	       5 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1584	    745403 ns/op	  479276 B/op	       5 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1566	    747792 ns/op	  478148 B/op	       5 allocs/op
+BenchmarkRendererCaptureJSON/panes_20/marshal-4             	    1574	    752553 ns/op	  478721 B/op	       5 allocs/op
+BenchmarkRendererHandleLayout/panes_4-4                     	     493	   2536575 ns/op	 4744709 B/op	    1897 allocs/op
+BenchmarkRendererHandleLayout/panes_4-4                     	     499	   2413253 ns/op	 4744746 B/op	    1898 allocs/op
+BenchmarkRendererHandleLayout/panes_4-4                     	     488	   2474427 ns/op	 4744758 B/op	    1898 allocs/op
+BenchmarkRendererHandleLayout/panes_4-4                     	     512	   2501331 ns/op	 4744752 B/op	    1898 allocs/op
+BenchmarkRendererHandleLayout/panes_4-4                     	     489	   2548714 ns/op	 4744738 B/op	    1898 allocs/op
+BenchmarkRendererHandleLayout/panes_10-4                    	     303	   3985260 ns/op	 9415955 B/op	    5128 allocs/op
+BenchmarkRendererHandleLayout/panes_10-4                    	     297	   4014921 ns/op	 9416028 B/op	    5129 allocs/op
+BenchmarkRendererHandleLayout/panes_10-4                    	     292	   4024859 ns/op	 9415903 B/op	    5128 allocs/op
+BenchmarkRendererHandleLayout/panes_10-4                    	     297	   4038428 ns/op	 9415949 B/op	    5128 allocs/op
+BenchmarkRendererHandleLayout/panes_10-4                    	     294	   4230249 ns/op	 9416044 B/op	    5129 allocs/op
+BenchmarkRendererHandleLayout/panes_20-4                    	     190	   6334223 ns/op	17663327 B/op	   10490 allocs/op
+BenchmarkRendererHandleLayout/panes_20-4                    	     187	   6366503 ns/op	17663298 B/op	   10490 allocs/op
+BenchmarkRendererHandleLayout/panes_20-4                    	     183	   6377715 ns/op	17663248 B/op	   10489 allocs/op
+BenchmarkRendererHandleLayout/panes_20-4                    	     182	   6437955 ns/op	17663461 B/op	   10491 allocs/op
+BenchmarkRendererHandleLayout/panes_20-4                    	     186	   6403583 ns/op	17663461 B/op	   10492 allocs/op
+BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     372	   3148480 ns/op	   0.51 MB/s	 3361924 B/op	    1401 allocs/op
+BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     380	   3056399 ns/op	   0.52 MB/s	 3361927 B/op	    1401 allocs/op
+BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     363	   3126081 ns/op	   0.51 MB/s	 3361919 B/op	    1401 allocs/op
+BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     381	   3100789 ns/op	   0.52 MB/s	 3361919 B/op	    1401 allocs/op
+BenchmarkClientRendererBusyMultiPaneRenderLoop-4            	     382	   3023372 ns/op	   0.53 MB/s	 3361929 B/op	    1401 allocs/op
 PASS
-ok  	github.com/weill-labs/amux/internal/client	173.968s
+ok  	github.com/weill-labs/amux/internal/client	174.471s
 PASS
-ok  	github.com/weill-labs/amux/internal/config	0.003s
+ok  	github.com/weill-labs/amux/internal/config	0.004s
 PASS
-ok  	github.com/weill-labs/amux/internal/copymode	0.003s
+ok  	github.com/weill-labs/amux/internal/copymode	0.004s
 ?   	github.com/weill-labs/amux/internal/debugowner	[no test files]
 PASS
-ok  	github.com/weill-labs/amux/internal/dialutil	0.003s
+ok  	github.com/weill-labs/amux/internal/dialutil	0.004s
 PASS
-ok  	github.com/weill-labs/amux/internal/diffcoverage	0.002s
+ok  	github.com/weill-labs/amux/internal/diffcoverage	0.003s
 PASS
-ok  	github.com/weill-labs/amux/internal/eventloop	0.003s
+ok  	github.com/weill-labs/amux/internal/eventloop	0.006s
 ?   	github.com/weill-labs/amux/internal/goroutineid	[no test files]
 PASS
-ok  	github.com/weill-labs/amux/internal/mailbox	0.002s
+ok  	github.com/weill-labs/amux/internal/mailbox	0.004s
 PASS
-ok  	github.com/weill-labs/amux/internal/mcp	0.004s
+ok  	github.com/weill-labs/amux/internal/mcp	0.005s
 PASS
 ok  	github.com/weill-labs/amux/internal/mouse	0.002s
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/mux
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkEmulatorWrite/bytes_256-4                        	   18720	     63714 ns/op	   4.02 MB/s	    1333 B/op	       0 allocs/op
-BenchmarkEmulatorWrite/bytes_256-4                        	   18765	     63495 ns/op	   4.03 MB/s	    1330 B/op	       0 allocs/op
-BenchmarkEmulatorWrite/bytes_256-4                        	   19046	     62914 ns/op	   4.07 MB/s	    1310 B/op	       0 allocs/op
-BenchmarkEmulatorWrite/bytes_256-4                        	   18387	     65099 ns/op	   3.93 MB/s	    1357 B/op	       0 allocs/op
-BenchmarkEmulatorWrite/bytes_256-4                        	   18858	     63511 ns/op	   4.03 MB/s	    1323 B/op	       0 allocs/op
-BenchmarkEmulatorWrite/bytes_4096-4                       	    1130	   1036230 ns/op	   3.95 MB/s	   73535 B/op	      13 allocs/op
-BenchmarkEmulatorWrite/bytes_4096-4                       	    1150	   1033970 ns/op	   3.96 MB/s	   72256 B/op	      12 allocs/op
-BenchmarkEmulatorWrite/bytes_4096-4                       	    1152	   1032362 ns/op	   3.97 MB/s	   72131 B/op	      12 allocs/op
-BenchmarkEmulatorWrite/bytes_4096-4                       	    1141	   1044014 ns/op	   3.92 MB/s	   72826 B/op	      12 allocs/op
-BenchmarkEmulatorWrite/bytes_4096-4                       	    1148	   1034400 ns/op	   3.96 MB/s	   72382 B/op	      12 allocs/op
-BenchmarkEmulatorWrite/bytes_32768-4                      	     144	   8298318 ns/op	   3.95 MB/s	  283076 B/op	      53 allocs/op
-BenchmarkEmulatorWrite/bytes_32768-4                      	     144	   8261846 ns/op	   3.97 MB/s	  283076 B/op	      53 allocs/op
-BenchmarkEmulatorWrite/bytes_32768-4                      	     144	   8294777 ns/op	   3.95 MB/s	  283076 B/op	      53 allocs/op
-BenchmarkEmulatorWrite/bytes_32768-4                      	     145	   8249599 ns/op	   3.97 MB/s	  281208 B/op	      53 allocs/op
-BenchmarkEmulatorWrite/bytes_32768-4                      	     142	   8321507 ns/op	   3.94 MB/s	  286889 B/op	      54 allocs/op
-BenchmarkPaneParserDataBufferWorkload-4                   	       2	 506169472 ns/op	   1.94 MB/s	105174008 B/op	   24002 allocs/op
-BenchmarkPaneParserDataBufferWorkload-4                   	       2	 505100210 ns/op	   1.95 MB/s	105173984 B/op	   24002 allocs/op
-BenchmarkPaneParserDataBufferWorkload-4                   	       2	 503909107 ns/op	   1.95 MB/s	105173984 B/op	   24002 allocs/op
-BenchmarkPaneParserDataBufferWorkload-4                   	       2	 503914588 ns/op	   1.95 MB/s	105173984 B/op	   24002 allocs/op
-BenchmarkPaneParserDataBufferWorkload-4                   	       2	 502675277 ns/op	   1.96 MB/s	105173984 B/op	   24002 allocs/op
-BenchmarkEmulatorRender-4                                 	   16869	     71070 ns/op	    7000 B/op	     177 allocs/op
-BenchmarkEmulatorRender-4                                 	   16826	     71253 ns/op	    7000 B/op	     177 allocs/op
-BenchmarkEmulatorRender-4                                 	   16789	     71419 ns/op	    7000 B/op	     177 allocs/op
-BenchmarkEmulatorRender-4                                 	   16855	     71329 ns/op	    7000 B/op	     177 allocs/op
-BenchmarkEmulatorRender-4                                 	   16741	     71531 ns/op	    7000 B/op	     177 allocs/op
-BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13614	     89013 ns/op	   10613 B/op	     274 allocs/op
-BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13656	     87887 ns/op	   10610 B/op	     274 allocs/op
-BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13639	     87969 ns/op	   10610 B/op	     274 allocs/op
-BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13593	     88505 ns/op	   10610 B/op	     274 allocs/op
-BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13666	     87829 ns/op	   10610 B/op	     274 allocs/op
-BenchmarkEmulatorContentLines/ScreenLineText-4            	   63271	     19012 ns/op	    2304 B/op	      25 allocs/op
-BenchmarkEmulatorContentLines/ScreenLineText-4            	   63069	     19041 ns/op	    2304 B/op	      25 allocs/op
-BenchmarkEmulatorContentLines/ScreenLineText-4            	   63012	     19001 ns/op	    2304 B/op	      25 allocs/op
-BenchmarkEmulatorContentLines/ScreenLineText-4            	   63147	     19084 ns/op	    2304 B/op	      25 allocs/op
-BenchmarkEmulatorContentLines/ScreenLineText-4            	   63166	     19013 ns/op	    2304 B/op	      25 allocs/op
-BenchmarkScrollbackLineText-4                             	  997020	      1216 ns/op	     376 B/op	       5 allocs/op
-BenchmarkScrollbackLineText-4                             	  953188	      1196 ns/op	     376 B/op	       5 allocs/op
-BenchmarkScrollbackLineText-4                             	  975643	      1238 ns/op	     375 B/op	       5 allocs/op
-BenchmarkScrollbackLineText-4                             	  990195	      1188 ns/op	     375 B/op	       5 allocs/op
-BenchmarkScrollbackLineText-4                             	  978548	      1178 ns/op	     376 B/op	       5 allocs/op
-BenchmarkScreenContains/Render+StripANSI+Contains-4       	   13354	     90324 ns/op	   10637 B/op	     186 allocs/op
-BenchmarkScreenContains/Render+StripANSI+Contains-4       	   13672	     87662 ns/op	   10637 B/op	     186 allocs/op
-BenchmarkScreenContains/Render+StripANSI+Contains-4       	   13717	     87449 ns/op	   10640 B/op	     186 allocs/op
-BenchmarkScreenContains/Render+StripANSI+Contains-4       	   13633	     88089 ns/op	   10637 B/op	     186 allocs/op
-BenchmarkScreenContains/Render+StripANSI+Contains-4       	   13722	     87439 ns/op	   10634 B/op	     186 allocs/op
-BenchmarkScreenContains/ScreenContains-4                  	   62847	     19430 ns/op	    3968 B/op	      25 allocs/op
-BenchmarkScreenContains/ScreenContains-4                  	   62622	     19167 ns/op	    3968 B/op	      25 allocs/op
-BenchmarkScreenContains/ScreenContains-4                  	   62647	     19149 ns/op	    3968 B/op	      25 allocs/op
-BenchmarkScreenContains/ScreenContains-4                  	   62782	     19355 ns/op	    3968 B/op	      25 allocs/op
-BenchmarkScreenContains/ScreenContains-4                  	   62890	     19150 ns/op	    3968 B/op	      25 allocs/op
-BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11586347 ns/op	   3.46 MB/s	 6098489 B/op	    1507 allocs/op
-BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	      94	  11843886 ns/op	   3.38 MB/s	 6098138 B/op	    1506 allocs/op
-BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	      96	  11689488 ns/op	   3.43 MB/s	 6098332 B/op	    1506 allocs/op
-BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11404215 ns/op	   3.51 MB/s	 6098009 B/op	    1506 allocs/op
-BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11454083 ns/op	   3.50 MB/s	 6098038 B/op	    1506 allocs/op
-BenchmarkSplit/depth_1-4                                  	 6683720	       172.1 ns/op	     800 B/op	       2 allocs/op
-BenchmarkSplit/depth_1-4                                  	 7048432	       170.2 ns/op	     800 B/op	       2 allocs/op
-BenchmarkSplit/depth_1-4                                  	 7347061	       167.1 ns/op	     800 B/op	       2 allocs/op
-BenchmarkSplit/depth_1-4                                  	 7482382	       166.4 ns/op	     800 B/op	       2 allocs/op
-BenchmarkSplit/depth_1-4                                  	 7390995	       166.4 ns/op	     800 B/op	       2 allocs/op
-BenchmarkSplit/depth_4-4                                  	 1297249	       943.9 ns/op	    3536 B/op	      14 allocs/op
-BenchmarkSplit/depth_4-4                                  	 1290092	       954.9 ns/op	    3536 B/op	      14 allocs/op
-BenchmarkSplit/depth_4-4                                  	 1267425	       967.4 ns/op	    3536 B/op	      14 allocs/op
-BenchmarkSplit/depth_4-4                                  	 1286476	       942.1 ns/op	    3536 B/op	      14 allocs/op
-BenchmarkSplit/depth_4-4                                  	 1280564	       962.1 ns/op	    3536 B/op	      14 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkEmulatorWrite/bytes_256-4                        	   17859	     67107 ns/op	   3.81 MB/s	    1397 B/op	       0 allocs/op
+BenchmarkEmulatorWrite/bytes_256-4                        	   17990	     66329 ns/op	   3.86 MB/s	    1387 B/op	       0 allocs/op
+BenchmarkEmulatorWrite/bytes_256-4                        	   18081	     66440 ns/op	   3.85 MB/s	    1380 B/op	       0 allocs/op
+BenchmarkEmulatorWrite/bytes_256-4                        	   17557	     68272 ns/op	   3.75 MB/s	    1421 B/op	       0 allocs/op
+BenchmarkEmulatorWrite/bytes_256-4                        	   18145	     65961 ns/op	   3.88 MB/s	    1375 B/op	       0 allocs/op
+BenchmarkEmulatorWrite/bytes_4096-4                       	    1107	   1069259 ns/op	   3.83 MB/s	   75063 B/op	      13 allocs/op
+BenchmarkEmulatorWrite/bytes_4096-4                       	    1101	   1091910 ns/op	   3.75 MB/s	   75472 B/op	      13 allocs/op
+BenchmarkEmulatorWrite/bytes_4096-4                       	    1046	   1087336 ns/op	   3.77 MB/s	   79440 B/op	      14 allocs/op
+BenchmarkEmulatorWrite/bytes_4096-4                       	    1106	   1072839 ns/op	   3.82 MB/s	   75131 B/op	      13 allocs/op
+BenchmarkEmulatorWrite/bytes_4096-4                       	    1096	   1088418 ns/op	   3.76 MB/s	   75816 B/op	      13 allocs/op
+BenchmarkEmulatorWrite/bytes_32768-4                      	     138	   8642088 ns/op	   3.79 MB/s	  294849 B/op	      56 allocs/op
+BenchmarkEmulatorWrite/bytes_32768-4                      	     139	   8555351 ns/op	   3.83 MB/s	  292817 B/op	      55 allocs/op
+BenchmarkEmulatorWrite/bytes_32768-4                      	     138	   8636305 ns/op	   3.79 MB/s	  294849 B/op	      56 allocs/op
+BenchmarkEmulatorWrite/bytes_32768-4                      	     139	   8583715 ns/op	   3.82 MB/s	  292817 B/op	      55 allocs/op
+BenchmarkEmulatorWrite/bytes_32768-4                      	     136	   8723888 ns/op	   3.76 MB/s	  299005 B/op	      56 allocs/op
+BenchmarkPaneParserDataBufferWorkload-4                   	       2	 525871056 ns/op	   1.87 MB/s	105174008 B/op	   24002 allocs/op
+BenchmarkPaneParserDataBufferWorkload-4                   	       2	 526496810 ns/op	   1.87 MB/s	105173984 B/op	   24002 allocs/op
+BenchmarkPaneParserDataBufferWorkload-4                   	       2	 519433500 ns/op	   1.89 MB/s	105173984 B/op	   24002 allocs/op
+BenchmarkPaneParserDataBufferWorkload-4                   	       2	 522239350 ns/op	   1.88 MB/s	105173984 B/op	   24002 allocs/op
+BenchmarkPaneParserDataBufferWorkload-4                   	       2	 522064722 ns/op	   1.88 MB/s	105173984 B/op	   24002 allocs/op
+BenchmarkEmulatorRender-4                                 	   16792	     71999 ns/op	    7000 B/op	     177 allocs/op
+BenchmarkEmulatorRender-4                                 	   16689	     72098 ns/op	    7000 B/op	     177 allocs/op
+BenchmarkEmulatorRender-4                                 	   16676	     72169 ns/op	    7000 B/op	     177 allocs/op
+BenchmarkEmulatorRender-4                                 	   16851	     71569 ns/op	    7000 B/op	     177 allocs/op
+BenchmarkEmulatorRender-4                                 	   16792	     71873 ns/op	    7000 B/op	     177 allocs/op
+BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13888	     87658 ns/op	   10616 B/op	     274 allocs/op
+BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13867	     86873 ns/op	   10608 B/op	     274 allocs/op
+BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13862	     86801 ns/op	   10608 B/op	     274 allocs/op
+BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13857	     86655 ns/op	   10610 B/op	     274 allocs/op
+BenchmarkEmulatorContentLines/Render+StripANSI-4          	   13818	     86909 ns/op	   10613 B/op	     274 allocs/op
+BenchmarkEmulatorContentLines/ScreenLineText-4            	   66519	     18028 ns/op	    2304 B/op	      25 allocs/op
+BenchmarkEmulatorContentLines/ScreenLineText-4            	   66745	     17960 ns/op	    2304 B/op	      25 allocs/op
+BenchmarkEmulatorContentLines/ScreenLineText-4            	   66286	     18057 ns/op	    2304 B/op	      25 allocs/op
+BenchmarkEmulatorContentLines/ScreenLineText-4            	   66906	     17941 ns/op	    2304 B/op	      25 allocs/op
+BenchmarkEmulatorContentLines/ScreenLineText-4            	   66921	     17945 ns/op	    2304 B/op	      25 allocs/op
+BenchmarkScrollbackLineText-4                             	  850652	      1444 ns/op	     376 B/op	       5 allocs/op
+BenchmarkScrollbackLineText-4                             	  827416	      1441 ns/op	     376 B/op	       5 allocs/op
+BenchmarkScrollbackLineText-4                             	  820504	      1423 ns/op	     376 B/op	       5 allocs/op
+BenchmarkScrollbackLineText-4                             	  836588	      1457 ns/op	     376 B/op	       5 allocs/op
+BenchmarkScrollbackLineText-4                             	  855649	      1453 ns/op	     375 B/op	       5 allocs/op
+BenchmarkScreenContains/Render+StripANSI+Contains-4       	   13591	     89378 ns/op	   10634 B/op	     186 allocs/op
+BenchmarkScreenContains/Render+StripANSI+Contains-4       	   14149	     85120 ns/op	   10637 B/op	     186 allocs/op
+BenchmarkScreenContains/Render+StripANSI+Contains-4       	   14192	     85110 ns/op	   10632 B/op	     186 allocs/op
+BenchmarkScreenContains/Render+StripANSI+Contains-4       	   14335	     84063 ns/op	   10639 B/op	     186 allocs/op
+BenchmarkScreenContains/Render+StripANSI+Contains-4       	   14043	     85547 ns/op	   10632 B/op	     186 allocs/op
+BenchmarkScreenContains/ScreenContains-4                  	   65832	     18413 ns/op	    3968 B/op	      25 allocs/op
+BenchmarkScreenContains/ScreenContains-4                  	   66067	     18213 ns/op	    3968 B/op	      25 allocs/op
+BenchmarkScreenContains/ScreenContains-4                  	   65755	     18239 ns/op	    3968 B/op	      25 allocs/op
+BenchmarkScreenContains/ScreenContains-4                  	   66067	     18181 ns/op	    3968 B/op	      25 allocs/op
+BenchmarkScreenContains/ScreenContains-4                  	   66054	     18203 ns/op	    3968 B/op	      25 allocs/op
+BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11448437 ns/op	   3.50 MB/s	 6098514 B/op	    1508 allocs/op
+BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11593930 ns/op	   3.45 MB/s	 6098231 B/op	    1506 allocs/op
+BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11563244 ns/op	   3.46 MB/s	 6098035 B/op	    1506 allocs/op
+BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11224985 ns/op	   3.57 MB/s	 6098095 B/op	    1506 allocs/op
+BenchmarkVTEmulatorResizePreservationStyledScrollback-4   	     100	  11241576 ns/op	   3.56 MB/s	 6098038 B/op	    1506 allocs/op
+BenchmarkSplit/depth_1-4                                  	 6363280	       182.5 ns/op	     800 B/op	       2 allocs/op
+BenchmarkSplit/depth_1-4                                  	 6743568	       180.4 ns/op	     800 B/op	       2 allocs/op
+BenchmarkSplit/depth_1-4                                  	 6621016	       180.6 ns/op	     800 B/op	       2 allocs/op
+BenchmarkSplit/depth_1-4                                  	 4924272	       211.8 ns/op	     800 B/op	       2 allocs/op
+BenchmarkSplit/depth_1-4                                  	 6546902	       180.9 ns/op	     800 B/op	       2 allocs/op
+BenchmarkSplit/depth_4-4                                  	 1258705	       977.0 ns/op	    3536 B/op	      14 allocs/op
+BenchmarkSplit/depth_4-4                                  	 1222407	       983.7 ns/op	    3536 B/op	      14 allocs/op
+BenchmarkSplit/depth_4-4                                  	 1233662	       980.6 ns/op	    3536 B/op	      14 allocs/op
+BenchmarkSplit/depth_4-4                                  	 1216635	       983.5 ns/op	    3536 B/op	      14 allocs/op
+BenchmarkSplit/depth_4-4                                  	 1239480	       986.3 ns/op	    3536 B/op	      14 allocs/op
 --- FAIL: BenchmarkSplit/depth_10
     layout_bench_test.go:51: not enough space to split (3 < 5)
 --- FAIL: BenchmarkSplit
-BenchmarkClose/panes_2-4                                  	 2387050	       490.8 ns/op	    1720 B/op	       7 allocs/op
-BenchmarkClose/panes_2-4                                  	 2368352	       494.2 ns/op	    1720 B/op	       7 allocs/op
-BenchmarkClose/panes_2-4                                  	 2353875	       490.2 ns/op	    1720 B/op	       7 allocs/op
-BenchmarkClose/panes_2-4                                  	 2330446	       500.7 ns/op	    1720 B/op	       7 allocs/op
-BenchmarkClose/panes_2-4                                  	 2358387	       501.8 ns/op	    1720 B/op	       7 allocs/op
-BenchmarkClose/panes_4-4                                  	  905374	      1588 ns/op	    3816 B/op	      25 allocs/op
-BenchmarkClose/panes_4-4                                  	  948697	      1623 ns/op	    3816 B/op	      25 allocs/op
-BenchmarkClose/panes_4-4                                  	  980082	      1635 ns/op	    3816 B/op	      25 allocs/op
-BenchmarkClose/panes_4-4                                  	  928624	      1581 ns/op	    3816 B/op	      25 allocs/op
-BenchmarkClose/panes_4-4                                  	  964621	      1611 ns/op	    3816 B/op	      25 allocs/op
-BenchmarkClose/panes_10-4                                 	  242728	      5838 ns/op	   10104 B/op	      79 allocs/op
-BenchmarkClose/panes_10-4                                 	  245523	      5856 ns/op	   10104 B/op	      79 allocs/op
-BenchmarkClose/panes_10-4                                 	  239385	      5898 ns/op	   10104 B/op	      79 allocs/op
-BenchmarkClose/panes_10-4                                 	  242793	      5886 ns/op	   10104 B/op	      79 allocs/op
-BenchmarkClose/panes_10-4                                 	  244810	      5871 ns/op	   10104 B/op	      79 allocs/op
-BenchmarkWalk/panes_1-4                                   	347174905	         3.442 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_1-4                                   	349827386	         3.429 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_1-4                                   	350237787	         3.430 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_1-4                                   	349714214	         3.428 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_1-4                                   	349856536	         3.431 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_4-4                                   	56632358	        21.22 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_4-4                                   	56602413	        21.18 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_4-4                                   	56582816	        21.20 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_4-4                                   	56586129	        21.22 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_4-4                                   	56414256	        21.24 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_10-4                                  	20922997	        57.72 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_10-4                                  	21024528	        57.66 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_10-4                                  	20917737	        57.68 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_10-4                                  	20788635	        57.81 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWalk/panes_10-4                                  	20795841	        57.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClose/panes_2-4                                  	 2325936	       507.6 ns/op	    1720 B/op	       7 allocs/op
+BenchmarkClose/panes_2-4                                  	 2218116	       514.5 ns/op	    1720 B/op	       7 allocs/op
+BenchmarkClose/panes_2-4                                  	 2369137	       503.3 ns/op	    1720 B/op	       7 allocs/op
+BenchmarkClose/panes_2-4                                  	 2322796	       494.7 ns/op	    1720 B/op	       7 allocs/op
+BenchmarkClose/panes_2-4                                  	 2372401	       504.5 ns/op	    1720 B/op	       7 allocs/op
+BenchmarkClose/panes_4-4                                  	  984027	      1571 ns/op	    3816 B/op	      25 allocs/op
+BenchmarkClose/panes_4-4                                  	 1000000	      1555 ns/op	    3816 B/op	      25 allocs/op
+BenchmarkClose/panes_4-4                                  	 1000000	      1565 ns/op	    3816 B/op	      25 allocs/op
+BenchmarkClose/panes_4-4                                  	 1000000	      1560 ns/op	    3816 B/op	      25 allocs/op
+BenchmarkClose/panes_4-4                                  	 1000000	      1549 ns/op	    3816 B/op	      25 allocs/op
+BenchmarkClose/panes_10-4                                 	  263103	      5452 ns/op	   10104 B/op	      79 allocs/op
+BenchmarkClose/panes_10-4                                 	  260239	      5420 ns/op	   10104 B/op	      79 allocs/op
+BenchmarkClose/panes_10-4                                 	  264799	      5430 ns/op	   10104 B/op	      79 allocs/op
+BenchmarkClose/panes_10-4                                 	  261211	      5460 ns/op	   10104 B/op	      79 allocs/op
+BenchmarkClose/panes_10-4                                 	  260649	      5412 ns/op	   10104 B/op	      79 allocs/op
+BenchmarkWalk/panes_1-4                                   	308818210	         3.878 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_1-4                                   	310203801	         3.882 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_1-4                                   	311193916	         3.865 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_1-4                                   	310864814	         3.861 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_1-4                                   	312752508	         3.860 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_4-4                                   	49511954	        22.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_4-4                                   	47865198	        22.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_4-4                                   	49027714	        22.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_4-4                                   	48731464	        22.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_4-4                                   	45667290	        26.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_10-4                                  	18917784	        62.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_10-4                                  	19059079	        62.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_10-4                                  	18861927	        62.01 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_10-4                                  	19479325	        61.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWalk/panes_10-4                                  	18941660	        61.95 ns/op	       0 B/op	       0 allocs/op
 panic: not enough space to split (3 < 5)
 
-goroutine 747 [running]:
+goroutine 744 [running]:
 github.com/weill-labs/amux/internal/mux.benchTree(0x14)
 	/home/runner/work/amux/amux/internal/mux/layout_bench_test.go:26 +0x14d
-github.com/weill-labs/amux/internal/mux.BenchmarkWalk.func1(0xc000154dc8)
+github.com/weill-labs/amux/internal/mux.BenchmarkWalk.func1(0xc041d8eb08)
 	/home/runner/work/amux/amux/internal/mux/layout_bench_test.go:79 +0x1c
-testing.(*B).runN(0xc000154dc8, 0x1)
+testing.(*B).runN(0xc041d8eb08, 0x1)
 	/opt/hostedtoolcache/go/1.25.10/x64/src/testing/benchmark.go:219 +0x190
 testing.(*B).run1.func1()
 	/opt/hostedtoolcache/go/1.25.10/x64/src/testing/benchmark.go:245 +0x48
-created by testing.(*B).run1 in goroutine 703
+created by testing.(*B).run1 in goroutine 711
 	/opt/hostedtoolcache/go/1.25.10/x64/src/testing/benchmark.go:238 +0x90
 exit status 2
-FAIL	github.com/weill-labs/amux/internal/mux	126.736s
+FAIL	github.com/weill-labs/amux/internal/mux	126.684s
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/proto
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkEncodePaneHistoryPayload-4           	       8	 136216286 ns/op	90309356 B/op	   10022 allocs/op
-BenchmarkEncodePaneHistoryPayload-4           	       8	 134710745 ns/op	90309346 B/op	   10022 allocs/op
-BenchmarkEncodePaneHistoryPayload-4           	       8	 135975603 ns/op	90309356 B/op	   10022 allocs/op
-BenchmarkEncodePaneHistoryPayload-4           	       8	 137647458 ns/op	90309344 B/op	   10022 allocs/op
-BenchmarkEncodePaneHistoryPayload-4           	       8	 138451632 ns/op	90309344 B/op	   10022 allocs/op
-BenchmarkEncodePaneHistoryPayloadCacheHit-4   	133962838	         8.953 ns/op	       0 B/op	       0 allocs/op
-BenchmarkEncodePaneHistoryPayloadCacheHit-4   	134338504	         8.934 ns/op	       0 B/op	       0 allocs/op
-BenchmarkEncodePaneHistoryPayloadCacheHit-4   	133941324	         8.958 ns/op	       0 B/op	       0 allocs/op
-BenchmarkEncodePaneHistoryPayloadCacheHit-4   	134150949	         8.944 ns/op	       0 B/op	       0 allocs/op
-BenchmarkEncodePaneHistoryPayloadCacheHit-4   	134026688	         8.958 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWriteReadMsgPaneOutput-4             	 3470000	       351.4 ns/op	     832 B/op	       8 allocs/op
-BenchmarkWriteReadMsgPaneOutput-4             	 3435223	       358.4 ns/op	     832 B/op	       8 allocs/op
-BenchmarkWriteReadMsgPaneOutput-4             	 3431252	       349.9 ns/op	     832 B/op	       8 allocs/op
-BenchmarkWriteReadMsgPaneOutput-4             	 3438636	       351.2 ns/op	     832 B/op	       8 allocs/op
-BenchmarkWriteReadMsgPaneOutput-4             	 3436578	       349.2 ns/op	     832 B/op	       8 allocs/op
-BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  57835064 ns/op	62177520 B/op	     153 allocs/op
-BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  58256150 ns/op	62172457 B/op	     113 allocs/op
-BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  58081260 ns/op	62172466 B/op	     113 allocs/op
-BenchmarkPaneHistoryMessageWire/write/gob-4   	      18	  58406411 ns/op	62199717 B/op	     113 allocs/op
-BenchmarkPaneHistoryMessageWire/write/gob-4   	      18	  58406318 ns/op	62199669 B/op	     113 allocs/op
-BenchmarkPaneHistoryMessageWire/write/binary-4         	      54	  22170419 ns/op	13250272 B/op	    1045 allocs/op
-BenchmarkPaneHistoryMessageWire/write/binary-4         	      55	  22160135 ns/op	13250068 B/op	    1045 allocs/op
-BenchmarkPaneHistoryMessageWire/write/binary-4         	      54	  22159397 ns/op	13250274 B/op	    1045 allocs/op
-BenchmarkPaneHistoryMessageWire/write/binary-4         	      54	  22228180 ns/op	13250281 B/op	    1045 allocs/op
-BenchmarkPaneHistoryMessageWire/write/binary-4         	      55	  22001541 ns/op	13250083 B/op	    1045 allocs/op
-BenchmarkPaneHistoryMessageWire/read/gob-4             	      15	  73463868 ns/op	28007543 B/op	  497476 allocs/op
-BenchmarkPaneHistoryMessageWire/read/gob-4             	      15	  73062176 ns/op	28007538 B/op	  497476 allocs/op
-BenchmarkPaneHistoryMessageWire/read/gob-4             	      15	  73509320 ns/op	28007534 B/op	  497476 allocs/op
-BenchmarkPaneHistoryMessageWire/read/gob-4             	      14	  73349114 ns/op	28007531 B/op	  497476 allocs/op
-BenchmarkPaneHistoryMessageWire/read/gob-4             	      15	  73170486 ns/op	28007530 B/op	  497476 allocs/op
-BenchmarkPaneHistoryMessageWire/read/binary-4          	      80	  13182157 ns/op	25544498 B/op	  103438 allocs/op
-BenchmarkPaneHistoryMessageWire/read/binary-4          	      85	  13079823 ns/op	25544501 B/op	  103438 allocs/op
-BenchmarkPaneHistoryMessageWire/read/binary-4          	      86	  13049161 ns/op	25544496 B/op	  103438 allocs/op
-BenchmarkPaneHistoryMessageWire/read/binary-4          	      82	  13380518 ns/op	25544504 B/op	  103438 allocs/op
-BenchmarkPaneHistoryMessageWire/read/binary-4          	      86	  13266541 ns/op	25544503 B/op	  103438 allocs/op
-BenchmarkLayoutMessageWire/write/stateless-4           	   30927	     38702 ns/op	   14429 B/op	      62 allocs/op
-BenchmarkLayoutMessageWire/write/stateless-4           	   30969	     38767 ns/op	   14429 B/op	      62 allocs/op
-BenchmarkLayoutMessageWire/write/stateless-4           	   31090	     38591 ns/op	   14429 B/op	      62 allocs/op
-BenchmarkLayoutMessageWire/write/stateless-4           	   30966	     38671 ns/op	   14429 B/op	      62 allocs/op
-BenchmarkLayoutMessageWire/write/stateless-4           	   31186	     38580 ns/op	   14429 B/op	      62 allocs/op
-BenchmarkLayoutMessageWire/write/stateful-4            	  518184	      2365 ns/op	       5 B/op	       1 allocs/op
-BenchmarkLayoutMessageWire/write/stateful-4            	  511362	      2344 ns/op	       5 B/op	       1 allocs/op
-BenchmarkLayoutMessageWire/write/stateful-4            	  518662	      2370 ns/op	       5 B/op	       1 allocs/op
-BenchmarkLayoutMessageWire/write/stateful-4            	  512292	      2391 ns/op	       5 B/op	       1 allocs/op
-BenchmarkLayoutMessageWire/write/stateful-4            	  523828	      2352 ns/op	       5 B/op	       1 allocs/op
-BenchmarkLayoutMessageWire/read/stateless-4            	   10000	    105995 ns/op	   50568 B/op	    1026 allocs/op
-BenchmarkLayoutMessageWire/read/stateless-4            	   10000	    106002 ns/op	   50568 B/op	    1026 allocs/op
-BenchmarkLayoutMessageWire/read/stateless-4            	   10000	    105986 ns/op	   50568 B/op	    1026 allocs/op
-BenchmarkLayoutMessageWire/read/stateless-4            	   10000	    105728 ns/op	   50568 B/op	    1026 allocs/op
-BenchmarkLayoutMessageWire/read/stateless-4            	   10000	    105850 ns/op	   50568 B/op	    1026 allocs/op
-BenchmarkLayoutMessageWire/read/stateful-4             	  339123	      3043 ns/op	    3080 B/op	      40 allocs/op
-BenchmarkLayoutMessageWire/read/stateful-4             	  366195	      3068 ns/op	    3080 B/op	      40 allocs/op
-BenchmarkLayoutMessageWire/read/stateful-4             	  370311	      3088 ns/op	    3080 B/op	      40 allocs/op
-BenchmarkLayoutMessageWire/read/stateful-4             	  347313	      3049 ns/op	    3080 B/op	      40 allocs/op
-BenchmarkLayoutMessageWire/read/stateful-4             	  360775	      3074 ns/op	    3080 B/op	      40 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkEncodePaneHistoryPayload-4           	       8	 137482203 ns/op	90309344 B/op	   10022 allocs/op
+BenchmarkEncodePaneHistoryPayload-4           	       8	 142348499 ns/op	90309356 B/op	   10022 allocs/op
+BenchmarkEncodePaneHistoryPayload-4           	       8	 139773688 ns/op	90309344 B/op	   10022 allocs/op
+BenchmarkEncodePaneHistoryPayload-4           	       8	 139189355 ns/op	90309344 B/op	   10022 allocs/op
+BenchmarkEncodePaneHistoryPayload-4           	       8	 140945050 ns/op	90309344 B/op	   10022 allocs/op
+BenchmarkEncodePaneHistoryPayloadCacheHit-4   	131774178	         9.103 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodePaneHistoryPayloadCacheHit-4   	131815467	         9.088 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodePaneHistoryPayloadCacheHit-4   	132090478	         9.087 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodePaneHistoryPayloadCacheHit-4   	131989174	         9.093 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodePaneHistoryPayloadCacheHit-4   	131948911	         9.095 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWriteReadMsgPaneOutput-4             	 3765591	       319.0 ns/op	     832 B/op	       8 allocs/op
+BenchmarkWriteReadMsgPaneOutput-4             	 3724446	       319.6 ns/op	     832 B/op	       8 allocs/op
+BenchmarkWriteReadMsgPaneOutput-4             	 3759702	       317.6 ns/op	     832 B/op	       8 allocs/op
+BenchmarkWriteReadMsgPaneOutput-4             	 3780654	       320.8 ns/op	     832 B/op	       8 allocs/op
+BenchmarkWriteReadMsgPaneOutput-4             	 3757584	       319.1 ns/op	     832 B/op	       8 allocs/op
+BenchmarkPaneHistoryMessageWire/write/gob-4   	      20	  56666272 ns/op	62152759 B/op	     151 allocs/op
+BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  63885575 ns/op	62172480 B/op	     113 allocs/op
+BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  63598089 ns/op	62172485 B/op	     113 allocs/op
+BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  63763250 ns/op	62172485 B/op	     113 allocs/op
+BenchmarkPaneHistoryMessageWire/write/gob-4   	      19	  59695024 ns/op	62172512 B/op	     113 allocs/op
+BenchmarkPaneHistoryMessageWire/write/binary-4         	      51	  22676950 ns/op	13250949 B/op	    1045 allocs/op
+BenchmarkPaneHistoryMessageWire/write/binary-4         	      52	  22856823 ns/op	13250690 B/op	    1045 allocs/op
+BenchmarkPaneHistoryMessageWire/write/binary-4         	      52	  22617843 ns/op	13250694 B/op	    1045 allocs/op
+BenchmarkPaneHistoryMessageWire/write/binary-4         	      54	  22507547 ns/op	13250263 B/op	    1045 allocs/op
+BenchmarkPaneHistoryMessageWire/write/binary-4         	      52	  22729328 ns/op	13250707 B/op	    1045 allocs/op
+BenchmarkPaneHistoryMessageWire/read/gob-4             	      16	  65646270 ns/op	28007569 B/op	  497476 allocs/op
+BenchmarkPaneHistoryMessageWire/read/gob-4             	      16	  65478232 ns/op	28007535 B/op	  497476 allocs/op
+BenchmarkPaneHistoryMessageWire/read/gob-4             	      18	  66049789 ns/op	28007533 B/op	  497476 allocs/op
+BenchmarkPaneHistoryMessageWire/read/gob-4             	      18	  65385704 ns/op	28007538 B/op	  497476 allocs/op
+BenchmarkPaneHistoryMessageWire/read/gob-4             	      16	  65504620 ns/op	28007528 B/op	  497476 allocs/op
+BenchmarkPaneHistoryMessageWire/read/binary-4          	      76	  13372962 ns/op	25544507 B/op	  103438 allocs/op
+BenchmarkPaneHistoryMessageWire/read/binary-4          	      79	  13495585 ns/op	25544503 B/op	  103438 allocs/op
+BenchmarkPaneHistoryMessageWire/read/binary-4          	      87	  13428343 ns/op	25544510 B/op	  103438 allocs/op
+BenchmarkPaneHistoryMessageWire/read/binary-4          	      90	  13296622 ns/op	25544505 B/op	  103438 allocs/op
+BenchmarkPaneHistoryMessageWire/read/binary-4          	      86	  13423303 ns/op	25544505 B/op	  103438 allocs/op
+BenchmarkLayoutMessageWire/write/stateless-4           	   31466	     37171 ns/op	   14429 B/op	      62 allocs/op
+BenchmarkLayoutMessageWire/write/stateless-4           	   32391	     37051 ns/op	   14429 B/op	      62 allocs/op
+BenchmarkLayoutMessageWire/write/stateless-4           	   32438	     37328 ns/op	   14429 B/op	      62 allocs/op
+BenchmarkLayoutMessageWire/write/stateless-4           	   31629	     38487 ns/op	   14429 B/op	      62 allocs/op
+BenchmarkLayoutMessageWire/write/stateless-4           	   30975	     38632 ns/op	   14429 B/op	      62 allocs/op
+BenchmarkLayoutMessageWire/write/stateful-4            	  496280	      2404 ns/op	       5 B/op	       1 allocs/op
+BenchmarkLayoutMessageWire/write/stateful-4            	  505309	      2378 ns/op	       5 B/op	       1 allocs/op
+BenchmarkLayoutMessageWire/write/stateful-4            	  506158	      2394 ns/op	       5 B/op	       1 allocs/op
+BenchmarkLayoutMessageWire/write/stateful-4            	  506344	      2378 ns/op	       5 B/op	       1 allocs/op
+BenchmarkLayoutMessageWire/write/stateful-4            	  511506	      2394 ns/op	       5 B/op	       1 allocs/op
+BenchmarkLayoutMessageWire/read/stateless-4            	   12502	     95661 ns/op	   50568 B/op	    1026 allocs/op
+BenchmarkLayoutMessageWire/read/stateless-4            	   12762	     94254 ns/op	   50568 B/op	    1026 allocs/op
+BenchmarkLayoutMessageWire/read/stateless-4            	   12628	     94892 ns/op	   50568 B/op	    1026 allocs/op
+BenchmarkLayoutMessageWire/read/stateless-4            	   12686	     94590 ns/op	   50568 B/op	    1026 allocs/op
+BenchmarkLayoutMessageWire/read/stateless-4            	   12633	     94852 ns/op	   50568 B/op	    1026 allocs/op
+BenchmarkLayoutMessageWire/read/stateful-4             	  342974	      3187 ns/op	    3080 B/op	      40 allocs/op
+BenchmarkLayoutMessageWire/read/stateful-4             	  350456	      3109 ns/op	    3080 B/op	      40 allocs/op
+BenchmarkLayoutMessageWire/read/stateful-4             	  366163	      3120 ns/op	    3080 B/op	      40 allocs/op
+BenchmarkLayoutMessageWire/read/stateful-4             	  369466	      3098 ns/op	    3080 B/op	      40 allocs/op
+BenchmarkLayoutMessageWire/read/stateful-4             	  361068	      3075 ns/op	    3080 B/op	      40 allocs/op
 PASS
-ok  	github.com/weill-labs/amux/internal/proto	70.892s
+ok  	github.com/weill-labs/amux/internal/proto	72.411s
 PASS
 ok  	github.com/weill-labs/amux/internal/reload	0.002s
 PASS
@@ -361,265 +361,265 @@ ok  	github.com/weill-labs/amux/internal/remote	0.003s
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/render
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkRenderFull/panes_2-4                  	    8310	    141735 ns/op	   60443 B/op	     730 allocs/op
-BenchmarkRenderFull/panes_2-4                  	    8310	    141927 ns/op	   60370 B/op	     730 allocs/op
-BenchmarkRenderFull/panes_2-4                  	    8307	    146830 ns/op	   60641 B/op	     730 allocs/op
-BenchmarkRenderFull/panes_2-4                  	    8528	    143938 ns/op	   60327 B/op	     730 allocs/op
-BenchmarkRenderFull/panes_2-4                  	    8179	    142171 ns/op	   60678 B/op	     730 allocs/op
-BenchmarkRenderFull/panes_4-4                  	    6668	    178644 ns/op	   65696 B/op	    1135 allocs/op
-BenchmarkRenderFull/panes_4-4                  	    6537	    178411 ns/op	   65642 B/op	    1135 allocs/op
-BenchmarkRenderFull/panes_4-4                  	    6780	    178490 ns/op	   65704 B/op	    1135 allocs/op
-BenchmarkRenderFull/panes_4-4                  	    6844	    179681 ns/op	   65643 B/op	    1135 allocs/op
-BenchmarkRenderFull/panes_4-4                  	    6476	    178796 ns/op	   65470 B/op	    1135 allocs/op
-BenchmarkRenderFull/panes_6-4                  	    5596	    213968 ns/op	   71411 B/op	    1628 allocs/op
-BenchmarkRenderFull/panes_6-4                  	    5631	    213443 ns/op	   71179 B/op	    1628 allocs/op
-BenchmarkRenderFull/panes_6-4                  	    5589	    213394 ns/op	   71447 B/op	    1628 allocs/op
-BenchmarkRenderFull/panes_6-4                  	    5476	    213377 ns/op	   71293 B/op	    1628 allocs/op
-BenchmarkRenderFull/panes_6-4                  	    5346	    213553 ns/op	   71346 B/op	    1628 allocs/op
-BenchmarkRenderFull/panes_8-4                  	    4968	    240191 ns/op	   75206 B/op	    1884 allocs/op
-BenchmarkRenderFull/panes_8-4                  	    4976	    240794 ns/op	   75390 B/op	    1884 allocs/op
-BenchmarkRenderFull/panes_8-4                  	    4905	    240324 ns/op	   75316 B/op	    1884 allocs/op
-BenchmarkRenderFull/panes_8-4                  	    4792	    240697 ns/op	   75431 B/op	    1884 allocs/op
-BenchmarkRenderFull/panes_8-4                  	    4863	    240935 ns/op	   75315 B/op	    1884 allocs/op
-BenchmarkRenderFull/panes_12-4                 	    4070	    293335 ns/op	   83481 B/op	    2429 allocs/op
-BenchmarkRenderFull/panes_12-4                 	    4147	    292346 ns/op	   83467 B/op	    2429 allocs/op
-BenchmarkRenderFull/panes_12-4                 	    4123	    292081 ns/op	   83476 B/op	    2429 allocs/op
-BenchmarkRenderFull/panes_12-4                 	    4058	    292054 ns/op	   83109 B/op	    2429 allocs/op
-BenchmarkRenderFull/panes_12-4                 	    4095	    292253 ns/op	   83260 B/op	    2429 allocs/op
-BenchmarkBuildGridWithOverlay/panes_2-4        	      38	  31681452 ns/op	 6740816 B/op	   11457 allocs/op
-BenchmarkBuildGridWithOverlay/panes_2-4        	      38	  31515830 ns/op	 6740825 B/op	   11457 allocs/op
-BenchmarkBuildGridWithOverlay/panes_2-4        	      38	  31606748 ns/op	 6740821 B/op	   11457 allocs/op
-BenchmarkBuildGridWithOverlay/panes_2-4        	      38	  31694959 ns/op	 6740822 B/op	   11457 allocs/op
-BenchmarkBuildGridWithOverlay/panes_2-4        	      38	  31605936 ns/op	 6740824 B/op	   11457 allocs/op
-BenchmarkBuildGridWithOverlay/panes_4-4        	      67	  18620520 ns/op	 5926266 B/op	   11269 allocs/op
-BenchmarkBuildGridWithOverlay/panes_4-4        	      67	  18651669 ns/op	 5926047 B/op	   11269 allocs/op
-BenchmarkBuildGridWithOverlay/panes_4-4        	      69	  18571340 ns/op	 5925891 B/op	   11268 allocs/op
-BenchmarkBuildGridWithOverlay/panes_4-4        	      69	  18556444 ns/op	 5925669 B/op	   11268 allocs/op
-BenchmarkBuildGridWithOverlay/panes_4-4        	      68	  18713504 ns/op	 5925775 B/op	   11268 allocs/op
-BenchmarkBuildGridWithOverlay/panes_6-4        	     127	   9366243 ns/op	 5120893 B/op	   11077 allocs/op
-BenchmarkBuildGridWithOverlay/panes_6-4        	     128	   9314768 ns/op	 5120772 B/op	   11077 allocs/op
-BenchmarkBuildGridWithOverlay/panes_6-4        	     126	   9472482 ns/op	 5120796 B/op	   11077 allocs/op
-BenchmarkBuildGridWithOverlay/panes_6-4        	     127	   9372539 ns/op	 5120783 B/op	   11077 allocs/op
-BenchmarkBuildGridWithOverlay/panes_6-4        	     128	   9334894 ns/op	 5120773 B/op	   11077 allocs/op
-BenchmarkBuildGridWithOverlay/panes_8-4        	     145	   8230675 ns/op	 4412705 B/op	   10897 allocs/op
-BenchmarkBuildGridWithOverlay/panes_8-4        	     145	   8233659 ns/op	 4412704 B/op	   10897 allocs/op
-BenchmarkBuildGridWithOverlay/panes_8-4        	     146	   8154780 ns/op	 4412688 B/op	   10897 allocs/op
-BenchmarkBuildGridWithOverlay/panes_8-4        	     142	   8374766 ns/op	 4412747 B/op	   10897 allocs/op
-BenchmarkBuildGridWithOverlay/panes_8-4        	     145	   8280988 ns/op	 4412705 B/op	   10897 allocs/op
-BenchmarkBuildGridWithOverlay/panes_12-4       	     174	   6801150 ns/op	 3619641 B/op	   10642 allocs/op
-BenchmarkBuildGridWithOverlay/panes_12-4       	     176	   6753736 ns/op	 3619624 B/op	   10642 allocs/op
-BenchmarkBuildGridWithOverlay/panes_12-4       	     175	   6815001 ns/op	 3619631 B/op	   10642 allocs/op
-BenchmarkBuildGridWithOverlay/panes_12-4       	     174	   6855142 ns/op	 3619638 B/op	   10642 allocs/op
-BenchmarkBuildGridWithOverlay/panes_12-4       	     172	   6878284 ns/op	 3619659 B/op	   10642 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     776	   1457638 ns/op	 1563716 B/op	     431 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     714	   1448629 ns/op	 1563716 B/op	     431 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     762	   1466814 ns/op	 1563716 B/op	     431 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     808	   1417465 ns/op	 1563716 B/op	     431 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     812	   1384040 ns/op	 1563715 B/op	     431 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     222	   5350725 ns/op	 3362469 B/op	   10424 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     225	   5182238 ns/op	 3362468 B/op	   10424 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     224	   5255171 ns/op	 3362490 B/op	   10424 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     236	   5315905 ns/op	 3362472 B/op	   10424 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     229	   5134911 ns/op	 3362468 B/op	   10424 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     511	   2195947 ns/op	 2433203 B/op	    1726 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     518	   2226004 ns/op	 2433203 B/op	    1726 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     529	   2304479 ns/op	 2433201 B/op	    1726 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     495	   2318087 ns/op	 2433204 B/op	    1726 allocs/op
-BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     519	   2368394 ns/op	 2433205 B/op	    1726 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     231	   5227722 ns/op	 3889453 B/op	   10435 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     226	   5173648 ns/op	 3889467 B/op	   10435 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     231	   5128823 ns/op	 3889453 B/op	   10435 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     234	   5217318 ns/op	 3889453 B/op	   10435 allocs/op
-BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     232	   5165186 ns/op	 3889450 B/op	   10435 allocs/op
-BenchmarkCompositorDirtyPaneRepresentative-4                            	     957	   1256779 ns/op	 2438883 B/op	     137 allocs/op
-BenchmarkCompositorDirtyPaneRepresentative-4                            	     974	   1325978 ns/op	 2438883 B/op	     137 allocs/op
-BenchmarkCompositorDirtyPaneRepresentative-4                            	     974	   1267763 ns/op	 2438883 B/op	     137 allocs/op
-BenchmarkCompositorDirtyPaneRepresentative-4                            	     968	   1307251 ns/op	 2438884 B/op	     137 allocs/op
-BenchmarkCompositorDirtyPaneRepresentative-4                            	     984	   1271030 ns/op	 2438885 B/op	     137 allocs/op
-BenchmarkBuildPaneContentCells/value_fallback-4                         	    2200	    540630 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/value_fallback-4                         	    2178	    541570 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/value_fallback-4                         	    2221	    539640 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/value_fallback-4                         	    2214	    541186 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/value_fallback-4                         	    2218	    540854 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/field_reader-4                           	    3333	    354012 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/field_reader-4                           	    3355	    354387 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/field_reader-4                           	    3357	    356728 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/field_reader-4                           	    3354	    354474 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBuildPaneContentCells/field_reader-4                           	    3369	    353712 ns/op	       0 B/op	       0 allocs/op
-BenchmarkClipLine/width_40-4                                            	 3343789	       358.6 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_40-4                                            	 3350804	       358.1 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_40-4                                            	 3345428	       358.1 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_40-4                                            	 3337183	       358.4 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_40-4                                            	 3347481	       357.6 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_80-4                                            	 2052547	       583.9 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_80-4                                            	 2047272	       585.0 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_80-4                                            	 2055499	       583.8 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_80-4                                            	 2053796	       584.3 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_80-4                                            	 2051524	       584.3 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_200-4                                           	  951583	      1259 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_200-4                                           	  878466	      1266 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_200-4                                           	  947794	      1266 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_200-4                                           	  906600	      1260 ns/op	      48 B/op	       1 allocs/op
-BenchmarkClipLine/width_200-4                                           	  910586	      1260 ns/op	      48 B/op	       1 allocs/op
-BenchmarkBuildBorderMap/panes_2-4                                       	   23185	     52549 ns/op	  217168 B/op	      12 allocs/op
-BenchmarkBuildBorderMap/panes_2-4                                       	   21609	     54840 ns/op	  217168 B/op	      12 allocs/op
-BenchmarkBuildBorderMap/panes_2-4                                       	   22041	     54632 ns/op	  217168 B/op	      12 allocs/op
-BenchmarkBuildBorderMap/panes_2-4                                       	   21928	     54189 ns/op	  217168 B/op	      12 allocs/op
-BenchmarkBuildBorderMap/panes_2-4                                       	   22742	     53787 ns/op	  217168 B/op	      12 allocs/op
-BenchmarkBuildBorderMap/panes_4-4                                       	   20145	     54666 ns/op	  225360 B/op	      13 allocs/op
-BenchmarkBuildBorderMap/panes_4-4                                       	   23340	     53577 ns/op	  225360 B/op	      13 allocs/op
-BenchmarkBuildBorderMap/panes_4-4                                       	   20145	     53987 ns/op	  225360 B/op	      13 allocs/op
-BenchmarkBuildBorderMap/panes_4-4                                       	   22239	     54402 ns/op	  225360 B/op	      13 allocs/op
-BenchmarkBuildBorderMap/panes_4-4                                       	   21018	     57245 ns/op	  225360 B/op	      13 allocs/op
-BenchmarkBuildBorderMap/panes_10-4                                      	   19683	     56957 ns/op	  238928 B/op	      14 allocs/op
-BenchmarkBuildBorderMap/panes_10-4                                      	   20125	     56563 ns/op	  238928 B/op	      14 allocs/op
-BenchmarkBuildBorderMap/panes_10-4                                      	   21663	     54500 ns/op	  238928 B/op	      14 allocs/op
-BenchmarkBuildBorderMap/panes_10-4                                      	   21392	     55690 ns/op	  238928 B/op	      14 allocs/op
-BenchmarkBuildBorderMap/panes_10-4                                      	   21943	     55536 ns/op	  238928 B/op	      14 allocs/op
-BenchmarkBuildBorderMap/panes_20-4                                      	   23774	     50008 ns/op	  259408 B/op	      15 allocs/op
-BenchmarkBuildBorderMap/panes_20-4                                      	   23338	     50790 ns/op	  259408 B/op	      15 allocs/op
-BenchmarkBuildBorderMap/panes_20-4                                      	   17199	     67912 ns/op	  259408 B/op	      15 allocs/op
-BenchmarkBuildBorderMap/panes_20-4                                      	   17756	     72257 ns/op	  259409 B/op	      15 allocs/op
-BenchmarkBuildBorderMap/panes_20-4                                      	   16389	     75794 ns/op	  259409 B/op	      15 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkRenderFull/panes_2-4                  	    8322	    140691 ns/op	   60401 B/op	     730 allocs/op
+BenchmarkRenderFull/panes_2-4                  	    8110	    140727 ns/op	   60617 B/op	     730 allocs/op
+BenchmarkRenderFull/panes_2-4                  	    8294	    141086 ns/op	   60579 B/op	     730 allocs/op
+BenchmarkRenderFull/panes_2-4                  	    8062	    140711 ns/op	   60501 B/op	     730 allocs/op
+BenchmarkRenderFull/panes_2-4                  	    8440	    139867 ns/op	   60250 B/op	     730 allocs/op
+BenchmarkRenderFull/panes_4-4                  	    6769	    175167 ns/op	   65521 B/op	    1135 allocs/op
+BenchmarkRenderFull/panes_4-4                  	    6135	    175854 ns/op	   65681 B/op	    1135 allocs/op
+BenchmarkRenderFull/panes_4-4                  	    6595	    175343 ns/op	   65722 B/op	    1135 allocs/op
+BenchmarkRenderFull/panes_4-4                  	    6625	    182516 ns/op	   65466 B/op	    1135 allocs/op
+BenchmarkRenderFull/panes_4-4                  	    6751	    176113 ns/op	   65574 B/op	    1135 allocs/op
+BenchmarkRenderFull/panes_6-4                  	    5730	    208937 ns/op	   71289 B/op	    1628 allocs/op
+BenchmarkRenderFull/panes_6-4                  	    5581	    208851 ns/op	   71224 B/op	    1628 allocs/op
+BenchmarkRenderFull/panes_6-4                  	    5695	    208827 ns/op	   71645 B/op	    1628 allocs/op
+BenchmarkRenderFull/panes_6-4                  	    5720	    208584 ns/op	   71488 B/op	    1628 allocs/op
+BenchmarkRenderFull/panes_6-4                  	    5762	    208845 ns/op	   71524 B/op	    1628 allocs/op
+BenchmarkRenderFull/panes_8-4                  	    4856	    234806 ns/op	   75181 B/op	    1884 allocs/op
+BenchmarkRenderFull/panes_8-4                  	    4872	    234823 ns/op	   75244 B/op	    1884 allocs/op
+BenchmarkRenderFull/panes_8-4                  	    4990	    234479 ns/op	   75295 B/op	    1884 allocs/op
+BenchmarkRenderFull/panes_8-4                  	    4959	    235356 ns/op	   75542 B/op	    1884 allocs/op
+BenchmarkRenderFull/panes_8-4                  	    4975	    237987 ns/op	   75325 B/op	    1884 allocs/op
+BenchmarkRenderFull/panes_12-4                 	    4220	    285252 ns/op	   83517 B/op	    2429 allocs/op
+BenchmarkRenderFull/panes_12-4                 	    4041	    289547 ns/op	   83346 B/op	    2429 allocs/op
+BenchmarkRenderFull/panes_12-4                 	    3999	    287618 ns/op	   83544 B/op	    2429 allocs/op
+BenchmarkRenderFull/panes_12-4                 	    4059	    287982 ns/op	   83599 B/op	    2429 allocs/op
+BenchmarkRenderFull/panes_12-4                 	    4124	    287090 ns/op	   83429 B/op	    2429 allocs/op
+BenchmarkBuildGridWithOverlay/panes_2-4        	      34	  33796836 ns/op	 6741495 B/op	   11457 allocs/op
+BenchmarkBuildGridWithOverlay/panes_2-4        	      36	  33715477 ns/op	 6741143 B/op	   11457 allocs/op
+BenchmarkBuildGridWithOverlay/panes_2-4        	      34	  34012937 ns/op	 6741494 B/op	   11457 allocs/op
+BenchmarkBuildGridWithOverlay/panes_2-4        	      34	  33725935 ns/op	 6741498 B/op	   11457 allocs/op
+BenchmarkBuildGridWithOverlay/panes_2-4        	      36	  33574163 ns/op	 6741142 B/op	   11457 allocs/op
+BenchmarkBuildGridWithOverlay/panes_4-4        	      62	  19500135 ns/op	 5926691 B/op	   11269 allocs/op
+BenchmarkBuildGridWithOverlay/panes_4-4        	      63	  19412519 ns/op	 5926296 B/op	   11268 allocs/op
+BenchmarkBuildGridWithOverlay/panes_4-4        	      62	  19884062 ns/op	 5926106 B/op	   11268 allocs/op
+BenchmarkBuildGridWithOverlay/panes_4-4        	      68	  19517340 ns/op	 5925860 B/op	   11268 allocs/op
+BenchmarkBuildGridWithOverlay/panes_4-4        	      64	  19454402 ns/op	 5925908 B/op	   11268 allocs/op
+BenchmarkBuildGridWithOverlay/panes_6-4        	     122	   9725990 ns/op	 5120862 B/op	   11077 allocs/op
+BenchmarkBuildGridWithOverlay/panes_6-4        	     123	   9734713 ns/op	 5120839 B/op	   11077 allocs/op
+BenchmarkBuildGridWithOverlay/panes_6-4        	     122	   9667137 ns/op	 5120854 B/op	   11077 allocs/op
+BenchmarkBuildGridWithOverlay/panes_6-4        	     123	   9672250 ns/op	 5120853 B/op	   11077 allocs/op
+BenchmarkBuildGridWithOverlay/panes_6-4        	     122	   9771627 ns/op	 5120907 B/op	   11077 allocs/op
+BenchmarkBuildGridWithOverlay/panes_8-4        	     145	   8220785 ns/op	 4412720 B/op	   10897 allocs/op
+BenchmarkBuildGridWithOverlay/panes_8-4        	     146	   8149413 ns/op	 4412708 B/op	   10897 allocs/op
+BenchmarkBuildGridWithOverlay/panes_8-4        	     145	   8226551 ns/op	 4412720 B/op	   10897 allocs/op
+BenchmarkBuildGridWithOverlay/panes_8-4        	     144	   8238462 ns/op	 4412722 B/op	   10897 allocs/op
+BenchmarkBuildGridWithOverlay/panes_8-4        	     145	   8191580 ns/op	 4412732 B/op	   10897 allocs/op
+BenchmarkBuildGridWithOverlay/panes_12-4       	     171	   6945716 ns/op	 3619679 B/op	   10642 allocs/op
+BenchmarkBuildGridWithOverlay/panes_12-4       	     171	   6979268 ns/op	 3619679 B/op	   10642 allocs/op
+BenchmarkBuildGridWithOverlay/panes_12-4       	     169	   7015172 ns/op	 3619699 B/op	   10642 allocs/op
+BenchmarkBuildGridWithOverlay/panes_12-4       	     174	   6916772 ns/op	 3619639 B/op	   10642 allocs/op
+BenchmarkBuildGridWithOverlay/panes_12-4       	     172	   6975696 ns/op	 3619669 B/op	   10642 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     813	   1337157 ns/op	 1563715 B/op	     431 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     912	   1315263 ns/op	 1563717 B/op	     431 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     897	   1313710 ns/op	 1563716 B/op	     431 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     842	   1453275 ns/op	 1563716 B/op	     431 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_one_of_twenty-4         	     921	   1390034 ns/op	 1563716 B/op	     431 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     242	   5306832 ns/op	 3362493 B/op	   10424 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     244	   5012450 ns/op	 3362495 B/op	   10424 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     237	   5025142 ns/op	 3362472 B/op	   10424 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     218	   5188020 ns/op	 3362476 B/op	   10424 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_one_of_twenty-4   	     224	   5400318 ns/op	 3362474 B/op	   10424 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     480	   2341668 ns/op	 2433204 B/op	    1726 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     553	   2327798 ns/op	 2433206 B/op	    1726 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     499	   2375021 ns/op	 2433203 B/op	    1726 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     480	   2399791 ns/op	 2433205 B/op	    1726 allocs/op
+BenchmarkRenderDiffDirtyPanes/dirty_four_of_twenty_five-4   	     486	   2375133 ns/op	 2433205 B/op	    1726 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     231	   5261306 ns/op	 3889465 B/op	   10435 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     213	   5352950 ns/op	 3889460 B/op	   10435 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     226	   5330715 ns/op	 3889451 B/op	   10435 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     224	   5256460 ns/op	 3889455 B/op	   10435 allocs/op
+BenchmarkRenderDiffDirtyPanes/full_redraw_four_of_twenty_five-4         	     225	   5178138 ns/op	 3889475 B/op	   10435 allocs/op
+BenchmarkCompositorDirtyPaneRepresentative-4                            	     859	   1287930 ns/op	 2438884 B/op	     137 allocs/op
+BenchmarkCompositorDirtyPaneRepresentative-4                            	     860	   1307321 ns/op	 2438884 B/op	     137 allocs/op
+BenchmarkCompositorDirtyPaneRepresentative-4                            	     901	   1330728 ns/op	 2438883 B/op	     137 allocs/op
+BenchmarkCompositorDirtyPaneRepresentative-4                            	     876	   1292048 ns/op	 2438884 B/op	     137 allocs/op
+BenchmarkCompositorDirtyPaneRepresentative-4                            	     912	   1298909 ns/op	 2438884 B/op	     137 allocs/op
+BenchmarkBuildPaneContentCells/value_fallback-4                         	    1906	    627879 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/value_fallback-4                         	    1910	    627024 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/value_fallback-4                         	    1916	    626675 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/value_fallback-4                         	    1915	    656072 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/value_fallback-4                         	    1906	    629329 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/field_reader-4                           	    2808	    428284 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/field_reader-4                           	    2793	    428373 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/field_reader-4                           	    2782	    429190 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/field_reader-4                           	    2796	    429141 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuildPaneContentCells/field_reader-4                           	    2797	    429230 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClipLine/width_40-4                                            	 3499711	       342.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_40-4                                            	 3490660	       341.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_40-4                                            	 3485432	       342.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_40-4                                            	 3512211	       340.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_40-4                                            	 3520197	       340.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_80-4                                            	 2052902	       576.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_80-4                                            	 2107251	       568.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_80-4                                            	 2109854	       567.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_80-4                                            	 2113603	       569.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_80-4                                            	 2109229	       568.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_200-4                                           	  941160	      1259 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_200-4                                           	  947833	      1260 ns/op	      49 B/op	       1 allocs/op
+BenchmarkClipLine/width_200-4                                           	  951520	      1259 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_200-4                                           	  937564	      1259 ns/op	      48 B/op	       1 allocs/op
+BenchmarkClipLine/width_200-4                                           	  943020	      1261 ns/op	      48 B/op	       1 allocs/op
+BenchmarkBuildBorderMap/panes_2-4                                       	   20800	     59294 ns/op	  217168 B/op	      12 allocs/op
+BenchmarkBuildBorderMap/panes_2-4                                       	   19514	     61156 ns/op	  217168 B/op	      12 allocs/op
+BenchmarkBuildBorderMap/panes_2-4                                       	   19659	     60871 ns/op	  217168 B/op	      12 allocs/op
+BenchmarkBuildBorderMap/panes_2-4                                       	   19513	     61331 ns/op	  217168 B/op	      12 allocs/op
+BenchmarkBuildBorderMap/panes_2-4                                       	   19536	     60856 ns/op	  217168 B/op	      12 allocs/op
+BenchmarkBuildBorderMap/panes_4-4                                       	   17425	     67282 ns/op	  225360 B/op	      13 allocs/op
+BenchmarkBuildBorderMap/panes_4-4                                       	   17758	     66212 ns/op	  225360 B/op	      13 allocs/op
+BenchmarkBuildBorderMap/panes_4-4                                       	   17731	     66708 ns/op	  225360 B/op	      13 allocs/op
+BenchmarkBuildBorderMap/panes_4-4                                       	   18159	     65674 ns/op	  225360 B/op	      13 allocs/op
+BenchmarkBuildBorderMap/panes_4-4                                       	   17233	     65103 ns/op	  225360 B/op	      13 allocs/op
+BenchmarkBuildBorderMap/panes_10-4                                      	   17472	     67375 ns/op	  238928 B/op	      14 allocs/op
+BenchmarkBuildBorderMap/panes_10-4                                      	   16639	     70225 ns/op	  238928 B/op	      14 allocs/op
+BenchmarkBuildBorderMap/panes_10-4                                      	   16642	     70741 ns/op	  238928 B/op	      14 allocs/op
+BenchmarkBuildBorderMap/panes_10-4                                      	   16519	     73285 ns/op	  238928 B/op	      14 allocs/op
+BenchmarkBuildBorderMap/panes_10-4                                      	   14926	     77245 ns/op	  238928 B/op	      14 allocs/op
+BenchmarkBuildBorderMap/panes_20-4                                      	   16122	     76889 ns/op	  259408 B/op	      15 allocs/op
+BenchmarkBuildBorderMap/panes_20-4                                      	   16944	     64538 ns/op	  259408 B/op	      15 allocs/op
+BenchmarkBuildBorderMap/panes_20-4                                      	   21297	     54105 ns/op	  259408 B/op	      15 allocs/op
+BenchmarkBuildBorderMap/panes_20-4                                      	   22182	     56341 ns/op	  259408 B/op	      15 allocs/op
+BenchmarkBuildBorderMap/panes_20-4                                      	   20882	     58972 ns/op	  259408 B/op	      15 allocs/op
 PASS
-ok  	github.com/weill-labs/amux/internal/render	151.446s
+ok  	github.com/weill-labs/amux/internal/render	150.950s
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/server
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkToListingPaneEntries/32-panes-4       	  680665	      1776 ns/op	    6784 B/op	       1 allocs/op
-BenchmarkToListingPaneEntries/256-panes-4      	   62175	     21631 ns/op	   57344 B/op	       1 allocs/op
-BenchmarkNewPaneHistoryMessage-4               	  269883	      4501 ns/op	   16160 B/op	       3 allocs/op
-BenchmarkChunkPaneHistoryMessagesWithCache-4   	  186290	      6682 ns/op	   16512 B/op	      66 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_256-4       	30027306	        38.77 ns/op	6603.57 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	13821566	        85.87 ns/op	47699.74 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1722708	       695.9 ns/op	47089.33 MB/s	      16 B/op	       1 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4600819	       259.6 ns/op	 986.05 MB/s	     736 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1033 ns/op	3966.96 MB/s	    4576 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  209605	      5830 ns/op	5620.37 MB/s	   33248 B/op	       5 allocs/op
-BenchmarkWriteMsg_Layout/panes_1-4             	   31579	     37598 ns/op	   14304 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_10-4            	   29515	     40620 ns/op	   14301 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_20-4            	   27272	     44456 ns/op	   15197 B/op	      61 allocs/op
-BenchmarkReadMsg_Layout/panes_1-4              	   10000	    104126 ns/op	   48928 B/op	    1000 allocs/op
-BenchmarkReadMsg_Layout/panes_10-4             	   10000	    107273 ns/op	   52048 B/op	    1018 allocs/op
-BenchmarkReadMsg_Layout/panes_20-4             	   10000	    110181 ns/op	   55472 B/op	    1038 allocs/op
-BenchmarkSessionSnapshotLayout/panes_1-4       	 1629615	       738.3 ns/op	     960 B/op	      10 allocs/op
-BenchmarkSessionSnapshotLayout/panes_4-4       	  392916	      2867 ns/op	    5312 B/op	      36 allocs/op
-BenchmarkSessionSnapshotLayout/panes_20-4      	   72638	     16132 ns/op	   31424 B/op	     116 allocs/op
-BenchmarkSessionBroadcastLayout/panes_1-4      	   30228	     39328 ns/op	   15917 B/op	      75 allocs/op
-BenchmarkSessionBroadcastLayout/panes_4-4      	   26954	     45053 ns/op	   20269 B/op	     101 allocs/op
-BenchmarkSessionBroadcastLayout/panes_20-4     	   15582	     76965 ns/op	   58925 B/op	     185 allocs/op
-PASS
-goos: linux
-goarch: amd64
-pkg: github.com/weill-labs/amux/internal/server
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkToListingPaneEntries/32-panes-4       	  692412	      1764 ns/op	    6784 B/op	       1 allocs/op
-BenchmarkToListingPaneEntries/256-panes-4      	   62536	     19924 ns/op	   57344 B/op	       1 allocs/op
-BenchmarkNewPaneHistoryMessage-4               	  271327	      4496 ns/op	   16160 B/op	       3 allocs/op
-BenchmarkChunkPaneHistoryMessagesWithCache-4   	  178514	      6695 ns/op	   16512 B/op	      66 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_256-4       	30425551	        39.74 ns/op	6442.01 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	14280375	        81.92 ns/op	49998.88 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1722414	       695.8 ns/op	47097.08 MB/s	      16 B/op	       1 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4492866	       265.0 ns/op	 965.87 MB/s	     736 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1051 ns/op	3898.60 MB/s	    4576 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  205951	      5895 ns/op	5558.67 MB/s	   33248 B/op	       5 allocs/op
-BenchmarkWriteMsg_Layout/panes_1-4             	   31953	     37773 ns/op	   14304 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_10-4            	   30067	     40154 ns/op	   14301 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_20-4            	   27277	     43658 ns/op	   15197 B/op	      61 allocs/op
-BenchmarkReadMsg_Layout/panes_1-4              	   10000	    103622 ns/op	   48928 B/op	    1000 allocs/op
-BenchmarkReadMsg_Layout/panes_10-4             	   10000	    106449 ns/op	   52048 B/op	    1018 allocs/op
-BenchmarkReadMsg_Layout/panes_20-4             	   10000	    109643 ns/op	   55472 B/op	    1038 allocs/op
-BenchmarkSessionSnapshotLayout/panes_1-4       	 1652955	       722.2 ns/op	     960 B/op	      10 allocs/op
-BenchmarkSessionSnapshotLayout/panes_4-4       	  410356	      2861 ns/op	    5312 B/op	      36 allocs/op
-BenchmarkSessionSnapshotLayout/panes_20-4      	   71482	     16291 ns/op	   31424 B/op	     116 allocs/op
-BenchmarkSessionBroadcastLayout/panes_1-4      	   29582	     40203 ns/op	   15917 B/op	      75 allocs/op
-BenchmarkSessionBroadcastLayout/panes_4-4      	   27016	     44794 ns/op	   20269 B/op	     101 allocs/op
-BenchmarkSessionBroadcastLayout/panes_20-4     	   15516	     77471 ns/op	   58925 B/op	     185 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkToListingPaneEntries/32-panes-4       	  665173	      1854 ns/op	    6784 B/op	       1 allocs/op
+BenchmarkToListingPaneEntries/256-panes-4      	   65692	     19432 ns/op	   57344 B/op	       1 allocs/op
+BenchmarkNewPaneHistoryMessage-4               	  239356	      4874 ns/op	   16160 B/op	       3 allocs/op
+BenchmarkChunkPaneHistoryMessagesWithCache-4   	  169576	      6776 ns/op	   16512 B/op	      66 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_256-4       	32721597	        34.83 ns/op	7350.00 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	13645995	        87.24 ns/op	46948.29 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1541118	       778.0 ns/op	42116.41 MB/s	      16 B/op	       1 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4338283	       297.7 ns/op	 860.04 MB/s	     736 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1102 ns/op	3716.07 MB/s	    4576 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  201760	      5995 ns/op	5465.68 MB/s	   33248 B/op	       5 allocs/op
+BenchmarkWriteMsg_Layout/panes_1-4             	   30776	     38401 ns/op	   14304 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_10-4            	   29211	     40894 ns/op	   14301 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_20-4            	   26977	     44397 ns/op	   15197 B/op	      61 allocs/op
+BenchmarkReadMsg_Layout/panes_1-4              	   12444	     97130 ns/op	   48928 B/op	    1000 allocs/op
+BenchmarkReadMsg_Layout/panes_10-4             	   10000	    104503 ns/op	   52048 B/op	    1018 allocs/op
+BenchmarkReadMsg_Layout/panes_20-4             	   10000	    107145 ns/op	   55472 B/op	    1038 allocs/op
+BenchmarkSessionSnapshotLayout/panes_1-4       	 1654503	       728.6 ns/op	     960 B/op	      10 allocs/op
+BenchmarkSessionSnapshotLayout/panes_4-4       	  391887	      2984 ns/op	    5312 B/op	      36 allocs/op
+BenchmarkSessionSnapshotLayout/panes_20-4      	   69643	     17418 ns/op	   31424 B/op	     116 allocs/op
+BenchmarkSessionBroadcastLayout/panes_1-4      	   29772	     39870 ns/op	   15917 B/op	      75 allocs/op
+BenchmarkSessionBroadcastLayout/panes_4-4      	   26950	     44881 ns/op	   20269 B/op	     101 allocs/op
+BenchmarkSessionBroadcastLayout/panes_20-4     	   15542	     77432 ns/op	   58925 B/op	     185 allocs/op
 PASS
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/server
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkToListingPaneEntries/32-panes-4       	  678046	      1801 ns/op	    6784 B/op	       1 allocs/op
-BenchmarkToListingPaneEntries/256-panes-4      	   66008	     18995 ns/op	   57344 B/op	       1 allocs/op
-BenchmarkNewPaneHistoryMessage-4               	  273196	      4466 ns/op	   16160 B/op	       3 allocs/op
-BenchmarkChunkPaneHistoryMessagesWithCache-4   	  177336	      6730 ns/op	   16512 B/op	      66 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_256-4       	30277281	        40.43 ns/op	6331.93 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	14451148	        81.85 ns/op	50040.62 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1694937	       707.5 ns/op	46318.27 MB/s	      16 B/op	       1 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4435953	       263.2 ns/op	 972.47 MB/s	     736 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1049 ns/op	3904.73 MB/s	    4576 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  200865	      6188 ns/op	5295.81 MB/s	   33248 B/op	       5 allocs/op
-BenchmarkWriteMsg_Layout/panes_1-4             	   31552	     37669 ns/op	   14304 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_10-4            	   29816	     40368 ns/op	   14301 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_20-4            	   27522	     43855 ns/op	   15197 B/op	      61 allocs/op
-BenchmarkReadMsg_Layout/panes_1-4              	   10000	    104318 ns/op	   48928 B/op	    1000 allocs/op
-BenchmarkReadMsg_Layout/panes_10-4             	   10000	    107204 ns/op	   52048 B/op	    1018 allocs/op
-BenchmarkReadMsg_Layout/panes_20-4             	   10000	    110280 ns/op	   55472 B/op	    1038 allocs/op
-BenchmarkSessionSnapshotLayout/panes_1-4       	 1668511	       717.8 ns/op	     960 B/op	      10 allocs/op
-BenchmarkSessionSnapshotLayout/panes_4-4       	  395924	      2855 ns/op	    5312 B/op	      36 allocs/op
-BenchmarkSessionSnapshotLayout/panes_20-4      	   70683	     16289 ns/op	   31424 B/op	     116 allocs/op
-BenchmarkSessionBroadcastLayout/panes_1-4      	   29734	     40147 ns/op	   15917 B/op	      75 allocs/op
-BenchmarkSessionBroadcastLayout/panes_4-4      	   27021	     44980 ns/op	   20269 B/op	     101 allocs/op
-BenchmarkSessionBroadcastLayout/panes_20-4     	   15451	     78108 ns/op	   58925 B/op	     185 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkToListingPaneEntries/32-panes-4       	  632082	      1886 ns/op	    6784 B/op	       1 allocs/op
+BenchmarkToListingPaneEntries/256-panes-4      	   62068	     19441 ns/op	   57344 B/op	       1 allocs/op
+BenchmarkNewPaneHistoryMessage-4               	  238436	      4795 ns/op	   16160 B/op	       3 allocs/op
+BenchmarkChunkPaneHistoryMessagesWithCache-4   	  173430	      6757 ns/op	   16512 B/op	      66 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_256-4       	32260879	        43.21 ns/op	5925.19 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	13523665	        91.11 ns/op	44954.87 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1547733	       775.1 ns/op	42275.71 MB/s	      16 B/op	       1 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4548530	       261.9 ns/op	 977.34 MB/s	     736 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1056 ns/op	3878.57 MB/s	    4576 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  204180	      5900 ns/op	5553.61 MB/s	   33248 B/op	       5 allocs/op
+BenchmarkWriteMsg_Layout/panes_1-4             	   32343	     37485 ns/op	   14304 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_10-4            	   29366	     40960 ns/op	   14301 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_20-4            	   27174	     44424 ns/op	   15197 B/op	      61 allocs/op
+BenchmarkReadMsg_Layout/panes_1-4              	   10000	    100727 ns/op	   48928 B/op	    1000 allocs/op
+BenchmarkReadMsg_Layout/panes_10-4             	   10000	    104153 ns/op	   52048 B/op	    1018 allocs/op
+BenchmarkReadMsg_Layout/panes_20-4             	   10000	    122297 ns/op	   55472 B/op	    1038 allocs/op
+BenchmarkSessionSnapshotLayout/panes_1-4       	 1639923	       732.6 ns/op	     960 B/op	      10 allocs/op
+BenchmarkSessionSnapshotLayout/panes_4-4       	  371113	      3006 ns/op	    5312 B/op	      36 allocs/op
+BenchmarkSessionSnapshotLayout/panes_20-4      	   69966	     17010 ns/op	   31424 B/op	     116 allocs/op
+BenchmarkSessionBroadcastLayout/panes_1-4      	   30114	     39557 ns/op	   15917 B/op	      75 allocs/op
+BenchmarkSessionBroadcastLayout/panes_4-4      	   26724	     45122 ns/op	   20269 B/op	     101 allocs/op
+BenchmarkSessionBroadcastLayout/panes_20-4     	   15638	     77156 ns/op	   58925 B/op	     185 allocs/op
 PASS
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/server
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkToListingPaneEntries/32-panes-4       	  599973	      1804 ns/op	    6784 B/op	       1 allocs/op
-BenchmarkToListingPaneEntries/256-panes-4      	   63231	     19220 ns/op	   57344 B/op	       1 allocs/op
-BenchmarkNewPaneHistoryMessage-4               	  273529	      4420 ns/op	   16160 B/op	       3 allocs/op
-BenchmarkChunkPaneHistoryMessagesWithCache-4   	  177565	      6645 ns/op	   16512 B/op	      66 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_256-4       	29893089	        39.25 ns/op	6522.92 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	14545281	        81.89 ns/op	50019.33 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1724691	       696.1 ns/op	47074.61 MB/s	      16 B/op	       1 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4636846	       259.2 ns/op	 987.48 MB/s	     736 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1052 ns/op	3895.23 MB/s	    4576 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  201255	      5969 ns/op	5489.65 MB/s	   33248 B/op	       5 allocs/op
-BenchmarkWriteMsg_Layout/panes_1-4             	   31608	     38253 ns/op	   14304 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_10-4            	   29420	     40534 ns/op	   14301 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_20-4            	   27418	     43755 ns/op	   15197 B/op	      61 allocs/op
-BenchmarkReadMsg_Layout/panes_1-4              	   10000	    104550 ns/op	   48928 B/op	    1000 allocs/op
-BenchmarkReadMsg_Layout/panes_10-4             	   10000	    107550 ns/op	   52048 B/op	    1018 allocs/op
-BenchmarkReadMsg_Layout/panes_20-4             	   10000	    110831 ns/op	   55472 B/op	    1038 allocs/op
-BenchmarkSessionSnapshotLayout/panes_1-4       	 1651358	       727.1 ns/op	     960 B/op	      10 allocs/op
-BenchmarkSessionSnapshotLayout/panes_4-4       	  404797	      2882 ns/op	    5312 B/op	      36 allocs/op
-BenchmarkSessionSnapshotLayout/panes_20-4      	   71211	     16362 ns/op	   31424 B/op	     116 allocs/op
-BenchmarkSessionBroadcastLayout/panes_1-4      	   29889	     39350 ns/op	   15917 B/op	      75 allocs/op
-BenchmarkSessionBroadcastLayout/panes_4-4      	   26720	     45194 ns/op	   20269 B/op	     101 allocs/op
-BenchmarkSessionBroadcastLayout/panes_20-4     	   15608	     76919 ns/op	   58925 B/op	     185 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkToListingPaneEntries/32-panes-4       	  645484	      1889 ns/op	    6784 B/op	       1 allocs/op
+BenchmarkToListingPaneEntries/256-panes-4      	   65173	     19462 ns/op	   57344 B/op	       1 allocs/op
+BenchmarkNewPaneHistoryMessage-4               	  243732	      4904 ns/op	   16160 B/op	       3 allocs/op
+BenchmarkChunkPaneHistoryMessagesWithCache-4   	  178831	      6721 ns/op	   16512 B/op	      66 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_256-4       	34336202	        34.84 ns/op	7348.10 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	13370857	        87.78 ns/op	46664.28 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1535826	       779.6 ns/op	42032.50 MB/s	      16 B/op	       1 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4592376	       266.9 ns/op	 959.23 MB/s	     736 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1059 ns/op	3869.62 MB/s	    4576 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  202104	      5944 ns/op	5512.60 MB/s	   33248 B/op	       5 allocs/op
+BenchmarkWriteMsg_Layout/panes_1-4             	   31378	     37984 ns/op	   14304 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_10-4            	   29143	     41070 ns/op	   14301 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_20-4            	   27136	     44441 ns/op	   15197 B/op	      61 allocs/op
+BenchmarkReadMsg_Layout/panes_1-4              	   10000	    101344 ns/op	   48928 B/op	    1000 allocs/op
+BenchmarkReadMsg_Layout/panes_10-4             	   10000	    103493 ns/op	   52048 B/op	    1018 allocs/op
+BenchmarkReadMsg_Layout/panes_20-4             	   10000	    107453 ns/op	   55472 B/op	    1038 allocs/op
+BenchmarkSessionSnapshotLayout/panes_1-4       	 1646608	       727.6 ns/op	     960 B/op	      10 allocs/op
+BenchmarkSessionSnapshotLayout/panes_4-4       	  397051	      2974 ns/op	    5312 B/op	      36 allocs/op
+BenchmarkSessionSnapshotLayout/panes_20-4      	   73477	     16948 ns/op	   31424 B/op	     116 allocs/op
+BenchmarkSessionBroadcastLayout/panes_1-4      	   30217	     39107 ns/op	   15917 B/op	      75 allocs/op
+BenchmarkSessionBroadcastLayout/panes_4-4      	   26760	     45138 ns/op	   20269 B/op	     101 allocs/op
+BenchmarkSessionBroadcastLayout/panes_20-4     	   15624	     77135 ns/op	   58925 B/op	     185 allocs/op
 PASS
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/internal/server
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkToListingPaneEntries/32-panes-4       	  581115	      1772 ns/op	    6784 B/op	       1 allocs/op
-BenchmarkToListingPaneEntries/256-panes-4      	   66196	     18815 ns/op	   57344 B/op	       1 allocs/op
-BenchmarkNewPaneHistoryMessage-4               	  269230	      4378 ns/op	   16160 B/op	       3 allocs/op
-BenchmarkChunkPaneHistoryMessagesWithCache-4   	  178827	      6677 ns/op	   16512 B/op	      66 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_256-4       	30725636	        38.62 ns/op	6628.03 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	14354560	        82.00 ns/op	49951.39 MB/s	      16 B/op	       1 allocs/op
-BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1724913	       696.1 ns/op	47071.45 MB/s	      16 B/op	       1 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4494411	       263.5 ns/op	 971.48 MB/s	     736 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1060 ns/op	3865.42 MB/s	    4576 B/op	       5 allocs/op
-BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  198619	      5935 ns/op	5521.37 MB/s	   33248 B/op	       5 allocs/op
-BenchmarkWriteMsg_Layout/panes_1-4             	   31344	     37834 ns/op	   14304 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_10-4            	   29782	     40349 ns/op	   14301 B/op	      60 allocs/op
-BenchmarkWriteMsg_Layout/panes_20-4            	   27456	     43792 ns/op	   15197 B/op	      61 allocs/op
-BenchmarkReadMsg_Layout/panes_1-4              	   10000	    104266 ns/op	   48928 B/op	    1000 allocs/op
-BenchmarkReadMsg_Layout/panes_10-4             	   10000	    107340 ns/op	   52048 B/op	    1018 allocs/op
-BenchmarkReadMsg_Layout/panes_20-4             	   10000	    110438 ns/op	   55472 B/op	    1038 allocs/op
-BenchmarkSessionSnapshotLayout/panes_1-4       	 1663063	       722.2 ns/op	     960 B/op	      10 allocs/op
-BenchmarkSessionSnapshotLayout/panes_4-4       	  399682	      2863 ns/op	    5312 B/op	      36 allocs/op
-BenchmarkSessionSnapshotLayout/panes_20-4      	   70318	     16450 ns/op	   31424 B/op	     116 allocs/op
-BenchmarkSessionBroadcastLayout/panes_1-4      	   30108	     39422 ns/op	   15917 B/op	      75 allocs/op
-BenchmarkSessionBroadcastLayout/panes_4-4      	   27004	     44867 ns/op	   20269 B/op	     101 allocs/op
-BenchmarkSessionBroadcastLayout/panes_20-4     	   15715	     76573 ns/op	   58925 B/op	     185 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkToListingPaneEntries/32-panes-4       	  617961	      1869 ns/op	    6784 B/op	       1 allocs/op
+BenchmarkToListingPaneEntries/256-panes-4      	   65548	     18953 ns/op	   57344 B/op	       1 allocs/op
+BenchmarkNewPaneHistoryMessage-4               	  246756	      4768 ns/op	   16160 B/op	       3 allocs/op
+BenchmarkChunkPaneHistoryMessagesWithCache-4   	  172670	      6898 ns/op	   16512 B/op	      66 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_256-4       	33761046	        34.94 ns/op	7327.30 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	13658542	        87.00 ns/op	47082.27 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1539087	       779.4 ns/op	42045.09 MB/s	      16 B/op	       1 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4548817	       264.7 ns/op	 967.16 MB/s	     736 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1084 ns/op	3777.58 MB/s	    4576 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  200769	      5887 ns/op	5566.05 MB/s	   33248 B/op	       5 allocs/op
+BenchmarkWriteMsg_Layout/panes_1-4             	   31267	     38082 ns/op	   14304 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_10-4            	   29394	     40578 ns/op	   14301 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_20-4            	   27072	     44395 ns/op	   15197 B/op	      61 allocs/op
+BenchmarkReadMsg_Layout/panes_1-4              	   10000	    100252 ns/op	   48928 B/op	    1000 allocs/op
+BenchmarkReadMsg_Layout/panes_10-4             	   10000	    103189 ns/op	   52048 B/op	    1018 allocs/op
+BenchmarkReadMsg_Layout/panes_20-4             	   10000	    106855 ns/op	   55472 B/op	    1038 allocs/op
+BenchmarkSessionSnapshotLayout/panes_1-4       	 1651370	       726.1 ns/op	     960 B/op	      10 allocs/op
+BenchmarkSessionSnapshotLayout/panes_4-4       	  388545	      2992 ns/op	    5312 B/op	      36 allocs/op
+BenchmarkSessionSnapshotLayout/panes_20-4      	   68641	     17165 ns/op	   31424 B/op	     116 allocs/op
+BenchmarkSessionBroadcastLayout/panes_1-4      	   30261	     39451 ns/op	   15917 B/op	      75 allocs/op
+BenchmarkSessionBroadcastLayout/panes_4-4      	   27195	     44718 ns/op	   20269 B/op	     101 allocs/op
+BenchmarkSessionBroadcastLayout/panes_20-4     	   15476	     77690 ns/op	   58925 B/op	     185 allocs/op
 PASS
-ok  	github.com/weill-labs/amux/internal/server	132.100s
+goos: linux
+goarch: amd64
+pkg: github.com/weill-labs/amux/internal/server
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkToListingPaneEntries/32-panes-4       	  556390	      1851 ns/op	    6784 B/op	       1 allocs/op
+BenchmarkToListingPaneEntries/256-panes-4      	   62354	     19066 ns/op	   57344 B/op	       1 allocs/op
+BenchmarkNewPaneHistoryMessage-4               	  243739	      4848 ns/op	   16160 B/op	       3 allocs/op
+BenchmarkChunkPaneHistoryMessagesWithCache-4   	  169432	      6848 ns/op	   16512 B/op	      66 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_256-4       	33799615	        35.13 ns/op	7286.84 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_4096-4      	13725349	        86.95 ns/op	47105.47 MB/s	      16 B/op	       1 allocs/op
+BenchmarkWriteMsg_PaneOutput/bytes_32768-4     	 1543118	       777.1 ns/op	42164.64 MB/s	      16 B/op	       1 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_256-4        	 4641152	       264.2 ns/op	 968.81 MB/s	     736 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_4096-4       	 1000000	      1072 ns/op	3822.41 MB/s	    4576 B/op	       5 allocs/op
+BenchmarkReadMsg_PaneOutput/bytes_32768-4      	  204265	      6012 ns/op	5450.18 MB/s	   33248 B/op	       5 allocs/op
+BenchmarkWriteMsg_Layout/panes_1-4             	   31369	     38092 ns/op	   14304 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_10-4            	   29223	     43882 ns/op	   14301 B/op	      60 allocs/op
+BenchmarkWriteMsg_Layout/panes_20-4            	   26718	     44753 ns/op	   15197 B/op	      61 allocs/op
+BenchmarkReadMsg_Layout/panes_1-4              	   12230	     97619 ns/op	   48928 B/op	    1000 allocs/op
+BenchmarkReadMsg_Layout/panes_10-4             	   10000	    101630 ns/op	   52048 B/op	    1018 allocs/op
+BenchmarkReadMsg_Layout/panes_20-4             	   10000	    108134 ns/op	   55472 B/op	    1038 allocs/op
+BenchmarkSessionSnapshotLayout/panes_1-4       	 1615495	       736.3 ns/op	     960 B/op	      10 allocs/op
+BenchmarkSessionSnapshotLayout/panes_4-4       	  371143	      3029 ns/op	    5312 B/op	      36 allocs/op
+BenchmarkSessionSnapshotLayout/panes_20-4      	   69439	     16754 ns/op	   31424 B/op	     116 allocs/op
+BenchmarkSessionBroadcastLayout/panes_1-4      	   30190	     39404 ns/op	   15917 B/op	      75 allocs/op
+BenchmarkSessionBroadcastLayout/panes_4-4      	   27051	     45008 ns/op	   20269 B/op	     101 allocs/op
+BenchmarkSessionBroadcastLayout/panes_20-4     	   15493	     77611 ns/op	   58925 B/op	     185 allocs/op
+PASS
+ok  	github.com/weill-labs/amux/internal/server	131.619s
 ?   	github.com/weill-labs/amux/internal/server/commands	[no test files]
 PASS
 ok  	github.com/weill-labs/amux/internal/server/commands/capture	0.004s
@@ -638,9 +638,9 @@ ok  	github.com/weill-labs/amux/internal/server/commands/listing	0.003s
 PASS
 ok  	github.com/weill-labs/amux/internal/server/commands/meta	0.003s
 PASS
-ok  	github.com/weill-labs/amux/internal/server/commands/wait	0.003s
+ok  	github.com/weill-labs/amux/internal/server/commands/wait	0.004s
 PASS
-ok  	github.com/weill-labs/amux/internal/server/mirror	0.003s
+ok  	github.com/weill-labs/amux/internal/server/mirror	0.004s
 PASS
 ok  	github.com/weill-labs/amux/internal/terminfo	0.002s
 PASS
@@ -651,267 +651,267 @@ FAIL
 goos: linux
 goarch: amd64
 pkg: github.com/weill-labs/amux/test
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkCapture/amux/panes_1-4     	     277	   4297099 ns/op	   63334 B/op	      88 allocs/op
-BenchmarkCapture/amux/panes_1-4     	     282	   4223407 ns/op	   62999 B/op	      87 allocs/op
-BenchmarkCapture/amux/panes_1-4     	     283	   4235404 ns/op	   62979 B/op	      87 allocs/op
-BenchmarkCapture/amux/panes_1-4     	     283	   4230838 ns/op	   62978 B/op	      87 allocs/op
-BenchmarkCapture/amux/panes_1-4     	     285	   4209002 ns/op	   62995 B/op	      87 allocs/op
-BenchmarkCapture/amux/panes_1-4     	     283	   4214936 ns/op	   62944 B/op	      87 allocs/op
-BenchmarkCapture/amux/panes_1-4     	     283	   4218648 ns/op	   62987 B/op	      87 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     280	   4246929 ns/op	   70657 B/op	      89 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     279	   4256297 ns/op	   70708 B/op	      89 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     282	   4252648 ns/op	   70666 B/op	      89 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     280	   4236477 ns/op	   70755 B/op	      89 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     283	   4237491 ns/op	   70649 B/op	      89 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     279	   4254463 ns/op	   70757 B/op	      89 allocs/op
-BenchmarkCapture/amux/panes_4-4     	     282	   4226608 ns/op	   70653 B/op	      89 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     458	   2430892 ns/op	   25397 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     465	   2428657 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     469	   2416461 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     472	   2403839 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     471	   2417845 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     472	   2387870 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_1-4     	     463	   2415411 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     451	   2603044 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     454	   2589465 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     450	   2607312 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     452	   2600084 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     452	   2599161 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     454	   2582215 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCapture/tmux/panes_4-4     	     452	   2600488 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkList/amux/panes_1-4        	     308	   3841337 ns/op	   63148 B/op	      87 allocs/op
-BenchmarkList/amux/panes_1-4        	     308	   3861062 ns/op	   63151 B/op	      87 allocs/op
-BenchmarkList/amux/panes_1-4        	     308	   3894489 ns/op	   63156 B/op	      87 allocs/op
-BenchmarkList/amux/panes_1-4        	     308	   3883065 ns/op	   63142 B/op	      87 allocs/op
-BenchmarkList/amux/panes_1-4        	     307	   3890873 ns/op	   63117 B/op	      87 allocs/op
-BenchmarkList/amux/panes_1-4        	     308	   3853181 ns/op	   63142 B/op	      87 allocs/op
-BenchmarkList/amux/panes_1-4        	     312	   3836288 ns/op	   63149 B/op	      87 allocs/op
-BenchmarkList/amux/panes_4-4        	     306	   3939105 ns/op	   65528 B/op	      88 allocs/op
-BenchmarkList/amux/panes_4-4        	     308	   3886262 ns/op	   65531 B/op	      88 allocs/op
-BenchmarkList/amux/panes_4-4        	     308	   3879821 ns/op	   65530 B/op	      88 allocs/op
-BenchmarkList/amux/panes_4-4        	     308	   3876981 ns/op	   65529 B/op	      88 allocs/op
-BenchmarkList/amux/panes_4-4        	     307	   3880893 ns/op	   65528 B/op	      88 allocs/op
-BenchmarkList/amux/panes_4-4        	     304	   3893152 ns/op	   65528 B/op	      88 allocs/op
-BenchmarkList/amux/panes_4-4        	     306	   3885550 ns/op	   65528 B/op	      88 allocs/op
-BenchmarkList/tmux/panes_1-4        	     453	   2491804 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_1-4        	     452	   2509401 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_1-4        	     454	   2493473 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_1-4        	     451	   2494604 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_1-4        	     456	   2467275 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_1-4        	     460	   2478760 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_1-4        	     447	   2521617 ns/op	   25416 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     447	   2627339 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     444	   2634382 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     450	   2605763 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     448	   2621572 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     446	   2622908 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     442	   2641833 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkList/tmux/panes_4-4        	     448	   2620198 ns/op	   25472 B/op	     107 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2607	    463322 ns/op	   86393 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2679	    463000 ns/op	   86592 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2679	    463070 ns/op	   86393 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2690	    463277 ns/op	   86465 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2694	    460436 ns/op	   86224 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2706	    462470 ns/op	   86494 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_1-4    	    2647	    464550 ns/op	   86437 B/op	     639 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1425	    851824 ns/op	  257079 B/op	    2322 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1298	    859375 ns/op	  257113 B/op	    2322 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1411	    859417 ns/op	  257404 B/op	    2322 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1388	    855729 ns/op	  257064 B/op	    2322 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1376	    854254 ns/op	  257173 B/op	    2322 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1404	    852699 ns/op	  257194 B/op	    2322 allocs/op
-BenchmarkSendKeys/amux/panes_4-4    	    1386	    853790 ns/op	  256766 B/op	    2322 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     463	   2415970 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     471	   2404789 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     468	   2415790 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     471	   2405390 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     471	   2389621 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     470	   2394893 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_1-4    	     469	   2407707 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     452	   2595732 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     451	   2601637 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     452	   2594621 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     450	   2604210 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     452	   2593167 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     453	   2593641 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkSendKeys/tmux/panes_4-4    	     452	   2598650 ns/op	   24336 B/op	     105 allocs/op
-BenchmarkInputLatency/amux-4        	     908	   1239379 ns/op	  537498 B/op	    1448 allocs/op
-BenchmarkInputLatency/amux-4        	     891	   1236834 ns/op	  537620 B/op	    1449 allocs/op
-BenchmarkInputLatency/amux-4        	     888	   1234392 ns/op	  537564 B/op	    1447 allocs/op
-BenchmarkInputLatency/amux-4        	     897	   1245257 ns/op	  546668 B/op	    1453 allocs/op
-BenchmarkInputLatency/amux-4        	     920	   1230506 ns/op	  538441 B/op	    1448 allocs/op
-BenchmarkInputLatency/amux-4        	     906	   1227006 ns/op	  537688 B/op	    1448 allocs/op
-BenchmarkInputLatency/amux-4        	     913	   1228908 ns/op	  533214 B/op	    1447 allocs/op
-BenchmarkInputLatency/tmux-4        	     236	   4924045 ns/op	   52513 B/op	     216 allocs/op
-BenchmarkInputLatency/tmux-4        	     237	   4944314 ns/op	   52504 B/op	     216 allocs/op
-BenchmarkInputLatency/tmux-4        	     235	   4922317 ns/op	   52381 B/op	     215 allocs/op
-BenchmarkInputLatency/tmux-4        	     237	   4935348 ns/op	   52510 B/op	     216 allocs/op
-BenchmarkInputLatency/tmux-4        	     237	   4937505 ns/op	   52401 B/op	     216 allocs/op
-BenchmarkInputLatency/tmux-4        	     238	   4918863 ns/op	   52385 B/op	     215 allocs/op
-BenchmarkInputLatency/tmux-4        	     236	   4904809 ns/op	   52386 B/op	     215 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1233	    889290 ns/op	  408484 B/op	     221 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1315	    882100 ns/op	  408418 B/op	     219 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1281	    895497 ns/op	  408086 B/op	     221 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1258	    883491 ns/op	  408090 B/op	     220 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1286	    883162 ns/op	  407434 B/op	     219 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1304	    879706 ns/op	  403027 B/op	     217 allocs/op
-BenchmarkInputLatencyPersistent/amux-4         	    1306	    884640 ns/op	  402532 B/op	     217 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 171352530 ns/op	 5792877 B/op	   13404 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 181567237 ns/op	 5730712 B/op	   13481 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 180205394 ns/op	 5864881 B/op	   13518 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 180778186 ns/op	 5553458 B/op	   13360 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 178247442 ns/op	 5778694 B/op	   13421 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 181937570 ns/op	 5680742 B/op	   13416 allocs/op
-BenchmarkThroughput/amux-4                     	       6	 168903986 ns/op	 5939062 B/op	   13503 allocs/op
-BenchmarkThroughput/tmux-4                     	      57	  18288336 ns/op	   82630 B/op	     351 allocs/op
-BenchmarkThroughput/tmux-4                     	      61	  17983047 ns/op	   82144 B/op	     349 allocs/op
-BenchmarkThroughput/tmux-4                     	      57	  17828919 ns/op	   82611 B/op	     351 allocs/op
-BenchmarkThroughput/tmux-4                     	      58	  18227614 ns/op	   82501 B/op	     350 allocs/op
-BenchmarkThroughput/tmux-4                     	      60	  17858786 ns/op	   82284 B/op	     349 allocs/op
-BenchmarkThroughput/tmux-4                     	      60	  17584963 ns/op	   82268 B/op	     349 allocs/op
-BenchmarkThroughput/tmux-4                     	      60	  17933401 ns/op	   82303 B/op	     350 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 174971343 ns/op	 5701208 B/op	   12239 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 179172992 ns/op	 5504312 B/op	   12213 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 174934134 ns/op	 5682868 B/op	   12331 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 171070437 ns/op	 5740329 B/op	   12355 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 178632474 ns/op	 5612193 B/op	   12216 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 174053550 ns/op	 5619792 B/op	   12286 allocs/op
-BenchmarkThroughputPersistent/amux-4           	       6	 178243853 ns/op	 5792801 B/op	   12341 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      25	  47496240 ns/op	13733888 B/op	   10873 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      26	  46785619 ns/op	13737043 B/op	   10872 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      25	  47079595 ns/op	13725143 B/op	   10863 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      26	  47013370 ns/op	13744982 B/op	   10882 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      24	  47472105 ns/op	13737079 B/op	   10877 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      26	  47921033 ns/op	13741069 B/op	   10878 allocs/op
-BenchmarkSplitScale/amux/panes_4-4             	      26	  48971526 ns/op	13740488 B/op	   10876 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkCapture/amux/panes_1-4     	     252	   4710613 ns/op	   63374 B/op	      88 allocs/op
+BenchmarkCapture/amux/panes_1-4     	     254	   4717579 ns/op	   63006 B/op	      87 allocs/op
+BenchmarkCapture/amux/panes_1-4     	     271	   4396918 ns/op	   62946 B/op	      87 allocs/op
+BenchmarkCapture/amux/panes_1-4     	     259	   4640718 ns/op	   62996 B/op	      87 allocs/op
+BenchmarkCapture/amux/panes_1-4     	     258	   4634524 ns/op	   62996 B/op	      87 allocs/op
+BenchmarkCapture/amux/panes_1-4     	     261	   4546623 ns/op	   62988 B/op	      87 allocs/op
+BenchmarkCapture/amux/panes_1-4     	     264	   4655531 ns/op	   62989 B/op	      87 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     244	   4778226 ns/op	   70662 B/op	      89 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     253	   4704773 ns/op	   70658 B/op	      89 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     254	   4721283 ns/op	   70648 B/op	      89 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     255	   4692177 ns/op	   70657 B/op	      89 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     254	   4734043 ns/op	   70653 B/op	      89 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     253	   4719680 ns/op	   70767 B/op	      89 allocs/op
+BenchmarkCapture/amux/panes_4-4     	     277	   4335608 ns/op	   70656 B/op	      89 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     429	   2693235 ns/op	   25393 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     423	   2677965 ns/op	   25401 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     429	   2677959 ns/op	   25401 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     420	   2705153 ns/op	   25401 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     429	   2673860 ns/op	   25401 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     435	   2657128 ns/op	   25401 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_1-4     	     418	   2697378 ns/op	   25401 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     408	   2888784 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     402	   2926523 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     408	   2877879 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     409	   2877729 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     410	   2874552 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     406	   2894284 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCapture/tmux/panes_4-4     	     410	   2872693 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkList/amux/panes_1-4        	     279	   4075823 ns/op	   63111 B/op	      87 allocs/op
+BenchmarkList/amux/panes_1-4        	     298	   4112679 ns/op	   63145 B/op	      87 allocs/op
+BenchmarkList/amux/panes_1-4        	     283	   4219691 ns/op	   63110 B/op	      87 allocs/op
+BenchmarkList/amux/panes_1-4        	     279	   4342901 ns/op	   63159 B/op	      87 allocs/op
+BenchmarkList/amux/panes_1-4        	     282	   4280478 ns/op	   63116 B/op	      87 allocs/op
+BenchmarkList/amux/panes_1-4        	     276	   4266466 ns/op	   63157 B/op	      87 allocs/op
+BenchmarkList/amux/panes_1-4        	     280	   4268319 ns/op	   63153 B/op	      87 allocs/op
+BenchmarkList/amux/panes_4-4        	     276	   4334552 ns/op	   65630 B/op	      88 allocs/op
+BenchmarkList/amux/panes_4-4        	     276	   4272350 ns/op	   65645 B/op	      88 allocs/op
+BenchmarkList/amux/panes_4-4        	     278	   4299899 ns/op	   65528 B/op	      88 allocs/op
+BenchmarkList/amux/panes_4-4        	     274	   4313700 ns/op	   65533 B/op	      88 allocs/op
+BenchmarkList/amux/panes_4-4        	     276	   4309145 ns/op	   65585 B/op	      88 allocs/op
+BenchmarkList/amux/panes_4-4        	     278	   4294539 ns/op	   65635 B/op	      88 allocs/op
+BenchmarkList/amux/panes_4-4        	     278	   4273029 ns/op	   65533 B/op	      88 allocs/op
+BenchmarkList/tmux/panes_1-4        	     420	   2723081 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_1-4        	     422	   2718685 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_1-4        	     426	   2721300 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_1-4        	     379	   2925874 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_1-4        	     427	   2648127 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_1-4        	     433	   2632927 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_1-4        	     426	   2662855 ns/op	   25416 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     420	   2807885 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     415	   2842024 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     346	   3042012 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     362	   3130233 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     406	   2902821 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     415	   2834661 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkList/tmux/panes_4-4        	     369	   3127832 ns/op	   25472 B/op	     107 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2775	    444859 ns/op	   86558 B/op	     639 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2708	    445946 ns/op	   86342 B/op	     639 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2672	    444430 ns/op	   86467 B/op	     639 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2826	    441695 ns/op	   86463 B/op	     639 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2739	    443299 ns/op	   86521 B/op	     639 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2786	    442286 ns/op	   86657 B/op	     640 allocs/op
+BenchmarkSendKeys/amux/panes_1-4    	    2814	    441489 ns/op	   86677 B/op	     640 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1390	    848097 ns/op	  257119 B/op	    2322 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1380	    852422 ns/op	  257453 B/op	    2322 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1453	    850050 ns/op	  257442 B/op	    2322 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1454	    844355 ns/op	  257215 B/op	    2322 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1394	    834138 ns/op	  256728 B/op	    2322 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1452	    832845 ns/op	  257000 B/op	    2322 allocs/op
+BenchmarkSendKeys/amux/panes_4-4    	    1480	    833175 ns/op	  257033 B/op	    2322 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     429	   2657452 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     436	   2606119 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     428	   2587697 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     438	   2591935 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     445	   2589060 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     441	   2582033 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_1-4    	     441	   2576525 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     426	   2760801 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     426	   2775321 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     426	   2766757 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     427	   2761293 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     430	   2740741 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     428	   2750956 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkSendKeys/tmux/panes_4-4    	     430	   2736124 ns/op	   24336 B/op	     105 allocs/op
+BenchmarkInputLatency/amux-4        	     906	   1231827 ns/op	  575071 B/op	    1465 allocs/op
+BenchmarkInputLatency/amux-4        	     907	   1232482 ns/op	  571925 B/op	    1465 allocs/op
+BenchmarkInputLatency/amux-4        	     912	   1231537 ns/op	  569664 B/op	    1464 allocs/op
+BenchmarkInputLatency/amux-4        	     890	   1236727 ns/op	  574201 B/op	    1466 allocs/op
+BenchmarkInputLatency/amux-4        	     913	   1234140 ns/op	  572212 B/op	    1464 allocs/op
+BenchmarkInputLatency/amux-4        	     938	   1230235 ns/op	  568966 B/op	    1463 allocs/op
+BenchmarkInputLatency/amux-4        	     896	   1241417 ns/op	  577038 B/op	    1466 allocs/op
+BenchmarkInputLatency/tmux-4        	     220	   5245221 ns/op	   52490 B/op	     216 allocs/op
+BenchmarkInputLatency/tmux-4        	     222	   5259500 ns/op	   52365 B/op	     215 allocs/op
+BenchmarkInputLatency/tmux-4        	     222	   5294102 ns/op	   52492 B/op	     216 allocs/op
+BenchmarkInputLatency/tmux-4        	     223	   5228018 ns/op	   52367 B/op	     215 allocs/op
+BenchmarkInputLatency/tmux-4        	     223	   5252409 ns/op	   52365 B/op	     215 allocs/op
+BenchmarkInputLatency/tmux-4        	     224	   5247737 ns/op	   52367 B/op	     215 allocs/op
+BenchmarkInputLatency/tmux-4        	     223	   5258101 ns/op	   52355 B/op	     215 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1290	    874970 ns/op	  430618 B/op	     231 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1290	    871799 ns/op	  425077 B/op	     228 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1299	    868706 ns/op	  425864 B/op	     229 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1250	    867112 ns/op	  425492 B/op	     228 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1364	    869486 ns/op	  426322 B/op	     229 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1317	    871134 ns/op	  428762 B/op	     229 allocs/op
+BenchmarkInputLatencyPersistent/amux-4         	    1258	    866110 ns/op	  426612 B/op	     229 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 181380720 ns/op	 5802752 B/op	   13472 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 182375816 ns/op	 5865504 B/op	   13563 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 188346570 ns/op	 5556557 B/op	   13440 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 176237121 ns/op	 5807358 B/op	   13572 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 179113579 ns/op	 5853985 B/op	   13534 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 183449945 ns/op	 5911784 B/op	   13628 allocs/op
+BenchmarkThroughput/amux-4                     	       6	 183098951 ns/op	 5991021 B/op	   13740 allocs/op
+BenchmarkThroughput/tmux-4                     	      61	  17853000 ns/op	   82999 B/op	     352 allocs/op
+BenchmarkThroughput/tmux-4                     	      58	  18115702 ns/op	   82945 B/op	     352 allocs/op
+BenchmarkThroughput/tmux-4                     	      60	  18011297 ns/op	   82713 B/op	     351 allocs/op
+BenchmarkThroughput/tmux-4                     	      56	  18332681 ns/op	   84125 B/op	     357 allocs/op
+BenchmarkThroughput/tmux-4                     	      58	  18658205 ns/op	   84272 B/op	     358 allocs/op
+BenchmarkThroughput/tmux-4                     	      58	  18274304 ns/op	   82949 B/op	     352 allocs/op
+BenchmarkThroughput/tmux-4                     	      57	  18965381 ns/op	   84442 B/op	     359 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       6	 183433046 ns/op	 5567973 B/op	   12199 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       6	 193649571 ns/op	 5629465 B/op	   12254 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       7	 180259954 ns/op	 5458048 B/op	   11913 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       6	 189447221 ns/op	 5626282 B/op	   12322 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       6	 195128803 ns/op	 5680493 B/op	   12345 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       6	 186943281 ns/op	 5816564 B/op	   12366 allocs/op
+BenchmarkThroughputPersistent/amux-4           	       6	 183769024 ns/op	 5716289 B/op	   12346 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      20	  58197908 ns/op	13730537 B/op	   10865 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      20	  56212960 ns/op	13750711 B/op	   10889 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      18	  61642458 ns/op	13739278 B/op	   10878 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      19	  59461455 ns/op	13746052 B/op	   10885 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      21	  57200822 ns/op	13746405 B/op	   10885 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      20	  57671529 ns/op	13741555 B/op	   10875 allocs/op
+BenchmarkSplitScale/amux/panes_4-4             	      19	  61547908 ns/op	13755062 B/op	   10893 allocs/op
 --- FAIL: BenchmarkSplitScale/tmux/panes_4
     bench_test.go:58: Run() error = exit status 1
-BenchmarkSplitScale/amux/panes_10-4            	       8	 132900077 ns/op	38866144 B/op	   49505 allocs/op
-BenchmarkSplitScale/amux/panes_10-4            	       8	 134458141 ns/op	38817143 B/op	   49474 allocs/op
-BenchmarkSplitScale/amux/panes_10-4            	       8	 136879858 ns/op	38830262 B/op	   49489 allocs/op
-BenchmarkSplitScale/amux/panes_10-4            	       8	 137043433 ns/op	38847377 B/op	   49492 allocs/op
-BenchmarkSplitScale/amux/panes_10-4            	       8	 130071530 ns/op	38848833 B/op	   49513 allocs/op
-BenchmarkSplitScale/amux/panes_10-4            	       8	 133017528 ns/op	38828633 B/op	   49482 allocs/op
-BenchmarkSplitScale/amux/panes_10-4            	       8	 134394858 ns/op	38819692 B/op	   49469 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       7	 161229067 ns/op	38865557 B/op	   49514 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       6	 170673858 ns/op	38861038 B/op	   49528 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       6	 171161583 ns/op	38822568 B/op	   49474 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       6	 175290289 ns/op	38857473 B/op	   49494 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       7	 184597575 ns/op	38834166 B/op	   49484 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       6	 178741490 ns/op	38854562 B/op	   49503 allocs/op
+BenchmarkSplitScale/amux/panes_10-4            	       7	 177913020 ns/op	38846618 B/op	   49492 allocs/op
 --- FAIL: BenchmarkSplitScale/tmux/panes_10
     bench_test.go:58: Run() error = exit status 1
-BenchmarkSplitScale/amux/panes_20-4            	       4	 281873581 ns/op	83303438 B/op	  166200 allocs/op
-BenchmarkSplitScale/amux/panes_20-4            	       4	 286795642 ns/op	83227852 B/op	  166197 allocs/op
-BenchmarkSplitScale/amux/panes_20-4            	       4	 293750716 ns/op	83257404 B/op	  166188 allocs/op
-BenchmarkSplitScale/amux/panes_20-4            	       4	 287948435 ns/op	83290078 B/op	  166202 allocs/op
-BenchmarkSplitScale/amux/panes_20-4            	       4	 279245932 ns/op	83394510 B/op	  166237 allocs/op
-BenchmarkSplitScale/amux/panes_20-4            	       4	 285126040 ns/op	83139068 B/op	  166155 allocs/op
-BenchmarkSplitScale/amux/panes_20-4            	       4	 280496217 ns/op	83199040 B/op	  166108 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 337357336 ns/op	83352698 B/op	  166268 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 372481019 ns/op	83449501 B/op	  166313 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 377796899 ns/op	83283656 B/op	  166241 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 374325342 ns/op	83444202 B/op	  166263 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 366662594 ns/op	83326320 B/op	  166299 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 343057088 ns/op	83339248 B/op	  166205 allocs/op
+BenchmarkSplitScale/amux/panes_20-4            	       3	 371351024 ns/op	83156584 B/op	  166163 allocs/op
 --- FAIL: BenchmarkSplitScale/tmux/panes_20
     bench_test.go:58: Run() error = exit status 1
 --- FAIL: BenchmarkSplitScale
-BenchmarkCaptureScale/amux/panes_1-4           	     213	   5546787 ns/op	   63047 B/op	      87 allocs/op
-BenchmarkCaptureScale/amux/panes_1-4           	     210	   5645467 ns/op	   63038 B/op	      87 allocs/op
-BenchmarkCaptureScale/amux/panes_1-4           	     208	   5677209 ns/op	   63043 B/op	      87 allocs/op
-BenchmarkCaptureScale/amux/panes_1-4           	     212	   5576880 ns/op	   63039 B/op	      87 allocs/op
-BenchmarkCaptureScale/amux/panes_1-4           	     212	   5590860 ns/op	   63041 B/op	      87 allocs/op
-BenchmarkCaptureScale/amux/panes_1-4           	     214	   5550378 ns/op	   63048 B/op	      87 allocs/op
-BenchmarkCaptureScale/amux/panes_1-4           	     207	   5605625 ns/op	   63035 B/op	      87 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     468	   2424172 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     466	   2420532 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     472	   2400804 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     468	   2411939 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     478	   2405556 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     468	   2418664 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_1-4           	     468	   2431300 ns/op	   25401 B/op	     107 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     208	   5698542 ns/op	   65915 B/op	      88 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     212	   5674785 ns/op	   65920 B/op	      88 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     211	   5660584 ns/op	   65913 B/op	      88 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     212	   5621178 ns/op	   65915 B/op	      88 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     213	   5602932 ns/op	   65919 B/op	      88 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     213	   5608463 ns/op	   65912 B/op	      88 allocs/op
-BenchmarkCaptureScale/amux/panes_4-4           	     213	   5602879 ns/op	   65912 B/op	      88 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     454	   2590674 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     452	   2596772 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     453	   2593659 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     452	   2600150 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     453	   2594380 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     453	   2591913 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_4-4           	     451	   2607190 ns/op	   25368 B/op	     107 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     204	   5863169 ns/op	   71547 B/op	      89 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     204	   5835529 ns/op	   71544 B/op	      89 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     204	   5842376 ns/op	   71554 B/op	      89 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     205	   5814259 ns/op	   71559 B/op	      89 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     204	   5828891 ns/op	   71547 B/op	      89 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     205	   5794738 ns/op	   71544 B/op	      89 allocs/op
-BenchmarkCaptureScale/amux/panes_10-4          	     206	   5780824 ns/op	   71560 B/op	      89 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     453	   2590731 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     457	   2570525 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     456	   2580071 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     457	   2580981 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     457	   2578183 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     456	   2581757 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_10-4          	     462	   2555381 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     189	   6282019 ns/op	   82425 B/op	      90 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     192	   6214530 ns/op	   82429 B/op	      90 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     190	   6236204 ns/op	   82424 B/op	      90 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     193	   6195839 ns/op	   82428 B/op	      90 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     192	   6204722 ns/op	   82435 B/op	      90 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     190	   6238651 ns/op	   82424 B/op	      90 allocs/op
-BenchmarkCaptureScale/amux/panes_20-4          	     192	   6211074 ns/op	   82428 B/op	      90 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     460	   2563132 ns/op	   25371 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     465	   2539119 ns/op	   25370 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     462	   2551812 ns/op	   25370 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     464	   2545889 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     462	   2560401 ns/op	   25371 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     391	   2569904 ns/op	   25369 B/op	     107 allocs/op
-BenchmarkCaptureScale/tmux/panes_20-4          	     462	   2559932 ns/op	   25370 B/op	     107 allocs/op
-BenchmarkHotReload-4                           	       1	1851415901 ns/op	1851413556 reconnect-ns/op	1960767318 total-ns/op	   86560 B/op	     665 allocs/op
-BenchmarkHotReload-4                           	       1	1854938412 ns/op	1854931379 reconnect-ns/op	1960747212 total-ns/op	  117232 B/op	     713 allocs/op
-BenchmarkHotReload-4                           	       1	1855118815 ns/op	1855116150 reconnect-ns/op	1960367034 total-ns/op	   95024 B/op	     683 allocs/op
-BenchmarkHotReload-4                           	       1	1852057843 ns/op	1852055237 reconnect-ns/op	1958025479 total-ns/op	   96056 B/op	     687 allocs/op
-BenchmarkHotReload-4                           	       1	1856686346 ns/op	1856683662 reconnect-ns/op	1960191493 total-ns/op	   96056 B/op	     687 allocs/op
-BenchmarkHotReload-4                           	       1	1855863942 ns/op	1855861046 reconnect-ns/op	1959809923 total-ns/op	   87608 B/op	     669 allocs/op
-BenchmarkHotReload-4                           	       1	1856274204 ns/op	1856269745 reconnect-ns/op	1958971112 total-ns/op	   95008 B/op	     683 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     282	   4259611 ns/op	   84116 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     280	   4266301 ns/op	   84155 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     279	   4267496 ns/op	   84161 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     279	   4293120 ns/op	   84157 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     271	   4439807 ns/op	   84128 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     268	   4384421 ns/op	   84115 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_1-4     	     272	   4342962 ns/op	   84159 B/op	      91 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     270	   4430388 ns/op	  153668 B/op	      93 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     271	   4417903 ns/op	  153670 B/op	      93 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     270	   4429173 ns/op	  153723 B/op	      93 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     268	   4440037 ns/op	  153724 B/op	      93 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     270	   4427791 ns/op	  153683 B/op	      93 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     267	   4442143 ns/op	  153674 B/op	      93 allocs/op
-BenchmarkOutputDetection/polling/panes_4-4     	     270	   4424803 ns/op	  153664 B/op	      93 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2101	    569084 ns/op	   89755 B/op	     709 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2088	    568877 ns/op	   89737 B/op	     709 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2151	    560724 ns/op	   89641 B/op	     709 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2121	    561598 ns/op	   89674 B/op	     709 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2083	    560746 ns/op	   89585 B/op	     709 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2104	    562709 ns/op	   89684 B/op	     709 allocs/op
-BenchmarkOutputDetection/push/panes_1-4        	    2068	    564007 ns/op	   89750 B/op	     710 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1196	    960155 ns/op	  308829 B/op	    2485 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1276	    954756 ns/op	  308473 B/op	    2485 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1234	    956363 ns/op	  308087 B/op	    2485 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1221	    970255 ns/op	  308956 B/op	    2485 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1201	    963241 ns/op	  308407 B/op	    2485 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1244	    950258 ns/op	  308245 B/op	    2485 allocs/op
-BenchmarkOutputDetection/push/panes_4-4        	    1214	    953278 ns/op	  308247 B/op	    2485 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     274	   4341340 ns/op	  107172 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     277	   4331716 ns/op	  107176 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     276	   4320003 ns/op	  107180 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     278	   4324677 ns/op	  107178 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     278	   4321784 ns/op	  107168 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     273	   4350710 ns/op	  107170 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/polling-4          	     277	   4332936 ns/op	  107263 B/op	      92 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1744	    685341 ns/op	  162987 B/op	    1309 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1724	    690487 ns/op	  163085 B/op	    1309 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1743	    687514 ns/op	  163300 B/op	    1309 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1743	    688369 ns/op	  163113 B/op	    1309 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1720	    688709 ns/op	  163091 B/op	    1309 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1711	    691771 ns/op	  163142 B/op	    1309 allocs/op
-BenchmarkDetectLayoutChange/push-4             	    1704	    694608 ns/op	  163014 B/op	    1309 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     159	   7837456 ns/op	   63049 B/op	      87 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     148	   8016984 ns/op	   63256 B/op	      87 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     156	   7611515 ns/op	   63050 B/op	      87 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     162	   7252273 ns/op	   63045 B/op	      87 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     152	   7458029 ns/op	   63243 B/op	      87 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     144	   7945339 ns/op	   63043 B/op	      87 allocs/op
+BenchmarkCaptureScale/amux/panes_1-4           	     146	   7973570 ns/op	   63039 B/op	      87 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     313	   3506469 ns/op	   25400 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     337	   3412905 ns/op	   25399 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     320	   3422401 ns/op	   25399 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     309	   3603272 ns/op	   25399 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     375	   3136508 ns/op	   25400 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     360	   3250414 ns/op	   25400 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_1-4           	     368	   3313099 ns/op	   25400 B/op	     107 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     157	   7530912 ns/op	   65924 B/op	      88 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     160	   7411572 ns/op	   65916 B/op	      88 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     163	   7350728 ns/op	   65939 B/op	      88 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     160	   7411997 ns/op	   65920 B/op	      88 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     165	   7292013 ns/op	   65915 B/op	      88 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     162	   7357185 ns/op	   65917 B/op	      88 allocs/op
+BenchmarkCaptureScale/amux/panes_4-4           	     165	   7227656 ns/op	   65920 B/op	      88 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     301	   3661896 ns/op	   25366 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     298	   3575583 ns/op	   25364 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     295	   3611030 ns/op	   25365 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     302	   3625753 ns/op	   25365 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     289	   3667521 ns/op	   25365 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     298	   3629004 ns/op	   25366 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_4-4           	     297	   3644022 ns/op	   25366 B/op	     107 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     160	   7394554 ns/op	   71553 B/op	      89 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     156	   7568065 ns/op	   71548 B/op	      89 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     157	   7528169 ns/op	   71702 B/op	      89 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     160	   7581569 ns/op	   71553 B/op	      89 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     157	   7452524 ns/op	   71552 B/op	      89 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     193	   6218079 ns/op	   71556 B/op	      89 allocs/op
+BenchmarkCaptureScale/amux/panes_10-4          	     157	   7443077 ns/op	   71547 B/op	      89 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     330	   3190865 ns/op	   25367 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     304	   3334791 ns/op	   25366 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     312	   3527201 ns/op	   25366 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     332	   3112322 ns/op	   25367 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     334	   3015546 ns/op	   25367 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     339	   3249655 ns/op	   25367 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_10-4          	     346	   3181190 ns/op	   25367 B/op	     107 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     177	   7323541 ns/op	   82430 B/op	      90 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     177	   6518792 ns/op	   82424 B/op	      90 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     188	   6316659 ns/op	   82443 B/op	      90 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     187	   6365410 ns/op	   82437 B/op	      90 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     189	   6262990 ns/op	   82435 B/op	      90 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     190	   6251357 ns/op	   82436 B/op	      90 allocs/op
+BenchmarkCaptureScale/amux/panes_20-4          	     189	   6250123 ns/op	   82425 B/op	      90 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     368	   2807918 ns/op	   25369 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     374	   2736474 ns/op	   25369 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     375	   2727780 ns/op	   25369 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     367	   2789123 ns/op	   25369 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     427	   2769519 ns/op	   25370 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     367	   2794319 ns/op	   25368 B/op	     107 allocs/op
+BenchmarkCaptureScale/tmux/panes_20-4          	     369	   2774564 ns/op	   25369 B/op	     107 allocs/op
+BenchmarkHotReload-4                           	       1	1854285372 ns/op	1854282548 reconnect-ns/op	1961683150 total-ns/op	  117040 B/op	     711 allocs/op
+BenchmarkHotReload-4                           	       1	1855123418 ns/op	1855104009 reconnect-ns/op	1960745150 total-ns/op	  116536 B/op	     709 allocs/op
+BenchmarkHotReload-4                           	       1	1856263288 ns/op	1856254424 reconnect-ns/op	1961444561 total-ns/op	   94208 B/op	     682 allocs/op
+BenchmarkHotReload-4                           	       1	1855412043 ns/op	1855409138 reconnect-ns/op	1961252548 total-ns/op	  125504 B/op	     729 allocs/op
+BenchmarkHotReload-4                           	       1	1855452714 ns/op	1855449760 reconnect-ns/op	1961412609 total-ns/op	   87608 B/op	     669 allocs/op
+BenchmarkHotReload-4                           	       1	1852495999 ns/op	1852490922 reconnect-ns/op	1961451582 total-ns/op	  115992 B/op	     707 allocs/op
+BenchmarkHotReload-4                           	       1	1855529183 ns/op	1855525858 reconnect-ns/op	1960955741 total-ns/op	   96056 B/op	     687 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     272	   4384188 ns/op	   84150 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     273	   4397682 ns/op	   84169 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     276	   4352209 ns/op	   84113 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     258	   4479317 ns/op	   84118 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     276	   4352512 ns/op	   84154 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     273	   4375114 ns/op	   84123 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_1-4     	     274	   4363376 ns/op	   84161 B/op	      91 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     264	   4525483 ns/op	  153670 B/op	      93 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     262	   4533289 ns/op	  153668 B/op	      93 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     265	   4567804 ns/op	  153664 B/op	      93 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     264	   4522980 ns/op	  153671 B/op	      93 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     262	   4509922 ns/op	  153669 B/op	      93 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     264	   4521030 ns/op	  153733 B/op	      93 allocs/op
+BenchmarkOutputDetection/polling/panes_4-4     	     264	   4518100 ns/op	  153669 B/op	      93 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2250	    529683 ns/op	   89937 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2216	    527740 ns/op	   89845 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2190	    529830 ns/op	   89938 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2166	    536162 ns/op	   90082 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2144	    532767 ns/op	   89812 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2221	    528657 ns/op	   89811 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_1-4        	    2191	    533865 ns/op	   89924 B/op	     710 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1287	    922062 ns/op	  308499 B/op	    2485 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1303	    921968 ns/op	  308031 B/op	    2485 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1288	    928177 ns/op	  307667 B/op	    2484 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1293	    923563 ns/op	  308777 B/op	    2485 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1268	    929070 ns/op	  308282 B/op	    2485 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1161	    939515 ns/op	  308681 B/op	    2485 allocs/op
+BenchmarkOutputDetection/push/panes_4-4        	    1309	    918279 ns/op	  308960 B/op	    2485 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     270	   4415786 ns/op	  107157 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     270	   4461449 ns/op	  107188 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     271	   4432160 ns/op	  107270 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     268	   4446302 ns/op	  107250 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     271	   4424960 ns/op	  107283 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     267	   4443085 ns/op	  107177 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/polling-4          	     261	   4465176 ns/op	  107302 B/op	      92 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1795	    645117 ns/op	  162920 B/op	    1309 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1791	    647746 ns/op	  162764 B/op	    1308 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1873	    648149 ns/op	  163001 B/op	    1309 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1784	    646805 ns/op	  163229 B/op	    1309 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1872	    646357 ns/op	  163152 B/op	    1309 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1833	    766733 ns/op	  162931 B/op	    1309 allocs/op
+BenchmarkDetectLayoutChange/push-4             	    1856	    687054 ns/op	  162935 B/op	    1309 allocs/op
 FAIL
 exit status 1
-FAIL	github.com/weill-labs/amux/test	617.537s
+FAIL	github.com/weill-labs/amux/test	641.075s
 FAIL
