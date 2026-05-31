@@ -53,6 +53,22 @@ func TestPrepareMsgCLIArgs(t *testing.T) {
 			want:  []string{"send", "--to", "pane-1", "--body", "stdin body"},
 		},
 		{
+			name: "reply body flag is forwarded",
+			args: []string{"reply", "msg-000001", "--body", "hello"},
+			want: []string{"reply", "msg-000001", "--body", "hello"},
+		},
+		{
+			name: "reply body file becomes body flag",
+			args: []string{"reply", "msg-000001", "--body-file", bodyPath},
+			want: []string{"reply", "msg-000001", "--body", "file body\n"},
+		},
+		{
+			name:  "reply stdin becomes body flag",
+			stdin: strings.NewReader("stdin body"),
+			args:  []string{"reply", "msg-000001"},
+			want:  []string{"reply", "msg-000001", "--body", "stdin body"},
+		},
+		{
 			name:    "missing body value",
 			args:    []string{"send", "--body"},
 			wantErr: "missing value for --body",
@@ -158,6 +174,31 @@ func TestMsgCLICommandHandler(t *testing.T) {
 		{
 			name:       "subcommand help",
 			args:       []string{"msg", "send", "--help"},
+			wantStdout: "usage: amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text|--body-file path|stdin) [--format json]\n",
+		},
+		{
+			name:       "reply help",
+			args:       []string{"msg", "reply", "--help"},
+			wantStdout: "usage: amux msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] [--subject text] [--topic name] [--group name] [--metadata json] [--ack ok|error|seen] [--ack-note text] (--body text|--body-file path|stdin) [--format json]\n",
+		},
+		{
+			name:       "inbox help",
+			args:       []string{"msg", "inbox", "--help"},
+			wantStdout: "usage: amux msg inbox [pane] [--unread] [--format json]\n",
+		},
+		{
+			name:       "read help",
+			args:       []string{"msg", "read", "--help"},
+			wantStdout: "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]\n",
+		},
+		{
+			name:       "ack help",
+			args:       []string{"msg", "ack", "--help"},
+			wantStdout: "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]\n",
+		},
+		{
+			name:       "unknown subcommand help falls back to msg help",
+			args:       []string{"msg", "unknown", "--help"},
 			wantStdout: msgUsage + "\n",
 		},
 		{

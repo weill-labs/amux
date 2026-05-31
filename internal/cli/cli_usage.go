@@ -16,7 +16,12 @@ const (
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	mcpServerUsage    = "usage: amux mcp-server"
-	msgUsage          = "usage: amux msg <send|inbox|read|ack> ..."
+	msgUsage          = "usage: amux msg <send|reply|inbox|read|ack> ..."
+	msgSendUsage      = "usage: amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text|--body-file path|stdin) [--format json]"
+	msgReplyUsage     = "usage: amux msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] [--subject text] [--topic name] [--group name] [--metadata json] [--ack ok|error|seen] [--ack-note text] (--body text|--body-file path|stdin) [--format json]"
+	msgInboxUsage     = "usage: amux msg inbox [pane] [--unread] [--format json]"
+	msgReadUsage      = "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]"
+	msgAckUsage       = "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
 	remoteUsage       = "usage: amux remote <add|list|rm|panes|status|attach|detach|resize> ..."
 	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
@@ -230,6 +235,7 @@ Usage:
                                        Manage generic pane metadata
   amux [-s session] mcp-server         Run the amux MCP server over stdio
   amux [-s session] msg send --from <pane> --to <pane[,pane...]> [--subject text] (--body text|--body-file path|stdin) [--format json]
+  amux [-s session] msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] (--body text|--body-file path|stdin) [--ack ok|error|seen] [--format json]
   amux [-s session] msg inbox [pane] [--unread] [--format json]
   amux [-s session] msg read <msg-id> [--for pane] [--peek] [--format json]
   amux [-s session] msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]

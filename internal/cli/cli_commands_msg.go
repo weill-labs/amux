@@ -10,7 +10,7 @@ func msgCLICommands() map[string]commandHandler {
 	return map[string]commandHandler{
 		"msg": func(inv invocation, args []string) int {
 			if wantsMsgHelp(args) {
-				fmt.Fprintln(inv.runtime.Stdout, msgUsage)
+				fmt.Fprintln(inv.runtime.Stdout, msgHelpUsage(args))
 				return 0
 			}
 			if len(args) == 0 {
@@ -32,8 +32,26 @@ func wantsMsgHelp(args []string) bool {
 		len(args) == 2 && isHelpFlag(args[1])
 }
 
+func msgHelpUsage(args []string) string {
+	if len(args) == 2 && isHelpFlag(args[1]) {
+		switch args[0] {
+		case "send":
+			return msgSendUsage
+		case "reply":
+			return msgReplyUsage
+		case "inbox":
+			return msgInboxUsage
+		case "read":
+			return msgReadUsage
+		case "ack":
+			return msgAckUsage
+		}
+	}
+	return msgUsage
+}
+
 func prepareMsgCLIArgs(stdin io.Reader, args []string) ([]string, error) {
-	if len(args) == 0 || args[0] != "send" {
+	if len(args) == 0 || (args[0] != "send" && args[0] != "reply") {
 		return args, nil
 	}
 

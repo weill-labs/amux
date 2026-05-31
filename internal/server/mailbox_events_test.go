@@ -193,6 +193,94 @@ func TestWaitMessageReturnsUnreadDelivery(t *testing.T) {
 	}
 }
 
+func TestMsgCommandSendWakesWaitMessage(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, p1, p2, cleanup := newMailboxTestSession(t)
+	defer cleanup()
+
+	resultCh := make(chan struct {
+		output string
+		cmdErr string
+	}, 1)
+	go func() {
+		resultCh <- runTestCommand(t, srv, sess, "wait", "msg", p2.Meta.Name, "--format", "json", "--timeout", "500ms")
+	}()
+	waitForMailboxWaitSubscription(t, sess)
+
+	sent := runTestCommand(t, srv, sess, "msg", "send",
+		"--from", p1.Meta.Name,
+		"--to", p2.Meta.Name,
+		"--subject", "CLI incoming",
+		"--body", "body hidden from wait",
+		"--format", "json")
+	if sent.cmdErr != "" {
+		t.Fatalf("msg send error = %q", sent.cmdErr)
+	}
+	var sentSummary struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(sent.output), &sentSummary); err != nil {
+		t.Fatalf("unmarshal msg send output %q: %v", sent.output, err)
+	}
+
+	res := readWaitMessageResult(t, resultCh)
+	if res.cmdErr != "" {
+		t.Fatalf("wait msg error = %q", res.cmdErr)
+	}
+	if strings.Contains(res.output, "body hidden from wait") {
+		t.Fatalf("wait msg leaked body: %s", res.output)
+	}
+	var waitSummary struct {
+		ID      string `json:"id"`
+		Subject string `json:"subject"`
+	}
+	if err := json.Unmarshal([]byte(res.output), &waitSummary); err != nil {
+		t.Fatalf("unmarshal wait msg output %q: %v", res.output, err)
+	}
+	if waitSummary.ID != sentSummary.ID || waitSummary.Subject != "CLI incoming" {
+		t.Fatalf("wait msg summary = %+v, want CLI sent message %q", waitSummary, sentSummary.ID)
+	}
+}
+
+func TestMsgCommandReadAndAckEmitEvents(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, p1, p2, cleanup := newMailboxTestSession(t)
+	defer cleanup()
+
+	msg := mustSendMailboxMessage(t, sess, p1, p2, "CLI read", "body")
+	res := sess.enqueueEventSubscribe(sess.context(), eventFilter{
+		Types:  []string{EventMessageRead, EventMessageAck},
+		PaneID: p2.ID,
+	}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	read := runTestCommand(t, srv, sess, "msg", "read", string(msg.ID), "--for", p2.Meta.Name)
+	if read.cmdErr != "" {
+		t.Fatalf("msg read error = %q", read.cmdErr)
+	}
+	readEvent := readMailboxEvent(t, res.sub, time.Second)
+	if readEvent.Type != EventMessageRead {
+		t.Fatalf("read event type = %q, want %q", readEvent.Type, EventMessageRead)
+	}
+	if readEvent.Message == nil || readEvent.Message.ID != string(msg.ID) || readEvent.Message.ReadAt == "" {
+		t.Fatalf("read event message = %+v, want read timestamp", readEvent.Message)
+	}
+
+	ack := runTestCommand(t, srv, sess, "msg", "ack", string(msg.ID), "--for", p2.Meta.Name, "--status", "seen", "--note", "cli ack")
+	if ack.cmdErr != "" {
+		t.Fatalf("msg ack error = %q", ack.cmdErr)
+	}
+	ackEvent := readMailboxEvent(t, res.sub, time.Second)
+	if ackEvent.Type != EventMessageAck {
+		t.Fatalf("ack event type = %q, want %q", ackEvent.Type, EventMessageAck)
+	}
+	if ackEvent.Message == nil || ackEvent.Message.ID != string(msg.ID) || ackEvent.Message.AckStatus != "seen" || ackEvent.Message.AckedAt == "" {
+		t.Fatalf("ack event message = %+v, want ack status and timestamp", ackEvent.Message)
+	}
+}
+
 func TestWaitMessageTimeout(t *testing.T) {
 	t.Parallel()
 
