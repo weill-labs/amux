@@ -31,6 +31,7 @@ const (
 	remoteAttachUsage       = "usage: remote attach (<name>|<name>:<pane-name>)"
 	remoteAttachWindowUsage = "usage: remote attach-window <name>:<window>"
 	remoteDetachUsage       = "usage: remote detach <local-pane>"
+	remoteDetachWindowUsage = "usage: remote detach-window <local-window>"
 	remoteResizeUsage       = "usage: remote resize <local-pane>"
 	remoteCommandTimeout    = 10 * time.Second
 )
@@ -99,6 +100,8 @@ func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 		return runRemoteAttachWindow(ctx)
 	case "detach":
 		return runRemoteDetach(ctx)
+	case "detach-window":
+		return runRemoteDetachWindow(ctx)
 	case "resize":
 		return runRemoteResize(ctx)
 	default:
@@ -535,6 +538,51 @@ func uniqueLocalWindowName(mctx *MutationContext, host, remoteName string) strin
 		}
 	}
 	return base
+}
+
+func runRemoteDetachWindow(ctx *CommandContext) commandpkg.Result {
+	if len(ctx.Args) != 2 {
+		return commandpkg.Result{Err: errors.New(remoteDetachWindowUsage)}
+	}
+	ref := ctx.Args[1]
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		w := mctx.resolveWindow(ref)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("window %q not found", ref)}
+		}
+		if _, ok := mctx.sess.windowMirrorSigs[w.ID]; !ok {
+			return commandMutationResult{err: fmt.Errorf("window %q is not a remote mirror", w.Name)}
+		}
+		name := w.Name
+		paneIDs := windowPaneIDs(w)
+
+		// Stop the layout subscription first, then soft-close each pane (which
+		// also detaches the per-pane mirror); closing the last pane removes the
+		// window.
+		mctx.sess.mirror.DetachWindow(w.ID)
+		delete(mctx.sess.windowMirrorSigs, w.ID)
+		for _, id := range paneIDs {
+			mctx.softClosePane(id)
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Detached mirror window %s (%d panes)\n", name, len(paneIDs)),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+// windowPaneIDs returns the IDs of every leaf pane in a window, in tree order.
+func windowPaneIDs(w *mux.Window) []uint32 {
+	ids := make([]uint32, 0)
+	if w == nil || w.Root == nil {
+		return ids
+	}
+	w.Root.Walk(func(c *mux.LayoutCell) {
+		if c.Pane != nil {
+			ids = append(ids, c.Pane.ID)
+		}
+	})
+	return ids
 }
 
 func runRemoteAttachChooser(ctx *CommandContext, hostName string) commandpkg.Result {

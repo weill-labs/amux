@@ -78,6 +78,48 @@ func TestRemoteCLIAttachWindowDynamicResync(t *testing.T) {
 	}
 }
 
+// TestRemoteCLIDetachWindow tears down a mirrored window and verifies the local
+// panes are gone while the remote panes survive.
+func TestRemoteCLIDetachWindow(t *testing.T) {
+	t.Parallel()
+
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("spawn", "--name", "remote-side", "--vertical")
+
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	winName := windowNameFromAttach(attachOut)
+	if winName == "" {
+		t.Fatalf("could not parse window name from %q", attachOut)
+	}
+	if got := len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)); got != 2 {
+		t.Fatalf("expected 2 mirror panes, got %d", got)
+	}
+
+	detachOut := pair.local.runCmd("remote", "detach-window", winName)
+	if !strings.Contains(detachOut, "Detached mirror window") {
+		t.Fatalf("detach-window output = %q", detachOut)
+	}
+	if got := len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)); got != 0 {
+		t.Fatalf("mirror panes remain after detach-window: %d", got)
+	}
+	if remoteList := pair.remote.runCmd("list", "--no-cwd"); !strings.Contains(remoteList, "remote-side") {
+		t.Fatalf("detach-window destroyed remote panes:\n%s", remoteList)
+	}
+}
+
+func windowNameFromAttach(out string) string {
+	const marker = "as window "
+	i := strings.Index(out, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := out[i+len(marker):]
+	if j := strings.Index(rest, " ("); j >= 0 {
+		return rest[:j]
+	}
+	return strings.TrimSpace(rest)
+}
+
 func localMirrorNames(listOut, host string) []string {
 	names := make([]string, 0)
 	for _, line := range strings.Split(listOut, "\n") {
