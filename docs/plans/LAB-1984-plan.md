@@ -1,16 +1,31 @@
 # LAB-1984 — Implementation plan: window-level remote mirroring
 
-## Scope (MVP / tracer bullet)
-Mirror a remote window's panes + split layout into a new local window, reusing the
-existing per-pane mirror machinery. Static snapshot at attach time. Defer dynamic
-resync, window-level dimension matching, and whole-window detach to follow-ups.
+## Locked decisions (user-confirmed)
+- **Delivery:** single big PR with structured TDD commits on one branch.
+- **CLI:** separate verbs — `remote windows`, `remote attach-window`, `remote detach-window`.
+- **Dimension matching:** resize the REMOTE to match the LOCAL window geometry
+  (extend `planRemoteResize` per pane). Fallbacks required for lead panes and
+  single-axis windows (skip + log; cannot resize those).
+- **Architecture:** reuse the existing per-pane output/input mirror path untouched
+  (one Link per pane). Add only a separate per-window LAYOUT-subscription link
+  (`MsgTypeAttachWindow`) for dynamic resync. Server change is minimal: one accept
+  case + relax `allowsServerMessage` to pass `MsgTypeLayout` for a window-scoped conn.
 
-## CLI surface
+## Scope (FULL feature, single PR) — confirmed with user
+Mirror a remote window's panes + split layout into a new local window. Includes:
+1. Static window mirror (reuse per-pane machinery + RebuildWindowFromSnapshot).
+2. **Dynamic resync** — remote window layout changes (pane add/remove/resize)
+   propagate to the local mirror via a new layout-subscription channel.
+3. **Dimension matching** — the local mirror window tracks the remote window's
+   geometry (and/or reconciles size like the per-pane `remote resize`).
+4. **Whole-window detach** — `remote detach-window <local-window>` one-shot teardown.
+
+## CLI surface — confirmed: separate verbs
 - `amux remote windows <name>` — list the remote host's windows
   (index, name, pane count, dimensions, active marker). Parallels `remote panes`.
-- `amux remote attach --window <name>:<window>` — mirror a whole remote window.
-  `--window` disambiguates from the pane form (matches the existing
-  `send-keys --window <index|name>` convention). Accepts window name or index.
+- `amux remote attach-window <name>:<window>` — mirror a whole remote window
+  (window name or index). Distinct verb from pane `attach`.
+- `amux remote detach-window <local-window>` — tear down a mirrored window.
 
 ## Build sequence (TDD, separate commits per red/green/refactor)
 
@@ -62,7 +77,24 @@ make coverage
 - **RebuildWindowFromSnapshot pane sizing** — confirm it sizes proxy panes from the
   local width/height + snapshot proportions (not the remote's absolute dims).
 
-## Out of scope (follow-up tickets)
-- Dynamic remote-split resync (needs a layout-subscription channel on the mirror link).
-- Window-level dimension matching / `remote resize --window`.
-- `remote detach --window` single-command teardown.
+## Dynamic resync — design (the hard part)
+The per-pane mirror link carries pane output only. For window mirroring we need the
+remote to tell us when the window's split structure changes. Approach:
+- Add `MsgTypeAttachWindow{Session, WindowName}` on the remote: subscribes the
+  connection to (a) layout snapshots for that window on every change, and (b) the
+  output streams of all panes in it. Server reuses its existing per-client layout
+  broadcast path, scoped to one window.
+- Local mirror manager gains a window-mirror state: on each inbound layout snapshot,
+  reconcile — add proxy panes for new remote pane IDs, soft-close removed ones,
+  re-run RebuildWindowFromSnapshot to update the split tree, rebroadcast locally.
+- Falls back to a single multiplexed link per window (not N) so add/remove of remote
+  panes does not require opening/closing sockets mid-stream.
+- TO VERIFY before coding: server-side handling of MsgTypeAttachPane (is there a
+  scoped subscriber model to extend?), the layout broadcast path, and whether output
+  for multiple panes can share one connection. See LAB-1984-findings.md "resync".
+
+## Dimension matching — design
+- On attach and on local-window resize, send the remote a window-level resize
+  (reuse planRemoteResize per pane, or a new window-resize remote command) so the
+  remote window geometry tracks the local mirror window. Confirm RebuildWindowFromSnapshot
+  scales cell proportions to the local width/height.

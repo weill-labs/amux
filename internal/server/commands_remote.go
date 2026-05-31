@@ -27,6 +27,7 @@ const (
 	remoteStatusUsage    = "usage: remote status"
 	remoteRmUsage        = "usage: remote rm <name>"
 	remotePanesUsage     = "usage: remote panes <name>"
+	remoteWindowsUsage   = "usage: remote windows <name>"
 	remoteAttachUsage    = "usage: remote attach (<name>|<name>:<pane-name>)"
 	remoteDetachUsage    = "usage: remote detach <local-pane>"
 	remoteResizeUsage    = "usage: remote resize <local-pane>"
@@ -89,6 +90,8 @@ func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 		return runRemoteRm(ctx)
 	case "panes":
 		return runRemotePanes(ctx)
+	case "windows":
+		return runRemoteWindows(ctx)
 	case "attach":
 		return runRemoteAttach(ctx)
 	case "detach":
@@ -244,6 +247,42 @@ func runRemotePanes(ctx *CommandContext) commandpkg.Result {
 	}
 	home, _ := os.UserHomeDir()
 	return commandpkg.Result{Output: listingcmd.FormatPaneList(remoteLayoutPaneEntries(layout), home, true)}
+}
+
+func runRemoteWindows(ctx *CommandContext) commandpkg.Result {
+	if len(ctx.Args) != 2 {
+		return commandpkg.Result{Err: errors.New(remoteWindowsUsage)}
+	}
+	host, err := lookupRemoteHost(ctx.Args[1])
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	layout, err := listRemotePanes(ctx.context(), host)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: formatRemoteWindows(layout)}
+}
+
+// formatRemoteWindows renders the `remote windows` table: one row per remote
+// window with its index, name, leaf-pane count, root dimensions, and an active
+// marker. Pure function so it is unit-testable without a live remote.
+func formatRemoteWindows(layout *proto.LayoutSnapshot) string {
+	if layout == nil || len(layout.Windows) == 0 {
+		return "No windows.\n"
+	}
+	b := strings.Builder{} // local accumulator (not a package-level var)
+	fmt.Fprintf(&b, "%-3s %-20s %-6s %-12s %s\n", "", "NAME", "PANES", "DIMENSIONS", "INDEX")
+	for _, w := range layout.Windows {
+		marker := " "
+		if layout.ActiveWindowID == w.ID {
+			marker = "*"
+		}
+		paneCount := len(leafCellIDs(w.Root))
+		dims := fmt.Sprintf("%dx%d", w.Root.W, w.Root.H)
+		fmt.Fprintf(&b, "%-3s %-20s %-6d %-12s %d\n", marker, w.Name, paneCount, dims, w.Index)
+	}
+	return b.String()
 }
 
 func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
