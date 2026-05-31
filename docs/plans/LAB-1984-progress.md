@@ -24,8 +24,12 @@
 ## Next (protocol-heavy, higher risk)
 - [x] Step 3: `MsgTypeAttachWindow` (=30) server handler + `scopedWindowID` on
       clientConn + relax `allowsServerMessage` to pass MsgTypeLayout. [6630270]
-- [ ] Step 4: window-mirror coordinator in mirror.Manager — open the layout link,
-      reconcile on each remote layout snapshot (add/remove/restructure panes).
+- [x] Step 4a: mirror.Manager window-layout subscription (TrackWindow/DetachWindow,
+      OnWindowLayout callback, WindowRef) + tests. [8ab1888]
+- [ ] Step 4b: session-side reconcile — wire OnWindowLayout to a mutation that
+      diffs the remote window snapshot vs the local mirror window (match panes by
+      remote name), create/soft-close proxies, rebuild the split tree; register
+      the window mirror in `attach-window`. (NEXT — largest/riskiest sub-step.)
 - [ ] Step 5: dimension matching — resize REMOTE to match LOCAL on attach + on
       local window resize (extend planRemoteResize; skip lead/single-axis panes).
 - [ ] Step 6: `remote detach-window <local-window>` teardown.
