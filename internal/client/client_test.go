@@ -226,6 +226,44 @@ func twoPane80x23Zoomed(paneID uint32) *proto.LayoutSnapshot {
 	return snap
 }
 
+func zoomedPane1AfterSplit80x23() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{
+				X: 0, Y: 0, W: 39, H: 23,
+				Dir: int(mux.SplitHorizontal),
+				Children: []proto.CellSnapshot{
+					{X: 0, Y: 0, W: 39, H: 11, IsLeaf: true, Dir: -1, PaneID: 1},
+					{X: 0, Y: 12, W: 39, H: 11, IsLeaf: true, Dir: -1, PaneID: 3},
+				},
+			},
+			{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", ColumnIndex: 0},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd", ColumnIndex: 1},
+		{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7", ColumnIndex: 0},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		ZoomedPaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1, ZoomedPaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
+
 func buildManyPaneRenderer(t *testing.T, n int) *ClientRenderer {
 	t.Helper()
 	cr := NewClientRenderer(200, 24)
@@ -1020,6 +1058,45 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayout(t *testing.T) {
 	lines := strings.Split(cr.CapturePaneText(2, false), "\n")
 	if len(lines) == 0 || lines[0] != wideLine {
 		t.Fatalf("pane-2 first line after idle layout = %q, want %q", lines[0], wideLine)
+	}
+}
+
+func TestRendererZoomedStructuralLayoutDoesNotResizeVisiblePane(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, mux.DefaultScrollbackLines)
+	r.HandleLayout(twoPane80x23Zoomed(1))
+
+	const wideLine = "zoomed structural layout should not reflow this visible pane line"
+	r.HandlePaneOutput(1, []byte("\033[2J\033[H"+wideLine))
+
+	type resizeCall struct {
+		paneID uint32
+		w      int
+		h      int
+	}
+	var calls []resizeCall
+	r.OnPaneResize = func(paneID uint32, w, h int) {
+		calls = append(calls, resizeCall{paneID: paneID, w: w, h: h})
+	}
+
+	r.HandleLayout(zoomedPane1AfterSplit80x23())
+
+	for _, call := range calls {
+		if call.paneID == 1 {
+			t.Fatalf("zoomed pane resize calls after background split = %+v, want no pane-1 resize", calls)
+		}
+	}
+	w, h, ok := r.PaneSize(1)
+	if !ok {
+		t.Fatal("pane-1 emulator missing")
+	}
+	if w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-1 size after background split = %dx%d, want 80x22", w, h)
+	}
+	lines := strings.Split(r.CapturePaneText(1, false), "\n")
+	if len(lines) == 0 || lines[0] != wideLine {
+		t.Fatalf("pane-1 first line after background split = %q, want %q", lines[0], wideLine)
 	}
 }
 
