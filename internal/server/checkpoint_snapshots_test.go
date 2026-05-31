@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -38,5 +40,20 @@ func TestSnapshotPaneHistoryScreensPreservesInputOrder(t *testing.T) {
 		if got := snapshots[i].screen; got != fmt.Sprintf("screen-%d", p.ID) {
 			t.Fatalf("snapshots[%d].screen = %q, want screen-%d", i, got, p.ID)
 		}
+	}
+}
+
+func TestSnapshotPaneHistoryScreensContextReturnsDeadlineExceeded(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, err := snapshotPaneHistoryScreensContext(ctx, []*mux.Pane{{ID: 1}}, func(*mux.Pane) ([]string, string, uint64) {
+		time.Sleep(time.Second)
+		return []string{"late"}, "late", 0
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("snapshotPaneHistoryScreensContext() error = %v, want context deadline exceeded", err)
 	}
 }

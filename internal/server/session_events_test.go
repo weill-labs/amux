@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/auditlog"
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -366,17 +369,53 @@ func TestSessionWatchdogSnapshotCapturesSessionName(t *testing.T) {
 	}
 }
 
-func TestSessionWatchdogTimeoutClosesStopAndShutsDownServer(t *testing.T) {
-	t.Parallel()
+func TestSessionWatchdogTimeoutTriggersRecoveryAction(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_ATTEMPTS", "")
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_FIRST_UNIX", "")
 
-	shutdownDone := make(chan struct{})
-	srv := &Server{shutdownDone: shutdownDone}
-	sess := &Session{
-		Name:             "watchdog-timeout-test",
-		logger:           auditlog.Discard(),
-		sessionEventStop: make(chan struct{}),
-		exitServer:       srv,
+	socketPath := filepath.Join(t.TempDir(), "watchdog-recovery.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
 	}
+	defer listener.Close()
+
+	sess := newSession("watchdog-timeout-test")
+	sess.logger = auditlog.Discard()
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		pane := newTestPane(sess, 1, "pane-1")
+		window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
+		seedSessionPanesForTest(sess, pane)
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.windowCounter.Store(1)
+		sess.refreshInputTarget()
+	})
+
+	execCalled := make(chan []string, 1)
+	shutdownDone := make(chan struct{})
+	srv := &Server{
+		listener:              listener,
+		sessions:              map[string]*Session{sess.Name: sess},
+		sockPath:              socketPath,
+		shutdownDone:          shutdownDone,
+		ResolveReloadExecPath: func() (string, error) { return "/bin/amux-test", nil },
+		watchdogRecoveryExec: func(_ string, _ []string, env []string) error {
+			execCalled <- env
+			return nil
+		},
+		watchdogRecoverySleep: func(time.Duration) {},
+	}
+	sess.exitServer = srv
+	mustSessionQuery(t, sess, func(sess *Session) eventloop.WatchdogSnapshot {
+		return sess.EventLoopWatchdogSnapshot()
+	})
 
 	sess.HandleEventLoopWatchdogTimeout(eventloop.WatchdogTimeoutInfo{
 		CommandType: "server.liveInputEvent",
@@ -387,17 +426,80 @@ func TestSessionWatchdogTimeoutClosesStopAndShutsDownServer(t *testing.T) {
 		StateName:   "watchdog-timeout-test",
 	})
 
+	var env []string
 	select {
-	case <-sess.sessionEventStop:
+	case env = <-execCalled:
 	case <-time.After(time.Second):
-		t.Fatal("watchdog timeout did not close sessionEventStop")
+		t.Fatal("watchdog timeout did not invoke recovery exec")
+	}
+
+	cpPath := getenvFrom(env, "AMUX_CHECKPOINT")
+	if cpPath == "" {
+		t.Fatalf("recovery env missing AMUX_CHECKPOINT: %v", env)
+	}
+	cp, err := checkpoint.Read(cpPath)
+	if err != nil {
+		t.Fatalf("reading recovery checkpoint: %v", err)
+	}
+	if cp.SessionName != sess.Name {
+		t.Fatalf("checkpoint session = %q, want %q", cp.SessionName, sess.Name)
+	}
+	if len(cp.Panes) != 1 || cp.Panes[0].Meta.Name != "pane-1" {
+		t.Fatalf("checkpoint panes = %+v, want pane-1", cp.Panes)
 	}
 
 	select {
 	case <-shutdownDone:
-	case <-time.After(time.Second):
-		t.Fatal("watchdog timeout did not trigger server shutdown")
+		t.Fatal("watchdog recovery should not shut down the server before exec")
+	default:
 	}
+}
+
+func TestSessionWatchdogTimeoutStopsAfterMaxRecoveryAttempts(t *testing.T) {
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_ATTEMPTS", strconv.Itoa(maxWatchdogRecoveryAttempts))
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_FIRST_UNIX", strconv.FormatInt(time.Now().Unix(), 10))
+
+	sess := &Session{
+		Name:   "watchdog-timeout-test",
+		logger: auditlog.Discard(),
+	}
+	execCalled := make(chan struct{}, 1)
+	srv := &Server{
+		sessions:              map[string]*Session{sess.Name: sess},
+		shutdownDone:          make(chan struct{}),
+		ResolveReloadExecPath: func() (string, error) { return "/bin/amux-test", nil },
+		watchdogRecoveryExec: func(string, []string, []string) error {
+			execCalled <- struct{}{}
+			return nil
+		},
+		watchdogRecoverySleep: func(time.Duration) {},
+	}
+	sess.exitServer = srv
+
+	sess.HandleEventLoopWatchdogTimeout(eventloop.WatchdogTimeoutInfo{
+		CommandType: "server.liveInputEvent",
+		Started:     time.Now(),
+		Elapsed:     31 * time.Second,
+		Timeout:     30 * time.Second,
+		GoroutineID: 123,
+		StateName:   sess.Name,
+	})
+
+	select {
+	case <-execCalled:
+		t.Fatal("watchdog recovery exec called after max attempts")
+	default:
+	}
+}
+
+func getenvFrom(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }
 
 func TestLiveInputEventDoesNotBlockWhenPacedInputQueueIsFull(t *testing.T) {
