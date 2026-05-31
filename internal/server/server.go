@@ -112,6 +112,9 @@ type Session struct {
 
 	// Crash checkpoint coordination owns debounce/periodic scheduling and disk writes.
 	checkpointCoordinator crashCheckpointCoordinator
+	// watchdogRecoveryCheckpoint is a cheap last-known-good reload snapshot
+	// captured on the event loop immediately before each command handler starts.
+	watchdogRecoveryCheckpoint *checkpoint.ServerCheckpoint
 
 	// Async session event loop — phase 1 serializes callback-driven writes.
 	sessionCtx       context.Context
@@ -275,7 +278,10 @@ func (s *Session) buildCrashCheckpointWithSnapshot(snapshotFn paneHistoryScreenS
 		pid   int
 	}
 
-	snap, err := enqueueSessionQueryOnState(s.context(), s, func(s *Session) (crashCheckpointWork, error) {
+	ctx, cancel := context.WithTimeout(s.context(), s.checkpointSnapshotTimeout())
+	defer cancel()
+
+	snap, err := enqueueSessionQuery(ctx, s, func(_ context.Context, s *Session) (crashCheckpointWork, error) {
 		if len(s.Windows) == 0 {
 			return crashCheckpointWork{}, nil
 		}
@@ -304,7 +310,10 @@ func (s *Session) buildCrashCheckpointWithSnapshot(snapshotFn paneHistoryScreenS
 	}
 
 	snap.cp.Mailbox = materializeMailboxCheckpointSnapshot(snap.mailbox)
-	paneSnapshots := snapshotPaneHistoryScreens(checkpointPaneRefs(snap.panes), snapshotFn)
+	paneSnapshots, err := snapshotPaneHistoryScreensContext(ctx, checkpointPaneRefs(snap.panes), snapshotFn)
+	if err != nil {
+		return nil
+	}
 	snap.cp.PaneStates = make([]checkpoint.CrashPaneState, len(snap.panes))
 	var cwdWork []pidEntry
 	for i, pane := range snap.panes {
@@ -410,6 +419,14 @@ type Server struct {
 	// ResolveReloadExecPath resolves the executable path for server reload.
 	// Defaults to reload.ResolveExecutable; tests inject stubs.
 	ResolveReloadExecPath func() (string, error)
+	// watchdogRecoveryExec replaces the process image during watchdog recovery.
+	// Nil uses syscall.Exec; tests inject a stub.
+	watchdogRecoveryExec func(string, []string, []string) error
+	// watchdogRecoverySleep applies retry backoff before exec. Nil uses time.Sleep.
+	watchdogRecoverySleep func(time.Duration)
+	// watchdogGoroutineDump emits a SIGQUIT-style goroutine dump at timeout.
+	// Nil writes the runtime goroutine dump to stderr; tests inject a no-op.
+	watchdogGoroutineDump func() error
 
 	// commands overrides the default commandRegistry for handler lookup.
 	// When nil, handleCommand falls back to the package-level registry.

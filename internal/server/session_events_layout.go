@@ -568,6 +568,7 @@ func (s *Session) EventLoopWatchdogTimeout() time.Duration {
 }
 
 func (s *Session) EventLoopWatchdogSnapshot() eventloop.WatchdogSnapshot {
+	s.captureWatchdogRecoveryCheckpoint()
 	return eventloop.WatchdogSnapshot{StateName: s.Name}
 }
 
@@ -583,9 +584,8 @@ func (s *Session) HandleEventLoopWatchdogTimeout(info eventloop.WatchdogTimeoutI
 			"goroutine_id", info.GoroutineID,
 		)
 	}
-	s.stopEventLoopSignal()
 	if s.exitServer != nil {
-		go s.exitServer.Shutdown()
+		s.exitServer.recoverFromWatchdogTimeout(s, info)
 	}
 }
 

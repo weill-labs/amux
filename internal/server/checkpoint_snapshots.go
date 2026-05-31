@@ -1,6 +1,10 @@
 package server
 
-import "github.com/weill-labs/amux/internal/mux"
+import (
+	"context"
+
+	"github.com/weill-labs/amux/internal/mux"
+)
 
 type paneHistoryScreenSnapshot struct {
 	history []string
@@ -14,8 +18,16 @@ type paneHistoryScreenSnapshot struct {
 // distinct panes because each pane serializes emulator access through its own
 // actor goroutine.
 func snapshotPaneHistoryScreens(panes []*mux.Pane, snapshot func(*mux.Pane) ([]string, string, uint64)) []paneHistoryScreenSnapshot {
+	snapshots, _ := snapshotPaneHistoryScreensContext(context.Background(), panes, snapshot)
+	return snapshots
+}
+
+func snapshotPaneHistoryScreensContext(ctx context.Context, panes []*mux.Pane, snapshot func(*mux.Pane) ([]string, string, uint64)) ([]paneHistoryScreenSnapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(panes) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	type paneSnapshotResult struct {
@@ -26,6 +38,9 @@ func snapshotPaneHistoryScreens(panes []*mux.Pane, snapshot func(*mux.Pane) ([]s
 
 	ch := make(chan paneSnapshotResult, len(panes))
 	for i, p := range panes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		go func(index int, pane *mux.Pane) {
 			history, screen, _ := snapshot(pane)
 			ch <- paneSnapshotResult{index: index, history: history, screen: screen}
@@ -34,12 +49,16 @@ func snapshotPaneHistoryScreens(panes []*mux.Pane, snapshot func(*mux.Pane) ([]s
 
 	snapshots := make([]paneHistoryScreenSnapshot, len(panes))
 	for range panes {
-		r := <-ch
-		snapshots[r.index] = paneHistoryScreenSnapshot{
-			history: r.history,
-			screen:  r.screen,
+		select {
+		case r := <-ch:
+			snapshots[r.index] = paneHistoryScreenSnapshot{
+				history: r.history,
+				screen:  r.screen,
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 
-	return snapshots
+	return snapshots, nil
 }

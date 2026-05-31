@@ -411,6 +411,7 @@ func TestSessionWatchdogTimeoutTriggersRecoveryAction(t *testing.T) {
 			return nil
 		},
 		watchdogRecoverySleep: func(time.Duration) {},
+		watchdogGoroutineDump: func() error { return nil },
 	}
 	sess.exitServer = srv
 	mustSessionQuery(t, sess, func(sess *Session) eventloop.WatchdogSnapshot {
@@ -473,6 +474,7 @@ func TestSessionWatchdogTimeoutStopsAfterMaxRecoveryAttempts(t *testing.T) {
 			return nil
 		},
 		watchdogRecoverySleep: func(time.Duration) {},
+		watchdogGoroutineDump: func() error { return nil },
 	}
 	sess.exitServer = srv
 
@@ -489,6 +491,138 @@ func TestSessionWatchdogTimeoutStopsAfterMaxRecoveryAttempts(t *testing.T) {
 	case <-execCalled:
 		t.Fatal("watchdog recovery exec called after max attempts")
 	default:
+	}
+}
+
+func TestSessionWatchdogTimeoutFallsBackToCrashCheckpoint(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("AMUX_CHECKPOINT", "/tmp/stale-reload-checkpoint")
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_ATTEMPTS", "")
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_FIRST_UNIX", "")
+
+	startedAt := time.Date(2026, time.May, 31, 12, 0, 0, 0, time.UTC)
+	sess := &Session{
+		Name:      "watchdog-crash-fallback",
+		startedAt: startedAt,
+		logger:    auditlog.Discard(),
+	}
+	if err := checkpoint.WriteCrash(&checkpoint.CrashCheckpoint{
+		Version:     checkpoint.CrashVersion,
+		SessionName: sess.Name,
+		Timestamp:   startedAt,
+	}, sess.Name, startedAt); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	execCalled := make(chan []string, 1)
+	srv := &Server{
+		sessions:              map[string]*Session{sess.Name: sess},
+		shutdownDone:          make(chan struct{}),
+		ResolveReloadExecPath: func() (string, error) { return "/bin/amux-test", nil },
+		watchdogRecoveryExec: func(_ string, _ []string, env []string) error {
+			execCalled <- env
+			return nil
+		},
+		watchdogRecoverySleep: func(time.Duration) {},
+		watchdogGoroutineDump: func() error { return nil },
+	}
+	sess.exitServer = srv
+
+	sess.HandleEventLoopWatchdogTimeout(eventloop.WatchdogTimeoutInfo{
+		CommandType: "server.crashSnapshot",
+		Started:     time.Now(),
+		Elapsed:     31 * time.Second,
+		Timeout:     30 * time.Second,
+		GoroutineID: 123,
+		StateName:   sess.Name,
+	})
+
+	var env []string
+	select {
+	case env = <-execCalled:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog timeout did not invoke crash fallback exec")
+	}
+	if got := getenvFrom(env, "AMUX_CHECKPOINT"); got != "" {
+		t.Fatalf("fallback env AMUX_CHECKPOINT = %q, want empty", got)
+	}
+	if got := getenvFrom(env, "AMUX_WATCHDOG_RECOVERY_ATTEMPTS"); got != "1" {
+		t.Fatalf("fallback attempts env = %q, want 1", got)
+	}
+}
+
+func TestSessionWatchdogRecoveryBacksOffRepeatedAttempts(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_ATTEMPTS", "1")
+	t.Setenv("AMUX_WATCHDOG_RECOVERY_FIRST_UNIX", strconv.FormatInt(time.Now().Unix(), 10))
+
+	socketPath := filepath.Join(t.TempDir(), "watchdog-recovery-backoff.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer listener.Close()
+
+	sess := newSession("watchdog-recovery-backoff")
+	sess.logger = auditlog.Discard()
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		pane := newTestPane(sess, 1, "pane-1")
+		window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
+		seedSessionPanesForTest(sess, pane)
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.windowCounter.Store(1)
+		sess.refreshInputTarget()
+	})
+
+	execCalled := make(chan struct{}, 1)
+	slept := make(chan time.Duration, 1)
+	srv := &Server{
+		listener:              listener,
+		sessions:              map[string]*Session{sess.Name: sess},
+		sockPath:              socketPath,
+		shutdownDone:          make(chan struct{}),
+		ResolveReloadExecPath: func() (string, error) { return "/bin/amux-test", nil },
+		watchdogRecoveryExec: func(string, []string, []string) error {
+			execCalled <- struct{}{}
+			return nil
+		},
+		watchdogRecoverySleep: func(d time.Duration) {
+			slept <- d
+		},
+		watchdogGoroutineDump: func() error { return nil },
+	}
+	sess.exitServer = srv
+	mustSessionQuery(t, sess, func(sess *Session) eventloop.WatchdogSnapshot {
+		return sess.EventLoopWatchdogSnapshot()
+	})
+
+	sess.HandleEventLoopWatchdogTimeout(eventloop.WatchdogTimeoutInfo{
+		CommandType: "server.liveInputEvent",
+		Started:     time.Now(),
+		Elapsed:     31 * time.Second,
+		Timeout:     30 * time.Second,
+		GoroutineID: 123,
+		StateName:   sess.Name,
+	})
+
+	select {
+	case got := <-slept:
+		if got != time.Second {
+			t.Fatalf("watchdog recovery backoff = %v, want 1s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watchdog recovery did not sleep before repeated attempt")
+	}
+	select {
+	case <-execCalled:
+	case <-time.After(time.Second):
+		t.Fatal("watchdog recovery did not exec after backoff")
 	}
 }
 

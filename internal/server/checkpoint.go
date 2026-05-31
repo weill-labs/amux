@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -11,6 +12,7 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -143,7 +145,10 @@ func (s *Session) buildReloadCheckpoint() (*checkpoint.ServerCheckpoint, error) 
 }
 
 func (s *Session) buildReloadCheckpointWithSnapshot(snapshot paneHistoryScreenSnapshotFunc) (*checkpoint.ServerCheckpoint, error) {
-	work, err := enqueueSessionQueryOnState(s.context(), s, func(sess *Session) (reloadCheckpointWork, error) {
+	ctx, cancel := context.WithTimeout(s.context(), s.checkpointSnapshotTimeout())
+	defer cancel()
+
+	work, err := enqueueSessionQuery(ctx, s, func(_ context.Context, sess *Session) (reloadCheckpointWork, error) {
 		if len(sess.Windows) == 0 {
 			return reloadCheckpointWork{}, fmt.Errorf("no window to checkpoint")
 		}
@@ -172,13 +177,32 @@ func (s *Session) buildReloadCheckpointWithSnapshot(snapshot paneHistoryScreenSn
 	}
 
 	work.cp.Mailbox = materializeMailboxCheckpointSnapshot(work.mailbox)
-	paneSnapshots := snapshotPaneHistoryScreens(checkpointPaneRefs(work.panes), snapshot)
+	paneSnapshots, err := snapshotPaneHistoryScreensContext(ctx, checkpointPaneRefs(work.panes), snapshot)
+	if err != nil {
+		return nil, err
+	}
 	work.cp.Panes = make([]checkpoint.PaneCheckpoint, len(work.panes))
 	for i, pane := range work.panes {
 		work.cp.Panes[i] = pane.paneCheckpoint(paneSnapshots[i])
 	}
 
 	return work.cp, nil
+}
+
+func (s *Session) checkpointSnapshotTimeout() time.Duration {
+	timeout := eventloop.DefaultWatchdogTimeout
+	if s != nil {
+		if configured := s.EventLoopWatchdogTimeout(); configured > 0 {
+			timeout = configured
+		}
+	}
+	if timeout <= time.Millisecond {
+		return timeout
+	}
+	if timeout <= 2*time.Second {
+		return timeout / 2
+	}
+	return timeout - time.Second
 }
 
 func mailboxCheckpointSnapshot(store *mailbox.Store) *mailbox.Snapshot {
