@@ -16,18 +16,27 @@
   layout-subscription link (MsgTypeAttachWindow) for dynamic resync.
 
 ## Done
-- [x] Step 1a: `ResolveWindowFromLayout` resolver (remote pkg) + tests.
-- [x] Step 1b: `remote windows` listing (formatRemoteWindows + dispatch) + tests.
+- [x] Step 1a: `ResolveWindowFromLayout` resolver (remote pkg) + tests. [9354311]
+- [x] Step 1b: `remote windows` listing (formatRemoteWindows + dispatch) + tests. [9354311]
+- [x] Step 2: `remote attach-window` static mirror — planRemoteWindowLeaves,
+      RebuildWindowFromSnapshot, uniqueLocalWindowName, e2e test. [7d816d1]
 
-## Next
-- [ ] Step 2: `remote attach-window` core — build N proxy panes, RebuildWindowFromSnapshot,
-      new local window, track each pane (static mirror).
-- [ ] Step 3: `MsgTypeAttachWindow` server handler + allowsServerMessage relax.
-- [ ] Step 4: window-mirror coordinator in mirror.Manager + reconcile loop.
-- [ ] Step 5: dimension matching (resize remote to local on attach + local resize).
-- [ ] Step 6: `remote detach-window` teardown.
+## Next (protocol-heavy, higher risk)
+- [ ] Step 3: `MsgTypeAttachWindow` (=30) server handler + `scopedWindowID` on
+      clientConn + relax `allowsServerMessage` to pass MsgTypeLayout for it.
+- [ ] Step 4: window-mirror coordinator in mirror.Manager — open the layout link,
+      reconcile on each remote layout snapshot (add/remove/restructure panes).
+- [ ] Step 5: dimension matching — resize REMOTE to match LOCAL on attach + on
+      local window resize (extend planRemoteResize; skip lead/single-axis panes).
+- [ ] Step 6: `remote detach-window <local-window>` teardown.
 - [ ] Step 7: checkpoint/restore for window mirrors (resume layout subscription).
 - [ ] Step 8: docs + `amux --help` + README CLI reference.
+
+## Verified working now
+- `amux remote windows <host>` lists remote windows.
+- `amux remote attach-window <host>:<window>` mirrors a remote window into a new
+  local window; each pane streams independently. Static snapshot (no live resync
+  yet); content wraps if local/remote geometry differ until Step 5.
 
 ## Notes / breadcrumbs
 - Branch: `LAB-1984-remote-window-mirror` off `origin/main@bcfab03`.
