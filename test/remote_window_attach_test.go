@@ -44,6 +44,40 @@ func TestRemoteCLIAttachWindow(t *testing.T) {
 	}
 }
 
+// TestRemoteCLIAttachWindowDynamicResync verifies the local mirror window tracks
+// the remote window's structure: adding a pane on the remote grows the mirror,
+// and removing one shrinks it.
+func TestRemoteCLIAttachWindowDynamicResync(t *testing.T) {
+	t.Parallel()
+
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("spawn", "--name", "remote-side", "--vertical")
+
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	if !strings.Contains(attachOut, "2 panes") {
+		t.Fatalf("attach-window output = %q", attachOut)
+	}
+	if got := len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)); got != 2 {
+		t.Fatalf("initial mirror pane count = %d, want 2", got)
+	}
+
+	// Adding a remote pane grows the local mirror to 3.
+	pair.remote.runCmd("spawn", "--name", "remote-third", "--vertical")
+	if !pair.local.waitForFunc(func(string) bool {
+		return len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)) == 3
+	}, 5*time.Second) {
+		t.Fatalf("resync did not grow local mirror to 3 panes")
+	}
+
+	// Removing a remote pane shrinks the local mirror back to 2.
+	pair.remote.runCmd("kill", "remote-third")
+	if !pair.local.waitForFunc(func(string) bool {
+		return len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)) == 2
+	}, 5*time.Second) {
+		t.Fatalf("resync did not shrink local mirror to 2 panes")
+	}
+}
+
 func localMirrorNames(listOut, host string) []string {
 	names := make([]string, 0)
 	for _, line := range strings.Split(listOut, "\n") {

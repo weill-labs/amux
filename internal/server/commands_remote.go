@@ -314,6 +314,35 @@ func planRemoteWindowLeaves(ws proto.WindowSnapshot) ([]remoteWindowLeaf, error)
 	return leaves, nil
 }
 
+// remoteWindowSignature encodes a remote window's structure: split directions
+// and leaf pane names, in tree order, excluding cell sizes. Two snapshots with
+// the same signature differ only in geometry/metadata, so a window mirror can
+// skip reconciliation. Add/remove/re-split all change the signature.
+func remoteWindowSignature(ws proto.WindowSnapshot) string {
+	names := paneSnapshotsByID(ws.Panes)
+	b := strings.Builder{} // local accumulator (not a package-level var)
+	writeRemoteWindowSignature(&b, ws.Root, names)
+	return b.String()
+}
+
+func writeRemoteWindowSignature(b *strings.Builder, cell proto.CellSnapshot, names map[uint32]proto.PaneSnapshot) {
+	if cell.IsLeaf {
+		b.WriteByte('[')
+		if pane, ok := names[cell.PaneID]; ok && pane.Name != "" {
+			b.WriteString(pane.Name)
+		} else {
+			fmt.Fprintf(b, "#%d", cell.PaneID)
+		}
+		b.WriteByte(']')
+		return
+	}
+	fmt.Fprintf(b, "(%d", cell.Dir)
+	for _, child := range cell.Children {
+		writeRemoteWindowSignature(b, child, names)
+	}
+	b.WriteByte(')')
+}
+
 // collectRemoteWindowLeaves appends one remoteWindowLeaf per leaf cell, in
 // left-to-right tree order, resolving each leaf's pane name from snapshots.
 func collectRemoteWindowLeaves(cell proto.CellSnapshot, snapshots map[uint32]proto.PaneSnapshot, windowName string, out *[]remoteWindowLeaf) error {
@@ -463,6 +492,19 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 
 		mctx.Windows = append(mctx.Windows, win)
 		mctx.activateWindow(win)
+
+		// Activate dynamic resync: subscribe to the remote window's layout and
+		// seed the structural signature so the first (matching) broadcast is a
+		// no-op rather than an immediate rebuild.
+		if mctx.sess.windowMirrorSigs == nil {
+			mctx.sess.windowMirrorSigs = make(map[uint32]string)
+		}
+		mctx.sess.windowMirrorSigs[win.ID] = remoteWindowSignature(ws)
+		_ = mctx.sess.mirror.TrackWindow(win.ID, mirrorpkg.WindowRef{
+			Host:       hostName,
+			Session:    session,
+			WindowName: ws.Name,
+		})
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Attached %s:%s as window %s (%d panes)\n", hostName, ws.Name, win.Name, len(created)),

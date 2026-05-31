@@ -110,6 +110,11 @@ type Session struct {
 	// panes are being reconstructed.
 	mirror *mirror.Manager
 
+	// windowMirrorSigs records the last structural signature applied per mirrored
+	// local window, so a window-layout broadcast that did not change structure is
+	// skipped. Accessed only on the session event loop.
+	windowMirrorSigs map[uint32]string
+
 	// Crash checkpoint coordination owns debounce/periodic scheduling and disk writes.
 	checkpointCoordinator crashCheckpointCoordinator
 	// watchdogRecoveryCheckpoint is a cheap last-known-good reload snapshot
@@ -518,7 +523,10 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()
-	sess.mirror = mirror.NewManager(mirror.Config{OnMetaUpdate: sess.enqueueMirrorPaneMetaUpdate})
+	sess.mirror = mirror.NewManager(mirror.Config{
+		OnMetaUpdate:   sess.enqueueMirrorPaneMetaUpdate,
+		OnWindowLayout: sess.enqueueWindowLayoutReconcile,
+	})
 	sess.input = newInputRouter()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.undo = newUndoManager(undoManagerConfig{})
