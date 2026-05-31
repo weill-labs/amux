@@ -25,6 +25,8 @@ type WindowRef struct {
 type windowMirrorState struct {
 	localWindowID uint32
 	ref           WindowRef
+	cols          int
+	rows          int
 	state         State
 	generation    uint64
 	link          *remote.Link
@@ -35,7 +37,7 @@ type windowMirrorState struct {
 // TrackWindow opens a layout subscription to a remote window. The Manager
 // invokes its OnWindowLayout callback with every layout snapshot the remote
 // pushes, so the owner can reconcile the local mirror window's structure.
-func (m *Manager) TrackWindow(localWindowID uint32, ref WindowRef) error {
+func (m *Manager) TrackWindow(localWindowID uint32, ref WindowRef, cols, rows int) error {
 	if m == nil {
 		return fmt.Errorf("mirror manager is nil")
 	}
@@ -57,6 +59,8 @@ func (m *Manager) TrackWindow(localWindowID uint32, ref WindowRef) error {
 	ws := &windowMirrorState{
 		localWindowID: localWindowID,
 		ref:           ref,
+		cols:          cols,
+		rows:          rows,
 		state:         StateConnecting,
 	}
 	m.windowMirrors[localWindowID] = ws
@@ -168,10 +172,13 @@ func (m *Manager) attachAndReadWindow(localWindowID uint32, owner *windowMirrorS
 		m.recordWindowError(localWindowID, owner, err)
 		return false, false
 	}
+	cols, rows := m.windowSize(localWindowID, owner)
 	if err := link.WriteMsg(&proto.Message{
 		Type:       proto.MsgTypeAttachWindow,
 		Session:    windowSession(host, ref),
 		WindowName: ref.WindowName,
+		Cols:       cols,
+		Rows:       rows,
 	}); err != nil {
 		_ = link.Close()
 		m.recordWindowError(localWindowID, owner, err)
@@ -212,6 +219,41 @@ func (m *Manager) readLoopWindow(localWindowID uint32, owner *windowMirrorState,
 			cb(localWindowID, ref, msg.Layout)
 		}
 	}
+}
+
+// ResizeWindow updates the desired size for a mirrored window and pushes it to
+// the remote so the remote re-renders the window at the local dimensions. A
+// no-op when the size is unchanged or the link is not connected yet (the size
+// is also carried on the next attach).
+func (m *Manager) ResizeWindow(localWindowID uint32, cols, rows int) {
+	if m == nil || localWindowID == 0 || cols <= 0 || rows <= 0 {
+		return
+	}
+	m.mu.Lock()
+	ws := m.windowMirrors[localWindowID]
+	if ws == nil || (ws.cols == cols && ws.rows == rows) {
+		m.mu.Unlock()
+		return
+	}
+	ws.cols = cols
+	ws.rows = rows
+	link := ws.link
+	connected := ws.state == StateConnected
+	m.mu.Unlock()
+
+	if connected && link != nil {
+		_ = link.WriteMsg(&proto.Message{Type: proto.MsgTypeResize, Cols: cols, Rows: rows})
+	}
+}
+
+func (m *Manager) windowSize(localWindowID uint32, owner *windowMirrorState) (int, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ws := m.windowMirrors[localWindowID]
+	if ws == nil || ws != owner {
+		return 0, 0
+	}
+	return ws.cols, ws.rows
 }
 
 func (m *Manager) prepareWindowAttempt(localWindowID uint32, owner *windowMirrorState) (config.Host, WindowRef, bool) {

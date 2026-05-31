@@ -504,7 +504,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 			Host:       hostName,
 			Session:    session,
 			WindowName: ws.Name,
-		})
+		}, win.Width, win.Height)
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Attached %s:%s as window %s (%d panes)\n", hostName, ws.Name, win.Name, len(created)),

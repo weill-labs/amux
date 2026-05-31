@@ -25,7 +25,7 @@ func TestManagerTrackWindowDeliversLayoutUpdates(t *testing.T) {
 	})
 	t.Cleanup(mgr.Close)
 
-	if err := mgr.TrackWindow(7, WindowRef{Host: "h", Session: "main", WindowName: "amux"}); err != nil {
+	if err := mgr.TrackWindow(7, WindowRef{Host: "h", Session: "main", WindowName: "amux"}, 80, 24); err != nil {
 		t.Fatalf("TrackWindow: %v", err)
 	}
 
@@ -38,6 +38,9 @@ func TestManagerTrackWindowDeliversLayoutUpdates(t *testing.T) {
 	}
 	if sub.Type != proto.MsgTypeAttachWindow || sub.WindowName != "amux" {
 		t.Fatalf("subscription = type %d name %q, want AttachWindow amux", sub.Type, sub.WindowName)
+	}
+	if sub.Cols != 80 || sub.Rows != 24 {
+		t.Fatalf("subscription size = %dx%d, want 80x24", sub.Cols, sub.Rows)
 	}
 
 	if err := proto.NewWriter(serverConn).WriteMsg(&proto.Message{
@@ -54,6 +57,58 @@ func TestManagerTrackWindowDeliversLayoutUpdates(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("OnWindowLayout was not called")
+	}
+}
+
+func TestManagerResizeWindowPushesSize(t *testing.T) {
+	t.Parallel()
+
+	connected := make(chan struct{}, 1)
+	dialer := &pipeDialer{conns: make(chan net.Conn, 1)}
+	mgr := NewManager(Config{
+		Hosts:       map[string]config.Host{"h": {SSH: "x", Session: "main", SocketPath: "/tmp/x"}},
+		Dialer:      dialer,
+		RetryPolicy: remoteRetryPolicyForTest(2),
+		OnWindowLayout: func(uint32, WindowRef, *proto.LayoutSnapshot) {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		},
+	})
+	t.Cleanup(mgr.Close)
+
+	if err := mgr.TrackWindow(7, WindowRef{Host: "h", Session: "main", WindowName: "amux"}, 80, 24); err != nil {
+		t.Fatalf("TrackWindow: %v", err)
+	}
+	serverConn := <-dialer.conns
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	reader := proto.NewReader(serverConn)
+	if _, err := reader.ReadMsg(); err != nil { // drain the AttachWindow subscription
+		t.Fatalf("read subscription: %v", err)
+	}
+
+	// Pushing a layout proves the mirror is Connected (layouts are delivered only
+	// after markWindowConnected), so the subsequent ResizeWindow will send.
+	if err := proto.NewWriter(serverConn).WriteMsg(&proto.Message{
+		Type:   proto.MsgTypeLayout,
+		Layout: &proto.LayoutSnapshot{Windows: []proto.WindowSnapshot{{Name: "amux"}}},
+	}); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+	<-connected
+
+	// net.Pipe is synchronous, so drive the write concurrently with the read
+	// (a real socket buffers and would not block here).
+	go mgr.ResizeWindow(7, 120, 30)
+
+	resize, err := reader.ReadMsg()
+	if err != nil {
+		t.Fatalf("read resize: %v", err)
+	}
+	if resize.Type != proto.MsgTypeResize || resize.Cols != 120 || resize.Rows != 30 {
+		t.Fatalf("resize = type %d %dx%d, want MsgTypeResize 120x30", resize.Type, resize.Cols, resize.Rows)
 	}
 }
 
@@ -75,7 +130,7 @@ func TestManagerTrackWindowValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if err := mgr.TrackWindow(tt.id, tt.ref); err == nil {
+			if err := mgr.TrackWindow(tt.id, tt.ref, 80, 24); err == nil {
 				t.Fatalf("expected error for %s", tt.name)
 			}
 		})
@@ -93,7 +148,7 @@ func TestManagerDetachWindowClosesLink(t *testing.T) {
 	})
 	t.Cleanup(mgr.Close)
 
-	if err := mgr.TrackWindow(7, WindowRef{Host: "h", Session: "main", WindowName: "amux"}); err != nil {
+	if err := mgr.TrackWindow(7, WindowRef{Host: "h", Session: "main", WindowName: "amux"}, 80, 24); err != nil {
 		t.Fatalf("TrackWindow: %v", err)
 	}
 	serverConn := <-dialer.conns

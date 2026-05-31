@@ -436,8 +436,12 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 		}
 
 		if cc.isWindowScoped() {
-			// Layout-only subscription: ignore any inbound client messages and
-			// keep the connection alive to receive MsgTypeLayout broadcasts.
+			// Layout subscription. The only inbound message it sends is a resize
+			// declaring the size to render the subscribed window at; everything
+			// else is ignored. The connection stays alive for MsgTypeLayout pushes.
+			if msg.Type == MsgTypeResize {
+				sess.enqueueResizeMirrorWindow(cc.scopedWindowID, msg.Cols, msg.Rows)
+			}
 			continue
 		}
 

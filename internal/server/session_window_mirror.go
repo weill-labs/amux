@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -143,6 +145,51 @@ func existingMirrorPanesByRemoteName(sess *Session, w *mux.Window) map[string]*m
 		}
 	})
 	return out
+}
+
+// resizeMirrorTargetWindow applies a mirror subscriber's requested size to a
+// window. Called on the session event loop from the attach-window handler.
+func (s *Session) resizeMirrorTargetWindow(w *mux.Window, cols, rows int) {
+	if w == nil || cols <= 0 || rows <= 0 || (w.Width == cols && w.Height == rows) {
+		return
+	}
+	w.Resize(cols, rows)
+}
+
+// pushMirrorWindowSize forwards a local mirror window's size to the remote so it
+// re-renders the window to match. A no-op for non-mirror windows. Event-loop only.
+func (s *Session) pushMirrorWindowSize(w *mux.Window) {
+	if s == nil || w == nil || s.mirror == nil {
+		return
+	}
+	if _, ok := s.windowMirrorSigs[w.ID]; !ok {
+		return // not a mirrored window
+	}
+	s.mirror.ResizeWindow(w.ID, w.Width, w.Height)
+}
+
+// enqueueResizeMirrorWindow handles a resize a window-mirror subscriber sent over
+// its layout link, so the remote re-renders the window at the local size.
+func (s *Session) enqueueResizeMirrorWindow(windowID uint32, cols, rows int) {
+	if s == nil || s.shutdown.Load() || windowID == 0 || cols <= 0 || rows <= 0 {
+		return
+	}
+	s.enqueueEvent(s.context(), resizeMirrorWindowEvent{windowID: windowID, cols: cols, rows: rows})
+}
+
+type resizeMirrorWindowEvent struct {
+	windowID uint32
+	cols     int
+	rows     int
+}
+
+func (e resizeMirrorWindowEvent) handle(_ context.Context, s *Session) {
+	w := s.windowByID(e.windowID)
+	if w == nil || (w.Width == e.cols && w.Height == e.rows) {
+		return
+	}
+	w.Resize(e.cols, e.rows)
+	s.broadcastLayoutNow()
 }
 
 func mutationWindowByID(mctx *MutationContext, id uint32) *mux.Window {

@@ -56,6 +56,8 @@ type attachPaneClientResult struct {
 type attachWindowClientEvent struct {
 	cc        *clientConn
 	windowRef string
+	cols      int
+	rows      int
 	reply     chan attachWindowClientResult
 }
 
@@ -88,6 +90,11 @@ func (e attachWindowClientEvent) handle(_ context.Context, s *Session) {
 	if w == nil {
 		e.reply <- attachWindowClientResult{err: fmt.Errorf("window %q not found", e.windowRef)}
 		return
+	}
+	// A mirror subscriber declares the size it wants the remote window rendered
+	// at. Apply it so the remote re-renders to match the local mirror window.
+	if e.cols > 0 && e.rows > 0 {
+		s.resizeMirrorTargetWindow(w, e.cols, e.rows)
 	}
 	snap := s.snapshotLayout(s.snapshotIdleState())
 	if snap == nil {
@@ -249,13 +256,13 @@ func (s *Session) enqueueAttachPaneClient(cc *clientConn, paneID uint32) attachP
 	}
 }
 
-func (s *Session) enqueueAttachWindowClient(cc *clientConn, windowRef string) attachWindowClientResult {
+func (s *Session) enqueueAttachWindowClient(cc *clientConn, windowRef string, cols, rows int) attachWindowClientResult {
 	ctx := s.context()
 	if cc != nil {
 		ctx = cc.context()
 	}
 	reply := make(chan attachWindowClientResult, 1)
-	if !s.enqueueEvent(ctx, attachWindowClientEvent{cc: cc, windowRef: windowRef, reply: reply}) {
+	if !s.enqueueEvent(ctx, attachWindowClientEvent{cc: cc, windowRef: windowRef, cols: cols, rows: rows, reply: reply}) {
 		if err := ctx.Err(); err != nil {
 			return attachWindowClientResult{err: err}
 		}

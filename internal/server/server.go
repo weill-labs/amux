@@ -1004,7 +1004,7 @@ func (s *Server) handleAttachWindow(cc *clientConn, msg *Message) {
 	cc.logger = sess.logger.With("client_id", cc.ID)
 	cc.startBootstrap()
 
-	res := sess.enqueueAttachWindowClient(cc, msg.WindowName)
+	res := sess.enqueueAttachWindowClient(cc, msg.WindowName, msg.Cols, msg.Rows)
 	if res.err != nil {
 		cc.sendProtocolError(res.err.Error())
 		cc.Close()
