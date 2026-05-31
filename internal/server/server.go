@@ -907,6 +907,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.handleListPanes(cc, msg)
 	case MsgTypeAttachPane:
 		s.handleAttachPane(cc, msg)
+	case MsgTypeAttachWindow:
+		s.handleAttachWindow(cc, msg)
 	default:
 		cc.Close()
 	}
@@ -976,6 +978,35 @@ func (s *Server) handleAttachPane(cc *clientConn, msg *Message) {
 		return
 	}
 	cc.finishBootstrap(map[uint32]uint64{res.snapshot.paneID: res.snapshot.outputSeq})
+	cc.readLoop(s, sess)
+}
+
+// handleAttachWindow registers a window-scoped layout subscriber: it sends an
+// initial layout snapshot and then receives MsgTypeLayout on every layout
+// change. Used by remote window mirroring to track a remote window's structure.
+func (s *Server) handleAttachWindow(cc *clientConn, msg *Message) {
+	sess := s.sessionForProtocolMessage(msg)
+	if sess == nil {
+		cc.sendProtocolError("no session")
+		cc.Close()
+		return
+	}
+
+	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
+	cc.logger = sess.logger.With("client_id", cc.ID)
+	cc.startBootstrap()
+
+	res := sess.enqueueAttachWindowClient(cc, msg.WindowName)
+	if res.err != nil {
+		cc.sendProtocolError(res.err.Error())
+		cc.Close()
+		return
+	}
+	if err := cc.Send(&Message{Type: MsgTypeLayout, Layout: res.layout}); err != nil {
+		cc.Close()
+		return
+	}
+	cc.finishBootstrap(nil)
 	cc.readLoop(s, sess)
 }
 

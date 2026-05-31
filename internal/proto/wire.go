@@ -131,6 +131,13 @@ const (
 
 	// Server → Client — open a client-local chooser populated by server data.
 	MsgTypeChooser MsgType = 29
+
+	// Client → Server — subscribe to a window's layout snapshots. The server
+	// streams MsgTypeLayout for the session on every layout change, scoped so
+	// the subscriber receives layout updates (used by remote window mirroring to
+	// track a remote window's structure). Pane output is not delivered on this
+	// connection; it flows over separate per-pane subscriptions.
+	MsgTypeAttachWindow MsgType = 30
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -208,6 +215,9 @@ type Message struct {
 
 	// MsgTypeChooser
 	Chooser *ChooserRequest
+
+	// MsgTypeAttachWindow — the remote window to subscribe to, by name.
+	WindowName string
 }
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB
