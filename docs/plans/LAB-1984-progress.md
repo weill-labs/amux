@@ -22,8 +22,8 @@
       RebuildWindowFromSnapshot, uniqueLocalWindowName, e2e test. [7d816d1]
 
 ## Next (protocol-heavy, higher risk)
-- [ ] Step 3: `MsgTypeAttachWindow` (=30) server handler + `scopedWindowID` on
-      clientConn + relax `allowsServerMessage` to pass MsgTypeLayout for it.
+- [x] Step 3: `MsgTypeAttachWindow` (=30) server handler + `scopedWindowID` on
+      clientConn + relax `allowsServerMessage` to pass MsgTypeLayout. [6630270]
 - [ ] Step 4: window-mirror coordinator in mirror.Manager — open the layout link,
       reconcile on each remote layout snapshot (add/remove/restructure panes).
 - [ ] Step 5: dimension matching — resize REMOTE to match LOCAL on attach + on
@@ -31,6 +31,15 @@
 - [ ] Step 6: `remote detach-window <local-window>` teardown.
 - [ ] Step 7: checkpoint/restore for window mirrors (resume layout subscription).
 - [ ] Step 8: docs + `amux --help` + README CLI reference.
+
+## Live validation (hetzner-1, 2026-05-30)
+- `remote windows hetzner-1` listed all 11 real windows.
+- `remote attach-window hetzner-1:orca` rebuilt the 3-pane window locally; all 3
+  mirrors connected and streamed real orca output; split structure + per-pane
+  `@hetzner-1` headers correct; appeared in session bar as `hetzner-1:orca`.
+- Local width (~265) ≈ remote orca (265) → near-zero wrapping, confirming the
+  Step-5 thesis (wrapping is purely a width-delta problem).
+- Cleanup (detach x3 + rm) left remote orca workers alive → detach non-destructive.
 
 ## Verified working now
 - `amux remote windows <host>` lists remote windows.
