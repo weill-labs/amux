@@ -54,6 +54,54 @@ func TestClientRendererTrimsStyledAttachHistoryAfterLiveScrollbackRetainsLimit(t
 	}
 }
 
+func TestClientRendererTrimsStyledAttachHistoryAfterBatchedPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	const scrollbackLines = 3
+	cr := NewClientRendererWithScrollback(80, 24, scrollbackLines)
+	t.Cleanup(cr.renderer.Close)
+	cr.HandleLayout(twoPane80x23())
+
+	for _, paneID := range []uint32{1, 2} {
+		cr.HandlePaneHistoryStyled(paneID, styledHistoryRetentionLines(paneID, scrollbackLines))
+	}
+	cr.handlePaneOutputBatch([]*RenderMsg{
+		{Typ: RenderMsgPaneOutput, PaneID: 1, Data: liveHistoryRetentionOutput(1, 30)},
+		{Typ: RenderMsgPaneOutput, PaneID: 2, Data: liveHistoryRetentionOutput(2, 30)},
+	})
+
+	for _, paneID := range []uint32{1, 2} {
+		if got := len(cr.loadState().baseHistory[paneID]); got != 0 {
+			t.Fatalf("pane-%d retained base history len = %d, want 0 after batched output reaches live scrollback limit", paneID, got)
+		}
+	}
+}
+
+func TestSetTrimmedBaseHistoryKeepsStyledTail(t *testing.T) {
+	t.Parallel()
+
+	history := styledHistoryRetentionLines(1, 4)
+	histories := map[uint32][]proto.StyledLine{1: history}
+
+	setTrimmedBaseHistory(histories, 1, 2, 3)
+
+	got := histories[1]
+	if len(got) != 1 {
+		t.Fatalf("trimmed history len = %d, want 1", len(got))
+	}
+	if got[0].Text != "pane-1-old-03" {
+		t.Fatalf("trimmed history text = %q, want newest line", got[0].Text)
+	}
+	if len(got[0].Cells) == 0 || got[0].Cells[0].Style.Attrs&uv.AttrBold == 0 {
+		t.Fatal("trimmed history should preserve styled cells for kept lines")
+	}
+
+	history[3].Text = "mutated"
+	if got[0].Text != "pane-1-old-03" {
+		t.Fatalf("trimmed history shares caller line headers, got %q", got[0].Text)
+	}
+}
+
 func styledHistoryRetentionLines(paneID uint32, lines int) []proto.StyledLine {
 	history := make([]proto.StyledLine, lines)
 	for i := range history {
