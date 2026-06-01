@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"runtime"
 	"strings"
 	"testing"
@@ -294,7 +293,10 @@ func (w *longLivedSessionRendererBench) tinyDirtyPayload(paneID uint32) []byte {
 
 func (w *longLivedSessionRendererBench) computeBytesPerFrame() int {
 	total := 0
-	for _, paneID := range append(w.frameVisiblePaneIDs(), w.frameHiddenPaneIDs()...) {
+	for _, paneID := range w.frameVisiblePaneIDs() {
+		total += len(w.tinyDirtyPayload(paneID))
+	}
+	for _, paneID := range w.frameHiddenPaneIDs() {
 		total += len(w.tinyDirtyPayload(paneID))
 	}
 	return total
@@ -423,7 +425,7 @@ func longLivedSessionGridRows(panes int) int {
 	if panes <= 6 {
 		return 1
 	}
-	return int(math.Ceil(float64(panes) / 6.0))
+	return (panes + 5) / 6
 }
 
 func longLivedSessionPaneSnapshot(id int, column int) proto.PaneSnapshot {
@@ -539,42 +541,47 @@ func BenchmarkClientRendererLongLivedSession(b *testing.B) {
 	cfg := defaultLongLivedSessionRendererBenchConfig()
 
 	b.Run("dirty_frame", func(b *testing.B) {
-		allocsPerFrame := measureLongLivedSessionAllocsPerFrame(b, cfg, false)
-		workload := newLongLivedSessionRendererBench(b, cfg)
-		defer workload.Close()
-
-		b.SetBytes(int64(workload.bytesPerFrame))
-		b.ReportAllocs()
-		b.ResetTimer()
-		for b.Loop() {
-			result := workload.RenderDirtyFrame()
-			if result.ANSIBytes == 0 {
-				b.Fatal("dirty frame emitted no ANSI bytes")
-			}
-		}
-		b.StopTimer()
-		b.ReportMetric(allocsPerFrame, "allocs/frame")
-		reportLongLivedSessionRetainedHeap(b, workload)
+		runLongLivedSessionFrameBenchmark(b, cfg, false)
 	})
 
 	b.Run("full_frame", func(b *testing.B) {
-		allocsPerFrame := measureLongLivedSessionAllocsPerFrame(b, cfg, true)
-		workload := newLongLivedSessionRendererBench(b, cfg)
-		defer workload.Close()
-
-		b.SetBytes(int64(workload.bytesPerFrame))
-		b.ReportAllocs()
-		b.ResetTimer()
-		for b.Loop() {
-			result := workload.RenderFullFrame()
-			if result.ANSIBytes == 0 {
-				b.Fatal("full frame emitted no ANSI bytes")
-			}
-		}
-		b.StopTimer()
-		b.ReportMetric(allocsPerFrame, "allocs/frame")
-		reportLongLivedSessionRetainedHeap(b, workload)
+		runLongLivedSessionFrameBenchmark(b, cfg, true)
 	})
+}
+
+func runLongLivedSessionFrameBenchmark(b *testing.B, cfg longLivedSessionRendererBenchConfig, fullRedraw bool) {
+	b.Helper()
+
+	allocsPerFrame := measureLongLivedSessionAllocsPerFrame(b, cfg, fullRedraw)
+	workload := newLongLivedSessionRendererBench(b, cfg)
+	defer workload.Close()
+
+	b.SetBytes(int64(workload.bytesPerFrame))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		result := renderLongLivedSessionFrame(workload, fullRedraw)
+		if result.ANSIBytes == 0 {
+			b.Fatalf("%s frame emitted no ANSI bytes", longLivedSessionFrameKind(fullRedraw))
+		}
+	}
+	b.StopTimer()
+	b.ReportMetric(allocsPerFrame, "allocs/frame")
+	reportLongLivedSessionRetainedHeap(b, workload)
+}
+
+func renderLongLivedSessionFrame(workload *longLivedSessionRendererBench, fullRedraw bool) longLivedSessionFrameResult {
+	if fullRedraw {
+		return workload.RenderFullFrame()
+	}
+	return workload.RenderDirtyFrame()
+}
+
+func longLivedSessionFrameKind(fullRedraw bool) string {
+	if fullRedraw {
+		return "full"
+	}
+	return "dirty"
 }
 
 func measureLongLivedSessionAllocsPerFrame(b *testing.B, cfg longLivedSessionRendererBenchConfig, fullRedraw bool) float64 {
