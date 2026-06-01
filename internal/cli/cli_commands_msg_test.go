@@ -197,6 +197,11 @@ func TestMsgCLICommandHandler(t *testing.T) {
 			wantStdout: "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]\n",
 		},
 		{
+			name:       "thread help",
+			args:       []string{"msg", "thread", "--help"},
+			wantStdout: "usage: amux msg thread <topic|msg-id> [--format json]\n",
+		},
+		{
 			name:       "ack help",
 			args:       []string{"msg", "ack", "--help"},
 			wantStdout: "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]\n",

@@ -62,6 +62,23 @@ type msgCommandReadJSON struct {
 	} `json:"delivery"`
 }
 
+type msgCommandThreadJSON []struct {
+	ID        string   `json:"id"`
+	Body      string   `json:"body"`
+	ThreadID  string   `json:"thread_id"`
+	InReplyTo string   `json:"in_reply_to"`
+	CreatedAt string   `json:"created_at"`
+	Topics    []string `json:"topics"`
+	Sender    struct {
+		Name string `json:"name"`
+	} `json:"sender"`
+	Recipients []struct {
+		Name string `json:"name"`
+	} `json:"recipients"`
+	BodySize  int `json:"body_size"`
+	PartCount int `json:"part_count"`
+}
+
 type msgCommandAckJSON struct {
 	ID       string `json:"id"`
 	Delivery struct {
@@ -112,6 +129,16 @@ func parseMsgCommandReadJSON(t *testing.T, raw string) msgCommandReadJSON {
 	var out msgCommandReadJSON
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		t.Fatalf("json.Unmarshal(read output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
+func parseMsgCommandThreadJSON(t *testing.T, raw string) msgCommandThreadJSON {
+	t.Helper()
+
+	var out msgCommandThreadJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(thread output): %v\nraw:\n%s", err, raw)
 	}
 	return out
 }
@@ -519,6 +546,83 @@ func TestMsgCommandReplyInfersRecipientAndThread(t *testing.T) {
 	}
 	if read.output != "reply body\n" {
 		t.Fatalf("reply body = %q, want reply body", read.output)
+	}
+}
+
+func TestMsgCommandThreadReturnsTranscriptByTopicOrMessage(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	root := runTestCommand(t, srv, sess, "msg", "send",
+		"--from", "pane-1",
+		"--to", "pane-2",
+		"--subject", "Root",
+		"--topic", "handoff",
+		"--body", "root body",
+		"--format", "json",
+	)
+	if root.cmdErr != "" {
+		t.Fatalf("msg send root error: %s", root.cmdErr)
+	}
+	rootJSON := parseMsgCommandSendJSON(t, root.output)
+
+	reply := runTestCommandWithActor(t, srv, sess, 2, "msg", "reply", rootJSON.ID, "--body", "reply body", "--format", "json")
+	if reply.cmdErr != "" {
+		t.Fatalf("msg reply error: %s", reply.cmdErr)
+	}
+	replyJSON := parseMsgCommandSendJSON(t, reply.output)
+
+	other := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--topic", "other", "--body", "other body")
+	if other.cmdErr != "" {
+		t.Fatalf("msg send other error: %s", other.cmdErr)
+	}
+
+	threadByTopic := runTestCommand(t, srv, sess, "msg", "thread", "handoff", "--format", "json")
+	if threadByTopic.cmdErr != "" {
+		t.Fatalf("msg thread topic error: %s", threadByTopic.cmdErr)
+	}
+	topicTranscript := parseMsgCommandThreadJSON(t, threadByTopic.output)
+	if len(topicTranscript) != 2 {
+		t.Fatalf("thread topic length = %d, want 2\n%s", len(topicTranscript), threadByTopic.output)
+	}
+	if topicTranscript[0].ID != rootJSON.ID || topicTranscript[0].Sender.Name != "pane-1" || topicTranscript[0].Body != "root body" {
+		t.Fatalf("thread root entry = %#v, want pane-1 root body", topicTranscript[0])
+	}
+	if topicTranscript[1].ID != replyJSON.ID || topicTranscript[1].Sender.Name != "pane-2" || topicTranscript[1].Body != "reply body" {
+		t.Fatalf("thread reply entry = %#v, want pane-2 reply body", topicTranscript[1])
+	}
+	if topicTranscript[1].ThreadID != rootJSON.ID || topicTranscript[1].InReplyTo != rootJSON.ID {
+		t.Fatalf("thread reply links = (%q, %q), want root thread/reply", topicTranscript[1].ThreadID, topicTranscript[1].InReplyTo)
+	}
+	if topicTranscript[0].BodySize != len("root body") || topicTranscript[0].PartCount != 1 || topicTranscript[0].CreatedAt == "" {
+		t.Fatalf("thread root detail = %#v, want body size, part count, timestamp", topicTranscript[0])
+	}
+
+	threadByMessage := runTestCommand(t, srv, sess, "msg", "thread", replyJSON.ID, "--format", "json")
+	if threadByMessage.cmdErr != "" {
+		t.Fatalf("msg thread message error: %s", threadByMessage.cmdErr)
+	}
+	messageTranscript := parseMsgCommandThreadJSON(t, threadByMessage.output)
+	if len(messageTranscript) != 2 || messageTranscript[0].ID != rootJSON.ID || messageTranscript[1].ID != replyJSON.ID {
+		t.Fatalf("thread message transcript = %#v, want root and reply", messageTranscript)
+	}
+
+	text := runTestCommand(t, srv, sess, "msg", "thread", rootJSON.ID)
+	if text.cmdErr != "" {
+		t.Fatalf("msg thread text error: %s", text.cmdErr)
+	}
+	if !strings.Contains(text.output, "msg-000001 from pane-1") || !strings.Contains(text.output, "root body") || !strings.Contains(text.output, "reply body") {
+		t.Fatalf("msg thread text output = %q, want sender and bodies", text.output)
+	}
+
+	inbox := runTestCommand(t, srv, sess, "msg", "inbox", "pane-2", "--unread", "--format", "json")
+	if inbox.cmdErr != "" {
+		t.Fatalf("msg inbox after thread error: %s", inbox.cmdErr)
+	}
+	if got := parseMsgCommandInboxJSON(t, inbox.output); len(got) != 1 || got[0].ID != rootJSON.ID {
+		t.Fatalf("thread marked message read; unread inbox = %#v, want root still unread", got)
 	}
 }
 
@@ -955,6 +1059,26 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			name: "duplicate inbox target",
 			args: []string{"inbox", "pane-1", "pane-2"},
 			want: "usage: msg inbox",
+		},
+		{
+			name: "missing thread ref",
+			args: []string{"thread"},
+			want: "usage: msg thread",
+		},
+		{
+			name: "unknown thread flag",
+			args: []string{"thread", "handoff", "--bad"},
+			want: "usage: msg thread",
+		},
+		{
+			name: "missing thread format",
+			args: []string{"thread", "handoff", "--format"},
+			want: "missing value for --format",
+		},
+		{
+			name: "missing thread",
+			args: []string{"thread", "handoff"},
+			want: "not found",
 		},
 		{
 			name: "missing read id",

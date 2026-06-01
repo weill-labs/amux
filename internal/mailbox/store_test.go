@@ -1153,6 +1153,85 @@ func TestStoreDefensivelyCopiesBodiesAndMetadata(t *testing.T) {
 	}
 }
 
+func TestStoreThreadReturnsMessagesByMessageOrTopic(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+	root := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Topics:     []string{"handoff"},
+		Subject:    "Root",
+		Body:       []byte("root"),
+	})
+	reply := mustSend(t, store, SendRequest{
+		Sender:     testAddress(2),
+		Recipients: []PaneAddress{testAddress(1)},
+		Topics:     []string{"handoff"},
+		Subject:    "Reply",
+		Body:       []byte("reply"),
+		ReplyTo:    root.ID,
+	})
+	mustSend(t, store, SendRequest{
+		Sender:     testAddress(3),
+		Recipients: []PaneAddress{testAddress(1)},
+		Topics:     []string{"other"},
+		Subject:    "Other",
+		Body:       []byte("other"),
+	})
+
+	byRoot, err := store.Thread(string(root.ID))
+	if err != nil {
+		t.Fatalf("Thread(root): %v", err)
+	}
+	assertThreadMessageIDs(t, byRoot, []MessageID{root.ID, reply.ID})
+
+	byReply, err := store.Thread(string(reply.ID))
+	if err != nil {
+		t.Fatalf("Thread(reply): %v", err)
+	}
+	assertThreadMessageIDs(t, byReply, []MessageID{root.ID, reply.ID})
+
+	byTopic, err := store.Thread("handoff")
+	if err != nil {
+		t.Fatalf("Thread(topic): %v", err)
+	}
+	assertThreadMessageIDs(t, byTopic, []MessageID{root.ID, reply.ID})
+	if string(byTopic[0].Parts[0].Bytes) != "root" || string(byTopic[1].Parts[0].Bytes) != "reply" {
+		t.Fatalf("Thread(topic) bodies = %q/%q, want root/reply", byTopic[0].Parts[0].Bytes, byTopic[1].Parts[0].Bytes)
+	}
+
+	byTopic[0].Parts[0].Bytes[0] = 'X'
+	again, err := store.Thread("handoff")
+	if err != nil {
+		t.Fatalf("Thread(topic) again: %v", err)
+	}
+	if string(again[0].Parts[0].Bytes) != "root" {
+		t.Fatalf("Thread returned mutable body; got %q", again[0].Parts[0].Bytes)
+	}
+}
+
+func TestStoreThreadErrors(t *testing.T) {
+	t.Parallel()
+
+	var nilStore *Store
+	if _, err := nilStore.Thread("handoff"); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil Thread error = %v, want nil store", err)
+	}
+
+	store := NewStore(Options{})
+	if _, err := store.Thread(""); err == nil || !strings.Contains(err.Error(), "reference") {
+		t.Fatalf("empty Thread error = %v, want reference error", err)
+	}
+	if _, err := store.Thread("handoff"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing topic Thread error = %v, want not found", err)
+	}
+	if _, err := store.Thread("msg-999999"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing message Thread error = %v, want not found", err)
+	}
+}
+
 func TestStoreRepliesLinkThreads(t *testing.T) {
 	t.Parallel()
 
@@ -1245,6 +1324,18 @@ func assertMessageID(t *testing.T, got, want MessageID) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("MessageID = %q, want %q", got, want)
+	}
+}
+
+func assertThreadMessageIDs(t *testing.T, got []Message, want []MessageID) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("thread message count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].ID != want[i] {
+			t.Fatalf("thread message %d ID = %q, want %q", i, got[i].ID, want[i])
+		}
 	}
 }
 

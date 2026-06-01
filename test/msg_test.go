@@ -23,6 +23,16 @@ type msgCLIDrainStatusJSON struct {
 	PendingIDs         []string `json:"pending_ids"`
 }
 
+type msgCLIThreadJSON []struct {
+	ID        string `json:"id"`
+	Body      string `json:"body"`
+	ThreadID  string `json:"thread_id"`
+	InReplyTo string `json:"in_reply_to"`
+	Sender    struct {
+		Name string `json:"name"`
+	} `json:"sender"`
+}
+
 func runHarnessCLIWithInput(t *testing.T, h *ServerHarness, input string, args ...string) string {
 	t.Helper()
 
@@ -65,6 +75,16 @@ func parseMsgCLIDrainStatus(t *testing.T, raw string) msgCLIDrainStatusJSON {
 	return out
 }
 
+func parseMsgCLIThread(t *testing.T, raw string) msgCLIThreadJSON {
+	t.Helper()
+
+	var out msgCLIThreadJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(msg thread output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
 func TestMsgCLISendReadsStdinAndBodyFile(t *testing.T) {
 	t.Parallel()
 
@@ -87,6 +107,38 @@ func TestMsgCLISendReadsStdinAndBodyFile(t *testing.T) {
 	fileRead := h.runCmd("msg", "read", fileID, "--for", "pane-2")
 	if !strings.Contains(fileRead, "file body") {
 		t.Fatalf("body-file message read output = %q, want file body", fileRead)
+	}
+}
+
+func TestMsgCLIThreadDumpsConversation(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.runCmd("spawn", "--at", "pane-1")
+
+	rootID := parseMsgCLISendID(t, h.runCmd("msg", "send", "--from", "pane-1", "--to", "pane-2", "--topic", "handoff", "--body", "root body", "--format", "json"))
+	replyID := parseMsgCLISendID(t, h.runCmd("msg", "reply", rootID, "--from", "pane-2", "--body", "reply body", "--format", "json"))
+	h.runCmd("msg", "send", "--from", "pane-1", "--to", "pane-2", "--topic", "other", "--body", "other body")
+
+	byTopic := parseMsgCLIThread(t, h.runCmd("msg", "thread", "handoff", "--format", "json"))
+	if len(byTopic) != 2 {
+		t.Fatalf("thread by topic length = %d, want 2", len(byTopic))
+	}
+	if byTopic[0].ID != rootID || byTopic[0].Sender.Name != "pane-1" || byTopic[0].Body != "root body" {
+		t.Fatalf("thread by topic root = %#v, want pane-1 root body", byTopic[0])
+	}
+	if byTopic[1].ID != replyID || byTopic[1].Sender.Name != "pane-2" || byTopic[1].Body != "reply body" {
+		t.Fatalf("thread by topic reply = %#v, want pane-2 reply body", byTopic[1])
+	}
+
+	byMessage := parseMsgCLIThread(t, h.runCmd("msg", "thread", replyID, "--format", "json"))
+	if len(byMessage) != 2 || byMessage[0].ID != rootID || byMessage[1].ID != replyID || byMessage[1].InReplyTo != rootID {
+		t.Fatalf("thread by message = %#v, want linked root/reply", byMessage)
+	}
+
+	text := h.runCmd("msg", "thread", rootID)
+	if !strings.Contains(text, "msg-000001 from pane-1") || !strings.Contains(text, "root body") || !strings.Contains(text, "reply body") {
+		t.Fatalf("thread text output = %q, want sender and bodies", text)
 	}
 }
 
