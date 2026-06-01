@@ -16,9 +16,12 @@ The default contract is intentionally **block-once / best-effort**:
 - Set `AMUX_MAILBOX_DRAIN_STRICT=1` to block every Stop until `pending == 0`.
 - Set `AMUX_MAILBOX_DRAIN_DISABLE=1` to always release.
 
-This is not a wake-from-park mechanism. It catches already-visible pending mail
-at the Stop boundary. Mail delivered after the final check waits until the next
-turn or another watcher/user prompt wakes the agent.
+The Stop drain gate and wake-from-park watcher are separate paths:
+
+- The Stop gate catches already-visible pending mail at the Stop boundary.
+- The Claude Code `asyncRewake` watcher parks in `amux wait msg`, then rechecks
+  `amux msg drain-status --format json` after a fresh delivery. If pending
+  read/ack work remains, it exits `2` so Claude wakes.
 
 ## Core Command
 
@@ -52,6 +55,12 @@ The repo dogfoods the Claude Code recipe through `.claude/settings.json`:
           {
             "type": "command",
             "command": ".claude/hooks/mailbox-drain.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/mailbox-rewake.sh",
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }
@@ -62,6 +71,22 @@ The repo dogfoods the Claude Code recipe through `.claude/settings.json`:
 
 On block, `.claude/hooks/mailbox-drain.sh` writes the reason to stderr and exits
 `2`, which asks Claude Code to continue instead of stopping.
+
+`.claude/hooks/mailbox-rewake.sh` is the wake-from-park companion. Claude runs
+it as an `asyncRewake` Stop hook, so the command can keep waiting in the
+background after the session parks. The script:
+
+- exits 0 when `AMUX_PANE` is absent, `AMUX_MAILBOX_DRAIN_DISABLE=1`,
+  `AMUX_MAILBOX_REWAKE_DISABLE=1`, required tools are missing, or amux output
+  is malformed.
+- uses one watcher lock per `AMUX_SESSION` + `AMUX_PANE` + session socket
+  identity, so repeated Stop hook firings do not stack duplicate watchers.
+- snapshots current pending message IDs, waits for a newer delivery with
+  `amux wait msg`, then runs `amux msg drain-status --format json`.
+- dedupes by `pending_fingerprint`, sharing the same marker as the Stop drain
+  gate so unchanged pending work does not produce repeated reminders.
+- prints only a bounded command reminder. It does not include mailbox bodies,
+  subjects, sender metadata, or message metadata.
 
 ## Codex
 
@@ -114,12 +139,19 @@ The shared logic:
 - only uses message IDs, sender names, body sizes, and quoted/truncated subjects
   in model-visible output.
 
+The Claude rewake watcher also sources the shared library. Its model-visible
+output is stricter than the Stop drain output: it tells Claude to run
+`amux msg drain-status --format json`, then `amux msg read <id> --for <pane>` and
+`amux msg ack <id> --for <pane> --status seen` for the pending IDs from that
+JSON. It intentionally omits the IDs and summaries from the hook output.
+
 Run a local sanity check:
 
 ```bash
 .claude/hooks/mailbox-drain.sh --self-test
+.claude/hooks/mailbox-rewake.sh --self-test
 .codex/hooks/amux-mailbox-drain.sh --self-test
 ```
 
 The self-test validates local tools and that the installed `amux` binary knows
-`msg drain-status`; it does not require pending mail.
+the required mailbox commands; it does not require pending mail.

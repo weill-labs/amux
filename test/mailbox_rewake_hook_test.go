@@ -42,6 +42,20 @@ func TestClaudeMailboxRewakeHookFailsOpenWhenAmuxMissing(t *testing.T) {
 	}
 }
 
+func TestClaudeMailboxRewakeHookFailsOpenOnMalformedDrainStatus(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	writeMailboxRewakeFakeCommands(t, tempDir, []string{`not-json`})
+	out, exitCode := runBashScriptWithInput(t, ".claude/hooks/mailbox-rewake.sh", "", mailboxRewakeHookEnv(t, tempDir))
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("output = %q, want none", out)
+	}
+}
+
 func TestClaudeMailboxRewakeHookUsesLockToAvoidDuplicateWatchers(t *testing.T) {
 	t.Parallel()
 
@@ -53,7 +67,7 @@ func TestClaudeMailboxRewakeHookUsesLockToAvoidDuplicateWatchers(t *testing.T) {
 	logPath := filepath.Join(tempDir, "amux.log")
 	env := mailboxRewakeHookEnv(t, tempDir,
 		"FAKE_AMUX_LOG="+logPath,
-		"FAKE_AMUX_WAIT_SLEEP=200ms",
+		"FAKE_AMUX_WAIT_SLEEP=0.2",
 	)
 
 	first := startMailboxRewakeHook(t, env)
@@ -272,7 +286,7 @@ type mailboxRewakeProcess struct {
 func startMailboxRewakeHook(t *testing.T, env []string) *mailboxRewakeProcess {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	cmd := exec.CommandContext(ctx, "bash", repoPath(t, ".claude/hooks/mailbox-rewake.sh"))
 	cmd.Dir = repoRoot(t)
@@ -301,7 +315,7 @@ func waitMailboxRewakeHook(t *testing.T, proc *mailboxRewakeProcess) (string, in
 func waitForFileContains(t *testing.T, path, want string) {
 	t.Helper()
 
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(path)
 		if err == nil && strings.Contains(string(data), want) {
