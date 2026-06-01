@@ -184,17 +184,22 @@ func TestMsgCLICommandHandler(t *testing.T) {
 		{
 			name:       "inbox help",
 			args:       []string{"msg", "inbox", "--help"},
-			wantStdout: "usage: amux msg inbox [pane] [--unread] [--format json]\n",
+			wantStdout: msgInboxUsage + "\n",
+		},
+		{
+			name:       "list help",
+			args:       []string{"msg", "list", "--help"},
+			wantStdout: msgInboxUsage + "\n",
 		},
 		{
 			name:       "drain-status help",
 			args:       []string{"msg", "drain-status", "--help"},
-			wantStdout: "usage: amux msg drain-status [pane] [--format json]\n",
+			wantStdout: msgDrainStatusUsage + "\n",
 		},
 		{
 			name:       "read help",
 			args:       []string{"msg", "read", "--help"},
-			wantStdout: "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]\n",
+			wantStdout: msgReadUsage + "\n",
 		},
 		{
 			name:       "thread help",

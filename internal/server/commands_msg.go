@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	msgUsage             = "usage: msg <send|reply|inbox|drain-status|read|ack|thread> ..."
+	msgUsage             = "usage: msg <send|reply|inbox|list|drain-status|read|ack|thread> ..."
 	msgSendUsage         = "usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]"
 	msgReplyUsage        = "usage: msg reply <msg-id> [--from pane] [--to pane[,pane...]] [--subject text] [--topic name] [--group name] [--metadata json] [--ack status] [--ack-note text] --body text [--format json]"
 	msgDeliverUsage      = "usage: msg deliver <payload-json> [--format json]"
-	msgInboxUsage        = "usage: msg inbox [pane] [--unread] [--format json]"
+	msgInboxUsage        = "usage: msg inbox|list [pane] [--unread] [--format json]"
 	msgDrainStatusUsage  = "usage: msg drain-status [pane] [--format json]"
 	msgReadUsage         = "usage: msg read <msg-id> [--for pane] [--peek] [--format json]"
 	msgAckUsage          = "usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
@@ -250,7 +250,7 @@ func cmdMsg(ctx *CommandContext) {
 			output, err := runMsgDeliver(mctx, opts)
 			return commandMutationResult{output: output, err: err}
 		}))
-	case "inbox":
+	case "inbox", "list":
 		opts, err := parseMsgInboxOptions(ctx.Args[1:])
 		if err != nil {
 			ctx.replyErr(err.Error())

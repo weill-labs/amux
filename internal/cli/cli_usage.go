@@ -7,48 +7,60 @@ import (
 )
 
 const (
-	sendKeysUsage       = "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
-	mouseUsage          = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
-	captureUsage        = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
-	logUsage            = "usage: amux log <clients|panes>"
-	debugUsage          = "usage: amux debug <dump|goroutines|profile|heap|info|socket|frames|scrollback|client-goroutines|client-profile|client-heap> [--summary] [--raw] [--output <path>] [--duration <duration-or-seconds>]"
-	diagUsage           = "usage: amux _diag [dump|goroutines|heap|info] [--output <path>]"
-	leadUsage           = "usage: amux lead [pane] | amux lead --clear"
-	metaUsage           = "usage: amux meta <set|get|rm> ..."
-	mcpServerUsage      = "usage: amux mcp-server"
-	msgUsage            = "usage: amux msg <send|reply|inbox|drain-status|read|ack|thread> ..."
-	msgSendUsage        = "usage: amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text|--body-file path|stdin) [--format json]"
-	msgReplyUsage       = "usage: amux msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] [--subject text] [--topic name] [--group name] [--metadata json] [--ack ok|error|seen] [--ack-note text] (--body text|--body-file path|stdin) [--format json]"
-	msgInboxUsage       = "usage: amux msg inbox [pane] [--unread] [--format json]"
-	msgDrainStatusUsage = "usage: amux msg drain-status [pane] [--format json]"
-	msgReadUsage        = "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]"
-	msgAckUsage         = "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
-	msgThreadUsage      = "usage: amux msg thread <topic|msg-id> [--format json]"
-	moveUsage           = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	remoteUsage         = "usage: amux remote <add|discover|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
-	spawnUsage          = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
-	swapUsage           = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
-	cursorUsage         = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
-	focusUsage          = "usage: amux focus <pane>"
-	listClientsUsage    = "usage: amux list-clients"
-	listUsage           = "usage: amux list [--no-cwd] [--json]"
-	listWindowsUsage    = "usage: amux list-windows"
-	renameUsage         = "usage: amux rename <pane> <new-name>"
-	renameWindowUsage   = "usage: amux rename-window <name>"
-	resetUsage          = "usage: amux reset <pane>"
-	respawnUsage        = "usage: amux respawn <pane>"
-	resizeWindowUsage   = "usage: amux resize-window <cols> <rows>"
-	rotateUsage         = "usage: amux rotate [--reverse]"
-	selectWindowUsage   = "usage: amux select-window <index|name>"
-	statusUsage         = "usage: amux status"
-	undoUsage           = "usage: amux undo"
-	waitUsage           = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ..."
-	newWindowUsage      = "usage: amux new-window [--name NAME]"
-	closeWindowUsage    = "usage: amux close-window"
-	nextWindowUsage     = "usage: amux next-window"
-	prevWindowUsage     = "usage: amux prev-window"
-	lastWindowUsage     = "usage: amux last-window"
-	zoomUsage           = "usage: amux zoom [pane]"
+	sendKeysUsage  = "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	mouseUsage     = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
+	captureUsage   = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
+	logUsage       = "usage: amux log <clients|panes>"
+	debugUsage     = "usage: amux debug <dump|goroutines|profile|heap|info|socket|frames|scrollback|client-goroutines|client-profile|client-heap> [--summary] [--raw] [--output <path>] [--duration <duration-or-seconds>]"
+	diagUsage      = "usage: amux _diag [dump|goroutines|heap|info] [--output <path>]"
+	leadUsage      = "usage: amux lead [pane] | amux lead --clear"
+	metaUsage      = "usage: amux meta <set|get|rm> ..."
+	mcpServerUsage = "usage: amux mcp-server"
+	msgUsage       = "usage: amux msg <send|reply|inbox|list|drain-status|read|ack|thread> ..."
+	msgSendUsage   = "usage: amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text|--body-file path|stdin) [--format json]"
+	msgReplyUsage  = "usage: amux msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] [--subject text] [--topic name] [--group name] [--metadata json] [--ack ok|error|seen] [--ack-note text] (--body text|--body-file path|stdin) [--format json]"
+	msgInboxUsage  = `usage: amux msg inbox [pane] [--unread] [--format json]
+       amux msg list [pane] [--unread] [--format json]
+
+json output: array of summary objects. Optional fields are omitted when empty.
+summary fields: id string; sender pane_address; recipient pane_address; subject string; topics array<string>; groups array<string>; thread_id string; in_reply_to string; created_at string; delivered_at string; read_at string; acked_at string; ack_status string; ack_note string; body_size integer; part_count integer.
+pane_address fields: id integer; name string; host string.`
+	msgDrainStatusUsage = `usage: amux msg drain-status [pane] [--format json]
+
+json output: object with unread integer; unacked integer; pending integer; pending_fingerprint string; pending_ids array<string>; latest array<summary>.
+summary has the same fields as msg inbox JSON; latest subjects may be truncated and bodies/metadata are omitted.`
+	msgReadUsage = `usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]
+
+json output: object with id string; sender pane_address; recipients array<pane_address>; subject string; topics array<string>; groups array<string>; thread_id string; in_reply_to string; created_at string; read_at string; body string; body_size integer; part_count integer; delivery delivery_state; metadata object.
+pane_address fields: id integer; name string; host string.
+delivery_state fields: message_id string; recipient pane_address; delivered_at string; read_at string; acked_at string; ack_status string; ack_note string; last_event_seq integer.`
+	msgAckUsage       = "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
+	msgThreadUsage    = "usage: amux msg thread <topic|msg-id> [--format json]"
+	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
+	remoteUsage       = "usage: amux remote <add|discover|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
+	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
+	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
+	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
+	focusUsage        = "usage: amux focus <pane>"
+	listClientsUsage  = "usage: amux list-clients"
+	listUsage         = "usage: amux list [--no-cwd] [--json]"
+	listWindowsUsage  = "usage: amux list-windows"
+	renameUsage       = "usage: amux rename <pane> <new-name>"
+	renameWindowUsage = "usage: amux rename-window <name>"
+	resetUsage        = "usage: amux reset <pane>"
+	respawnUsage      = "usage: amux respawn <pane>"
+	resizeWindowUsage = "usage: amux resize-window <cols> <rows>"
+	rotateUsage       = "usage: amux rotate [--reverse]"
+	selectWindowUsage = "usage: amux select-window <index|name>"
+	statusUsage       = "usage: amux status"
+	undoUsage         = "usage: amux undo"
+	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ..."
+	newWindowUsage    = "usage: amux new-window [--name NAME]"
+	closeWindowUsage  = "usage: amux close-window"
+	nextWindowUsage   = "usage: amux next-window"
+	prevWindowUsage   = "usage: amux prev-window"
+	lastWindowUsage   = "usage: amux last-window"
+	zoomUsage         = "usage: amux zoom [pane]"
 )
 
 var commandUsageByName = map[string]string{
@@ -247,7 +259,7 @@ Usage:
   amux [-s session] mcp-server         Run the amux MCP server over stdio
   amux [-s session] msg send --from <pane> --to <pane[,pane...]> [--subject text] (--body text|--body-file path|stdin) [--format json]
   amux [-s session] msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] (--body text|--body-file path|stdin) [--ack ok|error|seen] [--format json]
-  amux [-s session] msg inbox [pane] [--unread] [--format json]
+  amux [-s session] msg inbox|list [pane] [--unread] [--format json]
   amux [-s session] msg drain-status [pane] [--format json]
   amux [-s session] msg read <msg-id> [--for pane] [--peek] [--format json]
   amux [-s session] msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]

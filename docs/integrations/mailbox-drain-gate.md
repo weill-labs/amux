@@ -37,14 +37,60 @@ amux msg drain-status [pane] --format json
 
 Text output is a bare pending count. JSON output includes:
 
-- `unread`: deliveries that still need `msg read`.
-- `unacked`: deliveries that still need `msg ack`.
-- `pending`: deliveries that need read or ack.
-- `pending_fingerprint`: opaque digest over pending IDs plus read/ack-needed
-  state.
-- `pending_ids`: full sorted pending ID list.
-- `latest`: bounded summary-only records. Bodies and metadata values are never
-  included.
+- `unread` (integer): deliveries that still need `msg read`.
+- `unacked` (integer): deliveries that still need `msg ack`.
+- `pending` (integer): deliveries that need read or ack.
+- `pending_fingerprint` (string): opaque digest over pending IDs plus
+  read/ack-needed state.
+- `pending_ids` (array of strings): full sorted pending ID list.
+- `latest` (array of summary objects): bounded summary-only records. Bodies and
+  metadata values are never included.
+
+## Mailbox JSON Schemas
+
+`amux msg inbox [pane] --format json` and its alias
+`amux msg list [pane] --format json` return an array of summary objects. Each
+summary object has these fields:
+
+- `id` (string): message ID, for example `msg-000001`.
+- `sender` (object): pane address with `id` (integer), `name` (string), and
+  optional `host` (string).
+- `recipient` (object): pane address with `id` (integer), `name` (string), and
+  optional `host` (string).
+- `subject` (string), `topics` (array of strings, optional), `groups` (array of
+  strings, optional).
+- `thread_id` (string), `in_reply_to` (string, optional).
+- `created_at` (string) and `delivered_at` (string): RFC3339Nano timestamps.
+- `read_at` (string, optional) and `acked_at` (string, optional): RFC3339Nano
+  timestamps.
+- `ack_status` (string, optional), `ack_note` (string, optional).
+- `body_size` (integer), `part_count` (integer).
+
+`amux msg read <msg-id> --for <pane> --format json` returns one message object
+with these fields:
+
+- `id` (string), `sender` (pane address object), `recipients` (array of pane
+  address objects), `subject` (string).
+- `topics` (array of strings, optional), `groups` (array of strings, optional).
+- `thread_id` (string), `in_reply_to` (string, optional).
+- `created_at` (string) and `read_at` (string, optional): RFC3339Nano
+  timestamps.
+- `body` (string), `body_size` (integer), `part_count` (integer).
+- `delivery` (object): `message_id` (string), `recipient` (pane address object),
+  `delivered_at` (string), `read_at` (string, optional), `acked_at` (string,
+  optional), `ack_status` (string, optional), `ack_note` (string, optional), and
+  `last_event_seq` (integer, optional).
+- `metadata` (object, optional): message metadata keyed by sender-provided
+  names.
+
+`amux msg drain-status [pane] --format json` returns one status object:
+
+- `unread` (integer), `unacked` (integer), `pending` (integer).
+- `pending_fingerprint` (string): changes when the pending read/ack set changes.
+- `pending_ids` (array of strings): sorted message IDs that still need read or
+  ack work.
+- `latest` (array of summary objects): same summary schema as inbox/list, with
+  truncated subjects and no bodies or metadata values.
 
 ## Claude Code
 
