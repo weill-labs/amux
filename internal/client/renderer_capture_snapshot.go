@@ -227,16 +227,20 @@ func windowInfoFromSnapshot(windows []proto.WindowSnapshot, activeWinID uint32) 
 	}
 	out := make([]render.WindowInfo, len(windows))
 	for i, ws := range windows {
-		out[i] = render.WindowInfo{
-			Index:          ws.Index,
-			Name:           ws.Name,
-			IsActive:       ws.ID == activeWinID,
-			Panes:          len(ws.Panes),
-			Zoomed:         ws.Zoomed || ws.ZoomedPaneID != 0,
-			IsRemoteMirror: ws.RemoteMirror,
-		}
+		out[i] = windowInfoFromWindowSnapshot(ws, activeWinID)
 	}
 	return out
+}
+
+func windowInfoFromWindowSnapshot(ws proto.WindowSnapshot, activeWinID uint32) render.WindowInfo {
+	return render.WindowInfo{
+		Index:          ws.Index,
+		Name:           ws.Name,
+		IsActive:       ws.ID == activeWinID,
+		Panes:          len(ws.Panes),
+		Zoomed:         ws.Zoomed || ws.ZoomedPaneID != 0,
+		IsRemoteMirror: ws.RemoteMirror,
+	}
 }
 
 func (s *rendererSnapshot) paneLookupFromCaptureSnapshot(paneID uint32) render.PaneData {
