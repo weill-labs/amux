@@ -295,6 +295,7 @@ Inside an amux session:
   Ctrl-a _                           Root-level split top/bottom
   Ctrl-a a                           Spawn pane in column-fill order
   Ctrl-a x                           Kill active pane
+  Ctrl-a X                           Close active window
   Ctrl-a z                           Toggle zoom on active pane
   Ctrl-a q                           Show pane labels and jump to a pane
   Ctrl-a }                           Swap active pane with next
