@@ -27,7 +27,7 @@ amux is a terminal multiplexer designed for AI agents. It runs a background serv
 
 **Resolve pane refs from `amux list`, not `pane-$AMUX_PANE`.** `AMUX_PANE` is the numeric pane ID, not a guaranteed pane name. Use the numeric ref directly (`amux capture --history 65`) or the exact pane name shown in `amux list`, especially when the visible session is zoomed to another pane and `amux capture --format json` is showing that pane instead of the worker you need.
 
-**Mailbox delivery is passive.** `amux msg send` stores mail out-of-band; it does not type into the recipient's prompt. After sending important mail, check whether the recipient is idle and whether the message remains unread/unacked. If the pane is idle and not replying, send one short PTY nudge telling it to run `amux msg drain-status --format json` and read+ack its mailbox. This idle-but-not-checking state is a known failure mode.
+**Mailbox delivery is passive.** `amux msg send` stores mail out-of-band; it does not type into the recipient's prompt. After sending mail, the sender verifies delivery itself: run `amux msg drain-status <recipient> --format json` (and/or `amux wait msg`) to see whether the message is still unread/unacked. That check is read-only and idempotent — do it automatically, and never stop to ask the user whether to check. Only the PTY nudge needs judgment, because it writes into the recipient's prompt: send one short nudge telling the pane to run `amux msg drain-status --format json` and read+ack its mailbox **only** when the unread mail is important and the recipient is idle-and-not-replying (a known failure mode). Skip the nudge for a fire-and-forget note, where leaving the mail for the recipient's own drain is the correct terminal state.
 
 ## Quick Reference
 
@@ -163,8 +163,8 @@ Sender workflow:
 
 1. Resolve pane refs with `amux list`.
 2. Send the task or handoff with `amux msg send --from <sender> --to <recipient>`.
-3. Watch for progress with `amux wait msg <sender> --topic <topic> --timeout <duration> --format json` or by checking the recipient's `amux msg drain-status <recipient> --format json`.
-4. If the recipient is idle and the message remains unread/unacked, nudge it once with `amux send-keys <recipient> 'You have amux mailbox work. Run amux msg drain-status --format json, then read and ack pending IDs.' Enter`.
+3. Verify delivery yourself, automatically — this step is read-only, so do not ask the user first. Watch for progress with `amux wait msg <sender> --topic <topic> --timeout <duration> --format json`, or check the recipient's `amux msg drain-status <recipient> --format json` to confirm whether the message is still unread/unacked.
+4. The PTY nudge is the only part that needs judgment, because it writes into the recipient's prompt. When the mail is important and the recipient is idle with the message still unread/unacked, nudge it once with `amux send-keys <recipient> 'You have amux mailbox work. Run amux msg drain-status --format json, then read and ack pending IDs.' Enter`. For a fire-and-forget note that needs no reply, skip the nudge and let the recipient's own drain surface it.
 5. Avoid repeated PTY nudges; once the agent is working, let the mailbox exchange proceed through `amux msg`.
 
 Recipient workflow:
