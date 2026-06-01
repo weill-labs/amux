@@ -149,6 +149,45 @@ func TestClaudeMailboxRewakeHookOutputIsBoundedAndBodyFree(t *testing.T) {
 	}
 }
 
+func TestCodexMailboxRewakeHookEmitsBlockJSON(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	writeMailboxRewakeFakeCommands(t, tempDir, []string{
+		`{"pending":0,"pending_ids":[],"pending_fingerprint":"","latest":[]}`,
+		`{"pending":1,"pending_ids":["msg-000002"],"pending_fingerprint":"fp-secret","latest":[{"id":"msg-000002","subject":"SECRET SUBJECT","body":"SECRET BODY","metadata":{"token":"SECRET TOKEN"}}]}`,
+	})
+	out, exitCode := runBashScriptWithInput(t, ".codex/hooks/amux-mailbox-rewake.sh", "", mailboxRewakeHookEnv(t, tempDir))
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want Codex block JSON exit 0\n%s", exitCode, out)
+	}
+
+	var block struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &block); err != nil {
+		t.Fatalf("unmarshal Codex rewake output: %v\n%s", err, out)
+	}
+	if block.Decision != "block" {
+		t.Fatalf("decision = %q, want block\n%s", block.Decision, out)
+	}
+	for _, want := range []string{
+		"amux msg drain-status --format json",
+		"amux msg read <id> --for pane-2",
+		"amux msg ack <id> --for pane-2 --status seen",
+	} {
+		if !strings.Contains(block.Reason, want) {
+			t.Fatalf("Codex rewake reason missing %q:\n%s", want, block.Reason)
+		}
+	}
+	for _, leaked := range []string{"SECRET SUBJECT", "SECRET BODY", "SECRET TOKEN", "msg-000002"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("Codex rewake output leaked %q:\n%s", leaked, out)
+		}
+	}
+}
+
 func TestClaudeSettingsWiresMailboxRewakeAsyncHook(t *testing.T) {
 	t.Parallel()
 

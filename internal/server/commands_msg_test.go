@@ -5,8 +5,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
@@ -433,6 +435,150 @@ func attachMailboxMirrorForTest(t *testing.T, h *mirrorIntegrationHarness, local
 	return pane
 }
 
+func TestMsgCommandSendWakesIdleCodexRecipient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	sess.Clock = NewFakeClock(now)
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	writes := make(chan string, 2)
+	p2 := sess.ownPane(newProxyPane(2, mux.PaneMeta{
+		Name:  "pane-2",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(1),
+		KV:    map[string]string{"agent_profile": "codex"},
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	}))
+	p2.SetCreatedAt(now.Add(-2 * config.VTIdleSettle))
+	w := newTestWindowWithPanes(t, sess, 1, "main", p1, p2)
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
+
+	res := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "wake me")
+	if res.cmdErr != "" {
+		t.Fatalf("msg send error: %s", res.cmdErr)
+	}
+
+	got := readMailboxWakeWrites(t, writes, 2)
+	for _, want := range []string{
+		"amux mailbox delivery arrived for this pane",
+		"amux msg drain-status --format json",
+		"amux msg read <id>",
+		"amux msg ack <id> --status seen",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("wake prompt missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.HasSuffix(got, "\r") {
+		t.Fatalf("wake prompt = %q, want trailing carriage return", got)
+	}
+}
+
+func TestMsgCommandSendSkipsMailboxWakeWhenPaneIsBusyOrNotCodex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		meta map[string]string
+		idle bool
+	}{
+		{name: "non codex", meta: nil, idle: true},
+		{name: "busy codex", meta: map[string]string{"agent_profile": "codex"}, idle: false},
+		{name: "disabled codex", meta: map[string]string{"agent_profile": "codex", "mailbox_wake": "off"}, idle: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+			sess.Clock = NewFakeClock(now)
+
+			p1 := newTestPane(sess, 1, "pane-1")
+			writes := make(chan string, 1)
+			p2 := sess.ownPane(newProxyPane(2, mux.PaneMeta{
+				Name:  "pane-2",
+				Host:  mux.DefaultHost,
+				Color: config.AccentColor(1),
+				KV:    tt.meta,
+			}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+				writes <- string(data)
+				return len(data), nil
+			}))
+			if tt.idle {
+				p2.SetCreatedAt(now.Add(-2 * config.VTIdleSettle))
+			} else {
+				p2.SetCreatedAt(now)
+			}
+			w := newTestWindowWithPanes(t, sess, 1, "main", p1, p2)
+			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
+
+			res := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "wake me")
+			if res.cmdErr != "" {
+				t.Fatalf("msg send error: %s", res.cmdErr)
+			}
+
+			select {
+			case got := <-writes:
+				t.Fatalf("unexpected wake write: %q", got)
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
+	}
+}
+
+func TestMsgCommandSendWakesOnlyWhenPendingMailboxWasEmpty(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	sess.Clock = NewFakeClock(now)
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	writes := make(chan string, 4)
+	p2 := sess.ownPane(newProxyPane(2, mux.PaneMeta{
+		Name:  "pane-2",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(1),
+		KV:    map[string]string{"mailbox_wake": "prompt"},
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	}))
+	p2.SetCreatedAt(now.Add(-2 * config.VTIdleSettle))
+	w := newTestWindowWithPanes(t, sess, 1, "main", p1, p2)
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
+
+	first := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "first")
+	if first.cmdErr != "" {
+		t.Fatalf("first msg send error: %s", first.cmdErr)
+	}
+	_ = readMailboxWakeWrites(t, writes, 2)
+
+	second := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "second")
+	if second.cmdErr != "" {
+		t.Fatalf("second msg send error: %s", second.cmdErr)
+	}
+
+	select {
+	case got := <-writes:
+		t.Fatalf("unexpected duplicate wake write: %q", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestMsgCommandDrainStatusReadAckContract(t *testing.T) {
 	t.Parallel()
 
@@ -498,6 +644,21 @@ func TestMsgCommandDrainStatusReadAckContract(t *testing.T) {
 	if afterAck.Pending != 2 || afterAck.PendingFingerprint == status.PendingFingerprint {
 		t.Fatalf("after ack status = %#v, want pending shrink and fingerprint change", afterAck)
 	}
+}
+
+func readMailboxWakeWrites(t *testing.T, writes <-chan string, count int) string {
+	t.Helper()
+
+	var b strings.Builder
+	for i := 0; i < count; i++ {
+		select {
+		case got := <-writes:
+			b.WriteString(got)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for wake write %d/%d", i+1, count)
+		}
+	}
+	return b.String()
 }
 
 func TestMsgCommandDrainStatusDefaultsToActorPane(t *testing.T) {
