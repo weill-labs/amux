@@ -11,7 +11,7 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-const mailboxWakePromptText = "amux mailbox delivery arrived for this pane. Run `amux msg drain-status --format json`, then read and ack each pending ID with `amux msg read <id>` and `amux msg ack <id> --status seen` until pending is 0."
+const mailboxWakePromptText = "# amux mailbox delivery arrived for this pane. Run `amux msg drain-status --format json`, then read and ack each pending ID with `amux msg read <id>` and `amux msg ack <id> --status seen` until pending is 0."
 
 func (s *Session) enqueueMailboxSend(ctx context.Context, req mailbox.SendRequest) (mailbox.Message, error) {
 	var msg mailbox.Message
