@@ -135,6 +135,9 @@ printf 'multi-line body\n' | amux msg send --from pane-1 --to pane-2 --topic rev
 # Check summaries. Bodies are not included in inbox output.
 amux msg inbox pane-2 --unread --format json
 
+# Check unread-or-unacked work for the current/target pane.
+amux msg drain-status pane-2 --format json
+
 # Read the body as the recipient. Omit --for only when AMUX_PANE identifies that pane.
 amux msg read msg-000001 --for pane-2 --format json
 
@@ -152,7 +155,8 @@ amux wait msg pane-2 --topic review --timeout 5m --format json
 ```
 
 For an agent handoff, send a mailbox message, then bootstrap or rely on a
-separate watcher to tell the target agent to run `amux msg inbox --unread`.
+separate watcher or stop-hook recipe to tell the target agent to run
+`amux msg drain-status` and then read + ack pending IDs.
 Once the agent has read a message, prefer `amux msg reply <msg-id>` over
 manually rebuilding `--to`, `--reply-to`, and `--topic`.
 

@@ -220,6 +220,7 @@ Recipients check for unread summaries:
 ```bash
 amux msg inbox pane-2 --unread
 amux msg inbox pane-2 --unread --format json
+amux msg drain-status pane-2 --format json
 ```
 
 `inbox` output is summary-only: message ID, sender, subject, timestamps, ack
@@ -232,6 +233,17 @@ After a message is read or acked by that recipient, it no longer appears in
 `--unread`; use `msg inbox` without `--unread` to see retained deliveries. Pane
 status lines may also show a compact `msg:N` unread badge when there is room,
 but the badge is only a summary cue.
+
+`msg drain-status` is the automation-oriented read+ack gate. Text output is a
+bare pending count; JSON includes `unread`, `unacked`, `pending`,
+`pending_fingerprint`, `pending_ids`, and a bounded `latest` summary list.
+`pending` means a delivery still needs read or ack, so a read-but-unacked
+message remains pending even though it no longer appears in `inbox --unread`.
+The fingerprint changes when the pending delivery IDs or their read/ack-needed
+state changes, which lets stop-hook integrations nudge once per distinct
+pending state.
+See [docs/integrations/mailbox-drain-gate.md](docs/integrations/mailbox-drain-gate.md)
+for the Claude Code and Codex Stop-hook recipes.
 
 Read and ack are separate. `read` returns the body and marks that delivery read
 for the recipient, unless `--peek` is set. `ack` records an explicit
@@ -383,6 +395,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux msg send [--from <pane>] --to <pane[,pane...]> [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] (--body text\|--body-file path\|stdin) [--format json]` | Send an out-of-band mailbox message to panes |
 | `amux msg reply <msg-id> [--from <pane>] [--to <pane[,pane...]>] [--subject text] [--topic name] [--group name] [--metadata json] [--ack ok\|error\|seen] [--ack-note text] (--body text\|--body-file path\|stdin) [--format json]` | Reply to a mailbox message, inferring the original sender when `--to` is omitted |
 | `amux msg inbox [pane] [--unread] [--format json]` | List mailbox summaries, optionally unread only |
+| `amux msg drain-status [pane] [--format json]` | Count unread-or-unacked mailbox work for stop-hook integrations |
 | `amux msg read <msg-id> [--for pane] [--peek] [--format json]` | Return a message body for a recipient and mark it read unless `--peek` is set |
 | `amux msg ack <msg-id> [--for pane] [--status ok\|error\|seen] [--note text] [--format json]` | Acknowledge a message for a recipient |
 

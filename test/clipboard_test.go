@@ -41,6 +41,16 @@ func osc52ClipboardSequence(text string) string {
 	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\a"
 }
 
+func shellPrintfLineEscaped(text string) string {
+	var b strings.Builder
+	b.WriteString("printf '")
+	for _, c := range []byte(text + "\n") {
+		fmt.Fprintf(&b, "\\%03o", c)
+	}
+	b.WriteString("'")
+	return b.String()
+}
+
 // assertClipboardOSC52 emits an OSC 52 sequence via printf, waits for the
 // clipboard event, and asserts the decoded content matches want.
 func assertClipboardOSC52(t *testing.T, h *AmuxHarness, printfArg, want string) {
@@ -94,7 +104,7 @@ func TestCopyModeClipboardUsesOSC52WhenInnerClientRunsOverSSH(t *testing.T) {
 
 	h := newAmuxHarness(t, "SSH_CONNECTION=1")
 
-	h.sendKeys("echo SSH-COPY-TEST", "Enter")
+	h.sendKeys(shellPrintfLineEscaped("SSH-COPY-TEST"), "Enter")
 	if !h.waitFor("SSH-COPY-TEST", 3*time.Second) {
 		t.Fatalf("expected SSH-COPY-TEST in output\nScreen:\n%s", h.captureOuter())
 	}
@@ -139,7 +149,7 @@ func TestCopyModeClipboardUsesTmuxPassthroughWhenInnerClientRunsOverSSHInTmux(t 
 
 	h := newAmuxHarness(t, "SSH_CONNECTION=1", "TMUX=/tmp/tmux-test")
 
-	h.sendKeys("echo TMUX_CLIP_COPY", "Enter")
+	h.sendKeys(shellPrintfLineEscaped("TMUX_CLIP_COPY"), "Enter")
 	if !h.waitFor("TMUX_CLIP_COPY", 3*time.Second) {
 		t.Fatalf("expected TMUX_CLIP_COPY in output\nScreen:\n%s", h.captureOuter())
 	}

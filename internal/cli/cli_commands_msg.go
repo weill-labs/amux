@@ -41,6 +41,8 @@ func msgHelpUsage(args []string) string {
 			return msgReplyUsage
 		case "inbox":
 			return msgInboxUsage
+		case "drain-status":
+			return msgDrainStatusUsage
 		case "read":
 			return msgReadUsage
 		case "ack":

@@ -32,6 +32,22 @@ type msgCommandInboxJSON []struct {
 	PartCount int    `json:"part_count"`
 }
 
+type msgCommandDrainStatusJSON struct {
+	Unread             int      `json:"unread"`
+	Unacked            int      `json:"unacked"`
+	Pending            int      `json:"pending"`
+	PendingFingerprint string   `json:"pending_fingerprint"`
+	PendingIDs         []string `json:"pending_ids"`
+	Latest             []struct {
+		ID        string `json:"id"`
+		Subject   string `json:"subject"`
+		BodySize  int    `json:"body_size"`
+		PartCount int    `json:"part_count"`
+		ReadAt    string `json:"read_at"`
+		AckedAt   string `json:"acked_at"`
+	} `json:"latest"`
+}
+
 type msgCommandReadJSON struct {
 	ID       string                     `json:"id"`
 	Body     string                     `json:"body"`
@@ -103,6 +119,16 @@ func parseMsgCommandAckJSON(t *testing.T, raw string) msgCommandAckJSON {
 	var out msgCommandAckJSON
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		t.Fatalf("json.Unmarshal(ack output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
+func parseMsgCommandDrainStatusJSON(t *testing.T, raw string) msgCommandDrainStatusJSON {
+	t.Helper()
+
+	var out msgCommandDrainStatusJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(drain-status output): %v\nraw:\n%s", err, raw)
 	}
 	return out
 }
@@ -190,6 +216,111 @@ func TestMsgCommandDefaultsToActorPane(t *testing.T) {
 	}
 	if !strings.Contains(read.output, "actor body") {
 		t.Fatalf("actor-default read output = %q, want body", read.output)
+	}
+}
+
+func TestMsgCommandDrainStatusReadAckContract(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	untouched := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--subject", "Untouched", "--body", "body one", "--format", "json")
+	if untouched.cmdErr != "" {
+		t.Fatalf("msg send untouched error: %s", untouched.cmdErr)
+	}
+	untouchedJSON := parseMsgCommandSendJSON(t, untouched.output)
+
+	readOnly := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--subject", "Read only", "--body", "body two", "--format", "json")
+	if readOnly.cmdErr != "" {
+		t.Fatalf("msg send read-only error: %s", readOnly.cmdErr)
+	}
+	readOnlyJSON := parseMsgCommandSendJSON(t, readOnly.output)
+
+	ackOnly := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--subject", "Ack only", "--body", "body three", "--format", "json")
+	if ackOnly.cmdErr != "" {
+		t.Fatalf("msg send ack-only error: %s", ackOnly.cmdErr)
+	}
+	ackOnlyJSON := parseMsgCommandSendJSON(t, ackOnly.output)
+
+	if read := runTestCommand(t, srv, sess, "msg", "read", readOnlyJSON.ID, "--for", "pane-2"); read.cmdErr != "" {
+		t.Fatalf("msg read read-only error: %s", read.cmdErr)
+	}
+	if ack := runTestCommand(t, srv, sess, "msg", "ack", ackOnlyJSON.ID, "--for", "pane-2", "--status", "seen"); ack.cmdErr != "" {
+		t.Fatalf("msg ack ack-only error: %s", ack.cmdErr)
+	}
+
+	text := runTestCommand(t, srv, sess, "msg", "drain-status", "pane-2")
+	if text.cmdErr != "" {
+		t.Fatalf("msg drain-status text error: %s", text.cmdErr)
+	}
+	if text.output != "3\n" {
+		t.Fatalf("drain-status text output = %q, want bare pending count", text.output)
+	}
+
+	jsonRaw := runTestCommand(t, srv, sess, "msg", "drain-status", "pane-2", "--format", "json")
+	if jsonRaw.cmdErr != "" {
+		t.Fatalf("msg drain-status json error: %s", jsonRaw.cmdErr)
+	}
+	status := parseMsgCommandDrainStatusJSON(t, jsonRaw.output)
+	if status.Unread != 2 || status.Unacked != 2 || status.Pending != 3 {
+		t.Fatalf("drain-status counts = %#v, want unread=2 unacked=2 pending=3", status)
+	}
+	if status.PendingFingerprint == "" {
+		t.Fatalf("pending fingerprint is empty: %#v", status)
+	}
+	wantIDs := []string{untouchedJSON.ID, readOnlyJSON.ID, ackOnlyJSON.ID}
+	if strings.Join(status.PendingIDs, ",") != strings.Join(wantIDs, ",") {
+		t.Fatalf("pending IDs = %v, want %v", status.PendingIDs, wantIDs)
+	}
+	if len(status.Latest) != 3 {
+		t.Fatalf("latest length = %d, want 3", len(status.Latest))
+	}
+
+	if ack := runTestCommand(t, srv, sess, "msg", "ack", readOnlyJSON.ID, "--for", "pane-2", "--status", "ok"); ack.cmdErr != "" {
+		t.Fatalf("msg ack read-only error: %s", ack.cmdErr)
+	}
+	afterAck := parseMsgCommandDrainStatusJSON(t, runTestCommand(t, srv, sess, "msg", "drain-status", "pane-2", "--format", "json").output)
+	if afterAck.Pending != 2 || afterAck.PendingFingerprint == status.PendingFingerprint {
+		t.Fatalf("after ack status = %#v, want pending shrink and fingerprint change", afterAck)
+	}
+}
+
+func TestMsgCommandDrainStatusDefaultsToActorPane(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	sent := runTestCommandWithActor(t, srv, sess, 1, "msg", "send", "--to", "pane-2", "--subject", "Actor", "--body", "actor body", "--format", "json")
+	if sent.cmdErr != "" {
+		t.Fatalf("msg send from actor error: %s", sent.cmdErr)
+	}
+
+	status := runTestCommandWithActor(t, srv, sess, 2, "msg", "drain-status")
+	if status.cmdErr != "" {
+		t.Fatalf("msg drain-status actor default error: %s", status.cmdErr)
+	}
+	if status.output != "1\n" {
+		t.Fatalf("actor-default drain-status output = %q, want 1", status.output)
+	}
+}
+
+func TestMsgCommandDrainStatusJSONUsesEmptyArrays(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	res := runTestCommand(t, srv, sess, "msg", "drain-status", "pane-2", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("msg drain-status json error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, `"pending_ids":[]`) {
+		t.Fatalf("drain-status JSON = %s, want pending_ids empty array", res.output)
+	}
+	if !strings.Contains(res.output, `"latest":[]`) {
+		t.Fatalf("drain-status JSON = %s, want latest empty array", res.output)
 	}
 }
 
@@ -630,6 +761,26 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			want: "inbox target pane is required",
 		},
 		{
+			name: "missing drain-status actor default",
+			args: []string{"drain-status"},
+			want: "drain-status target pane is required",
+		},
+		{
+			name: "unknown drain-status flag",
+			args: []string{"drain-status", "--bad"},
+			want: "usage: msg drain-status",
+		},
+		{
+			name: "missing drain-status format",
+			args: []string{"drain-status", "pane-1", "--format"},
+			want: "missing value for --format",
+		},
+		{
+			name: "duplicate drain-status target",
+			args: []string{"drain-status", "pane-1", "pane-2"},
+			want: "usage: msg drain-status",
+		},
+		{
 			name: "unsupported format",
 			args: []string{"send", "--from", "pane-1", "--to", "pane-2", "--body", "body", "--format", "yaml"},
 			want: "unsupported msg format",
@@ -705,6 +856,71 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			}
 			if !strings.Contains(res.cmdErr, tt.want) {
 				t.Fatalf("msg %s error = %q, want substring %q", strings.Join(tt.args, " "), res.cmdErr, tt.want)
+			}
+		})
+	}
+}
+
+func TestBriefMsgSubject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		subject string
+		limit   int
+		want    string
+	}{
+		{
+			name:    "within limit",
+			subject: "short",
+			limit:   5,
+			want:    "short",
+		},
+		{
+			name:    "ascii truncates",
+			subject: "abcdef",
+			limit:   5,
+			want:    "ab...",
+		},
+		{
+			name:    "small limit returns ellipsis",
+			subject: "abcdef",
+			limit:   3,
+			want:    "...",
+		},
+		{
+			name:    "limit two returns two dots",
+			subject: "abcdef",
+			limit:   2,
+			want:    "..",
+		},
+		{
+			name:    "limit one returns one dot",
+			subject: "abcdef",
+			limit:   1,
+			want:    ".",
+		},
+		{
+			name:    "zero limit leaves subject unchanged",
+			subject: "abcdef",
+			limit:   0,
+			want:    "abcdef",
+		},
+		{
+			name:    "utf8 truncates on rune boundary",
+			subject: "abcédef",
+			limit:   7,
+			want:    "abc...",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := briefMsgSubject(tt.subject, tt.limit); got != tt.want {
+				t.Fatalf("briefMsgSubject(%q, %d) = %q, want %q", tt.subject, tt.limit, got, tt.want)
 			}
 		})
 	}

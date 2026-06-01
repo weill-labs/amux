@@ -304,6 +304,46 @@ bodies or arbitrary metadata values. The summary fields are:
 An unknown pane or invalid filter exits non-zero. An empty inbox is a successful
 empty result.
 
+### `msg drain-status`
+
+```bash
+amux msg drain-status pane-2
+amux msg drain-status pane-2 --format json
+```
+
+`drain-status` reports mailbox work that still needs recipient action. It is
+intended for lifecycle hooks and other automation that need a cheap,
+agent-neutral predicate rather than an inbox listing.
+
+Text output is the bare `pending` count followed by a newline. JSON output is:
+
+```json
+{
+  "unread": 1,
+  "unacked": 2,
+  "pending": 2,
+  "pending_fingerprint": "opaque-stable-digest",
+  "pending_ids": ["msg-000123", "msg-000124"],
+  "latest": []
+}
+```
+
+Definitions:
+
+- `unread`: deliveries whose `ReadAt` is unset.
+- `unacked`: deliveries whose `AckedAt` is unset.
+- `pending`: deliveries where `ReadAt` or `AckedAt` is unset.
+- `pending_fingerprint`: a core-computed digest over sorted pending message IDs
+  plus their read-needed and ack-needed bits. It changes when an agent reads,
+  acks, receives, or finishes pending work, and is empty when `pending == 0`.
+- `pending_ids`: the full sorted pending message ID list.
+- `latest`: a bounded summary-only list for prompts and logs. It never includes
+  message bodies or metadata values.
+
+`drain-status` deliberately differs from `inbox --unread`: reading a message
+removes it from the unread inbox, but it remains pending until it is also
+acked.
+
 ### `msg read`
 
 ```bash
@@ -627,3 +667,4 @@ remain summary projections, not alternate sources of truth.
 | 2026-05-30 | Topics/groups are labels in v1, not policy | Supports filtering without baking in orchestration semantics or requiring group-management commands. |
 | 2026-05-30 | Read and ack are separate recipient states | A pane can inspect a message without committing to action, and can ack without amux interpreting the meaning. |
 | 2026-05-30 | Checkpoint the mailbox with bounded bodies | Preserves delivery guarantees across reload/crash while keeping disk exposure explicit and capped. |
+| 2026-06-01 | Add `msg drain-status` as the agent-neutral stop-hook predicate | Hooks need a read+ack-aware count and fingerprint without baking Claude Code, Codex, or any other runtime into amux core. |
