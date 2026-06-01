@@ -115,6 +115,7 @@ type msgSendOutput struct {
 
 type msgSummaryOutput struct {
 	ID          mailbox.MessageID   `json:"id"`
+	From        mailbox.PaneAddress `json:"from"`
 	Sender      mailbox.PaneAddress `json:"sender"`
 	Recipient   mailbox.PaneAddress `json:"recipient"`
 	Subject     string              `json:"subject"`
@@ -143,6 +144,7 @@ type msgDrainStatusOutput struct {
 
 type msgReadOutput struct {
 	ID         mailbox.MessageID          `json:"id"`
+	From       mailbox.PaneAddress        `json:"from"`
 	Sender     mailbox.PaneAddress        `json:"sender"`
 	Recipients []mailbox.PaneAddress      `json:"recipients"`
 	Subject    string                     `json:"subject"`
@@ -927,7 +929,7 @@ func runMsgRead(mctx *MutationContext, actorPaneID uint32, opts msgReadOptions) 
 	if opts.format == msgFormatJSON {
 		return encodeMsgJSON(readOutputForMessage(msg, delivery, body))
 	}
-	return ensureMsgTrailingNewline(body), nil
+	return formatMsgReadText(msg, body), nil
 }
 
 func runMsgThread(mctx *MutationContext, opts msgThreadOptions) (string, error) {
@@ -1315,6 +1317,7 @@ func drainStatusLatestOutput(summaries []mailbox.DeliverySummary) []msgSummaryOu
 func summaryOutput(summary mailbox.DeliverySummary) msgSummaryOutput {
 	out := msgSummaryOutput{
 		ID:          summary.MessageID,
+		From:        summary.Sender,
 		Sender:      summary.Sender,
 		Recipient:   summary.Recipient,
 		Subject:     summary.Subject,
@@ -1355,6 +1358,7 @@ func briefMsgSubject(subject string, limit int) string {
 func readOutputForMessage(msg mailbox.Message, delivery mailbox.DeliveryState, body string) msgReadOutput {
 	out := msgReadOutput{
 		ID:         msg.ID,
+		From:       msg.Sender,
 		Sender:     msg.Sender,
 		Recipients: append([]mailbox.PaneAddress(nil), msg.Recipients...),
 		Subject:    msg.Subject,
@@ -1435,13 +1439,17 @@ func joinPaneNames(addrs []mailbox.PaneAddress) string {
 	return strings.Join(names, ",")
 }
 
+func formatMsgReadText(msg mailbox.Message, body string) string {
+	return fmt.Sprintf("From: %s (%d)\n\n%s", msg.Sender.Name, msg.Sender.ID, ensureMsgTrailingNewline(body))
+}
+
 func formatMsgInboxText(summaries []mailbox.DeliverySummary) string {
 	if len(summaries) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	for _, summary := range summaries {
-		fmt.Fprintf(&b, "%s from %s: %s (%d bytes)\n", summary.MessageID, summary.Sender.Name, summary.Subject, summary.BodySize)
+		fmt.Fprintf(&b, "%s from %s (%d): %s (%d bytes)\n", summary.MessageID, summary.Sender.Name, summary.Sender.ID, summary.Subject, summary.BodySize)
 	}
 	return b.String()
 }
