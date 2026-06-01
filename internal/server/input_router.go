@@ -189,11 +189,29 @@ func (s *Session) enqueueLivePaneInput(pane *mux.Pane, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
+	return s.enqueueLivePaneInputChunks(pane, []encodedKeyChunk{{data: data}})
+}
+
+func (s *Session) enqueueLivePaneInputChunks(pane *mux.Pane, chunks []encodedKeyChunk) error {
+	if len(chunks) == 0 {
+		return nil
+	}
 	queue, err := s.ensureInputRouter().livePaneQueue(s, pane)
 	if err != nil {
 		return err
 	}
-	return queue.queue.enqueueAsync([]encodedKeyChunk{{data: append([]byte(nil), data...)}})
+	cloned := make([]encodedKeyChunk, 0, len(chunks))
+	for _, chunk := range chunks {
+		if len(chunk.data) == 0 {
+			continue
+		}
+		chunk.data = append([]byte(nil), chunk.data...)
+		cloned = append(cloned, chunk)
+	}
+	if len(cloned) == 0 {
+		return nil
+	}
+	return queue.queue.enqueueAsync(cloned)
 }
 
 type paneInputTarget struct {

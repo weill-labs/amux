@@ -396,14 +396,36 @@ EOF
 }
 
 amux_mailbox_rewake_emit_wake() {
-    local reason="$1"
+    local mode="$1"
+    local reason="$2"
 
-    printf '%s\n' "$reason" >&2
-    return 2
+    case "$mode" in
+    codex)
+        jq -cn --arg reason "$reason" '{decision:"block",reason:$reason}'
+        ;;
+    claude)
+        printf '%s\n' "$reason" >&2
+        return 2
+        ;;
+    *)
+        printf '%s\n' "$reason" >&2
+        return 2
+        ;;
+    esac
 }
 
 amux_mailbox_rewake_main() {
     local initial after lock dir json pending fingerprint reason mark_status
+    local mode="${1:-claude}"
+
+    case "$mode" in
+    claude | codex)
+        shift || true
+        ;;
+    *)
+        mode="claude"
+        ;;
+    esac
 
     if [ "${1:-}" = "--self-test" ]; then
         amux_mailbox_rewake_self_test
@@ -493,5 +515,5 @@ amux_mailbox_rewake_main() {
         return 0
     }
     exec 8>&-
-    amux_mailbox_rewake_emit_wake "$reason"
+    amux_mailbox_rewake_emit_wake "$mode" "$reason"
 }

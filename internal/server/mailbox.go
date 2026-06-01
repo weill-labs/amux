@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 
 	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+const mailboxWakePromptText = "amux mailbox delivery arrived for this pane. Run `amux msg drain-status --format json`, then read and ack each pending ID with `amux msg read <id>` and `amux msg ack <id> --status seen` until pending is 0."
 
 func (s *Session) enqueueMailboxSend(ctx context.Context, req mailbox.SendRequest) (mailbox.Message, error) {
 	var msg mailbox.Message
@@ -42,7 +45,9 @@ func (s *Session) enqueueMailboxAck(ctx context.Context, id mailbox.MessageID, r
 }
 
 func (s *Session) sendMailboxMessage(req mailbox.SendRequest) (mailbox.Message, error) {
-	msg, err := s.ensureMailbox().Send(req)
+	store := s.ensureMailbox()
+	beforePending := s.mailboxPendingCounts(req.Recipients)
+	msg, err := store.Send(req)
 	if err != nil {
 		return mailbox.Message{}, err
 	}
@@ -52,8 +57,54 @@ func (s *Session) sendMailboxMessage(req mailbox.SendRequest) (mailbox.Message, 
 			return mailbox.Message{}, err
 		}
 		s.emitMailboxEvent(EventMessageDelivered, summary)
+		if recipient.ID != msg.Sender.ID && beforePending[recipient.ID] == 0 {
+			s.maybeWakeMailboxRecipient(recipient.ID)
+		}
 	}
 	return msg, nil
+}
+
+func (s *Session) mailboxPendingCounts(recipients []mailbox.PaneAddress) map[uint32]int {
+	counts := make(map[uint32]int, len(recipients))
+	for _, recipient := range recipients {
+		status, err := s.mailbox.DrainStatus(recipient.ID, mailbox.DrainOptions{})
+		if err != nil {
+			continue
+		}
+		counts[recipient.ID] = status.Pending
+	}
+	return counts
+}
+
+func (s *Session) maybeWakeMailboxRecipient(paneID uint32) {
+	pane := s.findPaneByID(paneID)
+	if pane == nil || !pane.AcceptsInput() {
+		return
+	}
+	if !mailboxPaneWakeEnabled(pane.Meta.KV) {
+		return
+	}
+	if !s.paneIdleStatus(pane.ID, pane.CreatedAt(), s.clock().Now()).idle {
+		return
+	}
+	_ = s.enqueueLivePaneInputChunks(pane, mailboxWakeInputChunks())
+}
+
+func mailboxPaneWakeEnabled(kv map[string]string) bool {
+	switch strings.ToLower(strings.TrimSpace(kv["mailbox_wake"])) {
+	case "0", "false", "off", "none", "disable", "disabled":
+		return false
+	case "1", "true", "on", "prompt", "nudge":
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(kv["agent_profile"]), "codex")
+}
+
+func mailboxWakeInputChunks() []encodedKeyChunk {
+	return []encodedKeyChunk{
+		{data: []byte(mailboxWakePromptText)},
+		{data: []byte("\r"), paceBefore: true},
+	}
 }
 
 func (s *Session) readMailboxMessage(id mailbox.MessageID, recipientID uint32, opts mailbox.ReadOptions) (mailbox.Message, mailbox.DeliveryState, error) {
