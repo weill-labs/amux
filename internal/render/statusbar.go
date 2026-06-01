@@ -949,6 +949,9 @@ func globalBarWindowName(window WindowInfo) string {
 }
 
 func globalBarTabColorHex(window WindowInfo) string {
+	if window.IsRemoteMirror {
+		return config.GreenHex
+	}
 	if window.IsActive {
 		return config.BlueHex
 	}
@@ -1019,6 +1022,9 @@ func buildPowerlineGlobalBarCells(sessionName string, paneCount int, width int, 
 			style := baseStyle
 			if tab.window.IsActive {
 				style = focusedStyle
+			}
+			if tab.window.IsRemoteMirror {
+				style.fgHex = config.GreenHex
 			}
 			cells = appendStyledStatusCells(cells, tab.display, style)
 			cells = appendStyledStatusCells(cells, " ", baseStyle)

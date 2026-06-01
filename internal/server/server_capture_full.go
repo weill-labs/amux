@@ -264,14 +264,14 @@ func (s *Session) captureFullSessionSnapshot() (serverFullSessionCapture, error)
 				Index:  windowSnap.Index,
 				Zoomed: windowSnap.Zoomed || windowSnap.ZoomedPaneID != 0,
 			},
-			windows:   serverWindowInfo(s.Windows, s.ActiveWindowID),
+			windows:   serverWindowInfo(s.Windows, s.ActiveWindowID, s.windowMirrorSigs),
 			panes:     panes,
 			panesByID: panesByID,
 		}, nil
 	})
 }
 
-func serverWindowInfo(windows []*mux.Window, activeWindowID uint32) []render.WindowInfo {
+func serverWindowInfo(windows []*mux.Window, activeWindowID uint32, windowMirrorSigs map[uint32]string) []render.WindowInfo {
 	if len(windows) == 0 {
 		return nil
 	}
@@ -281,11 +281,12 @@ func serverWindowInfo(windows []*mux.Window, activeWindowID uint32) []render.Win
 			continue
 		}
 		out = append(out, render.WindowInfo{
-			Index:    i + 1,
-			Name:     window.Name,
-			IsActive: window.ID == activeWindowID,
-			Panes:    window.PaneCount(),
-			Zoomed:   window.ZoomedPaneID != 0,
+			Index:          i + 1,
+			Name:           window.Name,
+			IsActive:       window.ID == activeWindowID,
+			Panes:          window.PaneCount(),
+			Zoomed:         window.ZoomedPaneID != 0,
+			IsRemoteMirror: isRemoteMirrorWindowID(windowMirrorSigs, window.ID),
 		})
 	}
 	return out

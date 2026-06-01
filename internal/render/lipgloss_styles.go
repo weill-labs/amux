@@ -109,6 +109,12 @@ func (s statusBarStyles) pane(role paneStatusSegmentRole) lipgloss.Style {
 }
 
 func (s statusBarStyles) windowTab(window WindowInfo) lipgloss.Style {
+	if window.IsRemoteMirror {
+		if window.IsActive {
+			return s.success.Bold(true)
+		}
+		return s.success
+	}
 	if window.IsActive {
 		return s.focused
 	}

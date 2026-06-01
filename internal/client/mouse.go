@@ -510,13 +510,7 @@ func globalBarWindowInfos(cr *ClientRenderer) []render.WindowInfo {
 
 	infos := make([]render.WindowInfo, len(windows))
 	for i, ws := range windows {
-		infos[i] = render.WindowInfo{
-			Index:    ws.Index,
-			Name:     ws.Name,
-			IsActive: ws.ID == activeWindowID,
-			Panes:    len(ws.Panes),
-			Zoomed:   ws.Zoomed || ws.ZoomedPaneID != 0,
-		}
+		infos[i] = windowInfoFromWindowSnapshot(ws, activeWindowID)
 	}
 	return infos
 }

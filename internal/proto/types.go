@@ -30,6 +30,7 @@ type WindowSnapshot struct {
 	ActivePaneID uint32         `json:"active_pane_id"`
 	Zoomed       bool           `json:"zoomed"`
 	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
+	RemoteMirror bool           `json:"remote_mirror,omitempty"`
 	LeadPaneID   uint32         `json:"lead_pane_id,omitempty"`
 	Root         CellSnapshot   `json:"root"`
 	Panes        []PaneSnapshot `json:"panes"`
