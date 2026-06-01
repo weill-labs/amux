@@ -465,6 +465,9 @@ func TestMsgCommandSendWakesIdleCodexRecipient(t *testing.T) {
 	}
 
 	got := readMailboxWakeWrites(t, writes, 2)
+	if !strings.HasPrefix(got, "# amux mailbox delivery arrived") {
+		t.Fatalf("wake prompt = %q, want shell-comment-prefixed prompt", got)
+	}
 	for _, want := range []string{
 		"amux mailbox delivery arrived for this pane",
 		"amux msg drain-status --format json",
