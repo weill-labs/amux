@@ -5,6 +5,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server/mirror"
 )
 
@@ -66,5 +67,43 @@ func TestWindowMirrorCheckpointAndRestore(t *testing.T) {
 	}
 	if _, ok := dstMgr.WindowSnapshot(7); !ok {
 		t.Fatal("window mirror was not re-tracked on restore")
+	}
+}
+
+func TestApplyWindowReconcileRollsBackPaneTrackingFailure(t *testing.T) {
+	t.Parallel()
+
+	w := &mux.Window{ID: 7, Width: 80, Height: 24}
+	sess := &Session{
+		Windows:          []*mux.Window{w},
+		ActiveWindowID:   7,
+		windowMirrorSigs: map[uint32]string{7: "old"},
+	}
+	mctx := newMutationContext(sess)
+	in := windowReconcileInput{
+		localWindowID: 7,
+		ref:           mirror.WindowRef{Host: "remote", Session: "main", WindowName: "amux"},
+		ws: proto.WindowSnapshot{
+			Name:  "amux",
+			Root:  proto.CellSnapshot{IsLeaf: true, PaneID: 11, W: 80, H: 24},
+			Panes: []proto.PaneSnapshot{{ID: 11, Name: "pane-11"}},
+		},
+		leaves:    []remoteWindowLeaf{{remoteID: 11, name: "pane-11", cols: 80, rows: 23}},
+		signature: "new",
+	}
+
+	res := mctx.applyWindowReconcile(in)
+
+	if res.err == nil {
+		t.Fatal("expected tracking error")
+	}
+	if len(sess.Panes) != 0 {
+		t.Fatalf("created panes were not rolled back: %+v", sess.Panes)
+	}
+	if len(mctx.closePanes) != 1 {
+		t.Fatalf("scheduled closes = %d, want 1", len(mctx.closePanes))
+	}
+	if got := sess.windowMirrorSigs[7]; got != "old" {
+		t.Fatalf("signature = %q, want old", got)
 	}
 }

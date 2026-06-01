@@ -1,9 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
 
 func TestPlanRemoteWindowLeaves(t *testing.T) {
@@ -67,6 +70,18 @@ func TestPlanRemoteWindowLeavesErrors(t *testing.T) {
 				Panes: []proto.PaneSnapshot{{ID: 5, Name: ""}},
 			},
 		},
+		{
+			name: "mixed tree with zero pane id",
+			ws: proto.WindowSnapshot{
+				ID:   1,
+				Name: "amux",
+				Root: proto.CellSnapshot{Dir: 0, Children: []proto.CellSnapshot{
+					{IsLeaf: true, PaneID: 5, W: 40, H: 24},
+					{IsLeaf: true, PaneID: 0, W: 40, H: 24},
+				}},
+				Panes: []proto.PaneSnapshot{{ID: 5, Name: "pane-5"}},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -75,5 +90,27 @@ func TestPlanRemoteWindowLeavesErrors(t *testing.T) {
 				t.Fatalf("expected error for %s", tt.name)
 			}
 		})
+	}
+}
+
+func TestUniqueLocalWindowNameExhaustsSuffixes(t *testing.T) {
+	t.Parallel()
+
+	mctx := &MutationContext{}
+	mctx.Windows = append(mctx.Windows, &mux.Window{Name: "remote:amux"})
+	for i := 2; i <= 100; i++ {
+		mctx.Windows = append(mctx.Windows, &mux.Window{Name: fmt.Sprintf("remote:amux-%d", i)})
+	}
+
+	if got := uniqueLocalWindowName(mctx, "remote", "amux"); got != "remote:amux-101" {
+		t.Fatalf("name = %q, want remote:amux-101", got)
+	}
+}
+
+func TestTrackRemoteWindowMirrorRequiresManager(t *testing.T) {
+	t.Parallel()
+
+	if err := trackRemoteWindowMirror(&Session{}, 1, mirrorpkg.WindowRef{Host: "remote", WindowName: "amux"}, 80, 24); err == nil {
+		t.Fatal("expected error without mirror manager")
 	}
 }

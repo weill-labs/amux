@@ -100,13 +100,21 @@ func (mctx *MutationContext) applyWindowReconcile(in windowReconcileInput) comma
 	}
 
 	for remoteID, ref := range createdRefs {
-		_ = mctx.trackMirrorPane(paneMap[remoteID], ref)
+		if err := mctx.trackMirrorPane(paneMap[remoteID], ref); err != nil {
+			for _, cp := range created {
+				mctx.removePane(cp.ID)
+				mctx.ScheduleClose(cp)
+			}
+			return commandMutationResult{err: err}
+		}
 	}
 
 	// Rebuild the local window's split tree to match the remote structure,
 	// keeping the local window identity and refitting to local dimensions.
 	rebuilt := mux.RebuildWindowFromSnapshot(in.ws, w.Width, w.Height, paneMap)
 	w.Root = rebuilt.Root
+	// Remote lead/zoom pane IDs are scoped to the remote window. Clear local
+	// lead/zoom state after structural rebuilds so those IDs cannot dangle.
 	w.LeadPaneID = 0
 	w.ZoomedPaneID = 0
 	// RebuildWindowFromSnapshot already falls back to the first leaf when the
@@ -149,11 +157,12 @@ func existingMirrorPanesByRemoteName(sess *Session, w *mux.Window) map[string]*m
 
 // resizeMirrorTargetWindow applies a mirror subscriber's requested size to a
 // window. Called on the session event loop from the attach-window handler.
-func (s *Session) resizeMirrorTargetWindow(w *mux.Window, cols, rows int) {
+func (s *Session) resizeMirrorTargetWindow(w *mux.Window, cols, rows int) bool {
 	if w == nil || cols <= 0 || rows <= 0 || (w.Width == cols && w.Height == rows) {
-		return
+		return false
 	}
 	w.Resize(cols, rows)
+	return true
 }
 
 // windowMirrorCheckpoints builds checkpoint records for the session's active

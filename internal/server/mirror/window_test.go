@@ -1,7 +1,6 @@
 package mirror
 
 import (
-	"context"
 	"errors"
 	"net"
 	"runtime"
@@ -208,5 +207,4 @@ func TestManagerDetachWindowClosesLink(t *testing.T) {
 	if _, err := proto.NewReader(serverConn).ReadMsg(); err == nil {
 		t.Fatal("expected link to be closed after DetachWindow")
 	}
-	_ = context.Background()
 }

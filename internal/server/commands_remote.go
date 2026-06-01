@@ -351,7 +351,7 @@ func writeRemoteWindowSignature(b *strings.Builder, cell proto.CellSnapshot, nam
 func collectRemoteWindowLeaves(cell proto.CellSnapshot, snapshots map[uint32]proto.PaneSnapshot, windowName string, out *[]remoteWindowLeaf) error {
 	if cell.IsLeaf {
 		if cell.PaneID == 0 {
-			return nil
+			return fmt.Errorf("remote window %q: leaf has no pane id", windowName)
 		}
 		pane, ok := snapshots[cell.PaneID]
 		if !ok {
@@ -493,6 +493,8 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 			}
 		}
 
+		prevActiveWindowID := mctx.ActiveWindowID
+		prevPreviousWindowID := mctx.PreviousWindowID
 		mctx.Windows = append(mctx.Windows, win)
 		mctx.activateWindow(win)
 
@@ -503,17 +505,31 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 			mctx.sess.windowMirrorSigs = make(map[uint32]string)
 		}
 		mctx.sess.windowMirrorSigs[win.ID] = remoteWindowSignature(ws)
-		_ = mctx.sess.mirror.TrackWindow(win.ID, mirrorpkg.WindowRef{
+		if err := trackRemoteWindowMirror(mctx.sess, win.ID, mirrorpkg.WindowRef{
 			Host:       hostName,
 			Session:    session,
 			WindowName: ws.Name,
-		}, win.Width, win.Height)
+		}, win.Width, win.Height); err != nil {
+			cleanup()
+			mctx.Windows = removeWindowByID(mctx.Windows, win.ID)
+			mctx.ActiveWindowID = prevActiveWindowID
+			mctx.PreviousWindowID = prevPreviousWindowID
+			delete(mctx.sess.windowMirrorSigs, win.ID)
+			return commandMutationResult{err: err}
+		}
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Attached %s:%s as window %s (%d panes)\n", hostName, ws.Name, win.Name, len(created)),
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func trackRemoteWindowMirror(s *Session, localWindowID uint32, ref mirrorpkg.WindowRef, cols, rows int) error {
+	if s == nil || s.mirror == nil {
+		return fmt.Errorf("mirror manager is not configured")
+	}
+	return s.mirror.TrackWindow(localWindowID, ref, cols, rows)
 }
 
 // uniqueLocalWindowName builds a collision-free local window name for a mirrored
@@ -531,13 +547,22 @@ func uniqueLocalWindowName(mctx *MutationContext, host, remoteName string) strin
 	if !taken(base) {
 		return base
 	}
-	for i := 2; i < 100; i++ {
+	for i := 2; ; i++ {
 		cand := fmt.Sprintf("%s-%d", base, i)
 		if !taken(cand) {
 			return cand
 		}
 	}
-	return base
+}
+
+func removeWindowByID(windows []*mux.Window, id uint32) []*mux.Window {
+	out := windows[:0]
+	for _, w := range windows {
+		if w == nil || w.ID != id {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 func runRemoteDetachWindow(ctx *CommandContext) commandpkg.Result {

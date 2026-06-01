@@ -94,7 +94,9 @@ func (e attachWindowClientEvent) handle(_ context.Context, s *Session) {
 	// A mirror subscriber declares the size it wants the remote window rendered
 	// at. Apply it so the remote re-renders to match the local mirror window.
 	if e.cols > 0 && e.rows > 0 {
-		s.resizeMirrorTargetWindow(w, e.cols, e.rows)
+		if s.resizeMirrorTargetWindow(w, e.cols, e.rows) {
+			s.broadcastLayoutNow()
+		}
 	}
 	snap := s.snapshotLayout(s.snapshotIdleState())
 	if snap == nil {

@@ -60,6 +60,50 @@ func TestAttachWindowStreamsLayoutUpdates(t *testing.T) {
 	})
 }
 
+func TestAttachWindowInitialResizeBroadcasts(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	observer, err := net.Dial("unix", server.SocketPath(h.session))
+	if err != nil {
+		t.Fatalf("observer dial: %v", err)
+	}
+	defer observer.Close()
+	if err := writeMsgOnConn(observer, &server.Message{
+		Type:       proto.MsgTypeAttachWindow,
+		Session:    h.session,
+		WindowName: "1",
+	}); err != nil {
+		t.Fatalf("observer attach-window write: %v", err)
+	}
+	if msg, err := readMsgOnConn(observer); err != nil || msg.Type != proto.MsgTypeLayout {
+		t.Fatalf("observer initial layout = (%v, %v), want MsgTypeLayout", msg, err)
+	}
+
+	subscriber, err := net.Dial("unix", server.SocketPath(h.session))
+	if err != nil {
+		t.Fatalf("subscriber dial: %v", err)
+	}
+	defer subscriber.Close()
+	if err := writeMsgOnConn(subscriber, &server.Message{
+		Type:       proto.MsgTypeAttachWindow,
+		Session:    h.session,
+		WindowName: "1",
+		Cols:       123,
+		Rows:       45,
+	}); err != nil {
+		t.Fatalf("subscriber attach-window write: %v", err)
+	}
+	if msg, err := readMsgOnConn(subscriber); err != nil || msg.Type != proto.MsgTypeLayout || msg.Layout.Width != 123 {
+		t.Fatalf("subscriber initial layout = (%+v, %v), want width 123", msg, err)
+	}
+
+	waitForWindowLayout(t, observer, "initial attach-window resize broadcast", func(layout *proto.LayoutSnapshot) bool {
+		return layout.Width == 123
+	})
+}
+
 func waitForWindowLayout(t *testing.T, conn net.Conn, what string, match func(*proto.LayoutSnapshot) bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -88,7 +132,28 @@ func activeWindowPaneCount(layout *proto.LayoutSnapshot) int {
 		return len(layout.Panes)
 	}
 	if len(layout.Windows) > 0 {
+		for _, w := range layout.Windows {
+			if w.ID == layout.ActiveWindowID {
+				return len(w.Panes)
+			}
+		}
 		return len(layout.Windows[0].Panes)
 	}
 	return 0
+}
+
+func TestActiveWindowPaneCountUsesActiveWindow(t *testing.T) {
+	t.Parallel()
+
+	layout := &proto.LayoutSnapshot{
+		ActiveWindowID: 2,
+		Windows: []proto.WindowSnapshot{
+			{ID: 1, Panes: []proto.PaneSnapshot{{ID: 10}}},
+			{ID: 2, Panes: []proto.PaneSnapshot{{ID: 20}, {ID: 21}}},
+		},
+	}
+
+	if got := activeWindowPaneCount(layout); got != 2 {
+		t.Fatalf("pane count = %d, want 2", got)
+	}
 }
