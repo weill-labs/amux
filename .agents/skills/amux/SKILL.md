@@ -7,7 +7,8 @@ description: >
   layouts. Also trigger when AMUX_SESSION is set in the environment and the user
   wants to interact with other panes or agents. Covers: JSON capture for structured
   pane inspection, send-keys for delegating to agents (codex, claude, grok),
-  wait primitives for monitoring, orchestration scripts, and event streaming.
+  mailbox messaging, wait primitives for monitoring, orchestration scripts, and
+  event streaming.
 ---
 
 # amux — Agent Orchestration Skill
@@ -25,6 +26,8 @@ amux is a terminal multiplexer designed for AI agents. It runs a background serv
 **Use `amux list` for status sweeps.** The branch column shows what workers are working on. Then use `wait idle` to check which are actively producing output vs sitting screen-quiet.
 
 **Resolve pane refs from `amux list`, not `pane-$AMUX_PANE`.** `AMUX_PANE` is the numeric pane ID, not a guaranteed pane name. Use the numeric ref directly (`amux capture --history 65`) or the exact pane name shown in `amux list`, especially when the visible session is zoomed to another pane and `amux capture --format json` is showing that pane instead of the worker you need.
+
+**Mailbox delivery is passive.** `amux msg send` stores mail out-of-band; it does not type into the recipient's prompt. After sending important mail, check whether the recipient is idle and whether the message remains unread/unacked. If the pane is idle and not replying, send one short PTY nudge telling it to run `amux msg drain-status --format json` and read+ack its mailbox. This idle-but-not-checking state is a known failure mode.
 
 ## Quick Reference
 
@@ -125,7 +128,9 @@ amux events --filter idle,busy,exited
 
 Use mailbox messages when panes need to coordinate without writing into another
 pane's PTY. Delivery is out-of-band: the recipient must check or wait on its
-mailbox; amux does not paste the body into the prompt.
+mailbox; amux does not paste the body into the prompt. Use mailbox for the real
+handoff content, and use `send-keys` only as a bootstrap/nudge when an idle
+agent is not noticing its inbox.
 
 ```bash
 # Send a message. Omit --from only when AMUX_PANE identifies the actor pane.
@@ -154,11 +159,26 @@ amux msg ack msg-000001 --for pane-2 --status seen
 amux wait msg pane-2 --topic review --timeout 5m --format json
 ```
 
-For an agent handoff, send a mailbox message, then bootstrap or rely on a
-separate watcher or stop-hook recipe to tell the target agent to run
-`amux msg drain-status` and then read + ack pending IDs.
-Once the agent has read a message, prefer `amux msg reply <msg-id>` over
-manually rebuilding `--to`, `--reply-to`, and `--topic`.
+Sender workflow:
+
+1. Resolve pane refs with `amux list`.
+2. Send the task or handoff with `amux msg send --from <sender> --to <recipient>`.
+3. Watch for progress with `amux wait msg <sender> --topic <topic> --timeout <duration> --format json` or by checking the recipient's `amux msg drain-status <recipient> --format json`.
+4. If the recipient is idle and the message remains unread/unacked, nudge it once with `amux send-keys <recipient> 'You have amux mailbox work. Run amux msg drain-status --format json, then read and ack pending IDs.' Enter`.
+5. Avoid repeated PTY nudges; once the agent is working, let the mailbox exchange proceed through `amux msg`.
+
+Recipient workflow:
+
+1. Run `amux msg drain-status --format json`.
+2. For each pending ID, run `amux msg read <msg-id> --for <recipient> --format json`.
+3. Reply with `amux msg reply <msg-id> --from <recipient> ...`; this preserves `thread_id`, `in_reply_to`, and topics without manually rebuilding routing.
+4. Ack handled mail with `amux msg ack <msg-id> --for <recipient> --status seen|ok`, or combine reply+ack with `amux msg reply ... --ack ok --ack-note "handled"`.
+5. Before going idle, rerun `amux msg drain-status --format json` and make sure `pending` is `0`.
+
+For agent handoffs, rely on a separate watcher or stop-hook recipe when
+available, but do not assume it fired. The sender is responsible for checking
+whether important mailbox work is being consumed and nudging an idle recipient
+when necessary.
 
 ### Pane Management
 
