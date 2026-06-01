@@ -49,6 +49,9 @@ const (
 	MsgTypeListPanes  = proto.MsgTypeListPanes
 	MsgTypeAttachPane = proto.MsgTypeAttachPane
 
+	// Client → Server — window layout subscription (remote window mirroring).
+	MsgTypeAttachWindow = proto.MsgTypeAttachWindow
+
 	// Server → Client — work metadata/status for a restricted pane subscription.
 	MsgTypePaneMetaUpdate = proto.MsgTypePaneMetaUpdate
 

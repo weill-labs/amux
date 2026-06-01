@@ -25,6 +25,7 @@ func (s *Session) syncWindowSizeToEffectiveClient(w *mux.Window) {
 		return
 	}
 	w.Resize(cols, layoutH)
+	s.pushMirrorWindowSize(w)
 }
 
 func (s *Session) syncActiveWindowSize() {

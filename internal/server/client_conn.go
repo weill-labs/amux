@@ -45,6 +45,7 @@ type clientConn struct {
 	capabilities       proto.ClientCapabilities
 	colorProfile       string
 	scopedPaneID       uint32
+	scopedWindowID     uint32
 	predictions        map[uint32][]pendingPredictionEpoch
 	logger             *charmlog.Logger
 	bootstrapping      atomic.Bool
@@ -119,12 +120,37 @@ func (cc *clientConn) isPaneScoped() bool {
 	return cc != nil && cc.scopedPaneID != 0
 }
 
+// restrictToWindow scopes a connection to a single window's layout updates. The
+// connection is non-interactive and receives MsgTypeLayout broadcasts only;
+// pane output is delivered over separate per-pane subscriptions.
+func (cc *clientConn) restrictToWindow(windowID uint32) {
+	cc.scopedWindowID = windowID
+	cc.nonInteractive = true
+}
+
+func (cc *clientConn) isWindowScoped() bool {
+	return cc != nil && cc.scopedWindowID != 0
+}
+
 func (cc *clientConn) isScopedToPane(paneID uint32) bool {
 	return cc != nil && cc.scopedPaneID == paneID
 }
 
 func (cc *clientConn) allowsServerMessage(msg *Message) bool {
-	if cc == nil || cc.scopedPaneID == 0 || msg == nil {
+	if cc == nil || msg == nil {
+		return true
+	}
+	// Window-scoped subscribers receive only layout snapshots (plus terminal
+	// results). Pane output reaches a window mirror over separate per-pane links.
+	if cc.scopedWindowID != 0 {
+		switch msg.Type {
+		case MsgTypeLayout, MsgTypeCmdResult, MsgTypeExit:
+			return true
+		default:
+			return false
+		}
+	}
+	if cc.scopedPaneID == 0 {
 		return true
 	}
 	switch msg.Type {
@@ -405,6 +431,16 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 		if cc.isPaneScoped() {
 			if !cc.handlePaneScopedMessage(sess, msg) {
 				return
+			}
+			continue
+		}
+
+		if cc.isWindowScoped() {
+			// Layout subscription. The only inbound message it sends is a resize
+			// declaring the size to render the subscribed window at; everything
+			// else is ignored. The connection stays alive for MsgTypeLayout pushes.
+			if msg.Type == MsgTypeResize {
+				sess.enqueueResizeMirrorWindow(cc.scopedWindowID, msg.Cols, msg.Rows)
 			}
 			continue
 		}

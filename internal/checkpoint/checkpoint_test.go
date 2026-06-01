@@ -72,6 +72,9 @@ func TestRoundTrip(t *testing.T) {
 				Screen: "$ echo test\ntest",
 			},
 		},
+		WindowMirrors: map[uint32]RemoteWindowRef{
+			7: {Host: "remote", Session: "main", WindowName: "amux", Cols: 200, Rows: 50, Signature: "(0[a][b])"},
+		},
 	}
 	setMetaCollections(t, &cp.Panes[0].Meta, []int{42, 73}, []string{"LAB-338", "LAB-412"})
 	setMetaCollections(t, &cp.Panes[1].Meta, []int{99}, []string{"LAB-777"})
@@ -100,6 +103,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if got.ListenerFd != cp.ListenerFd {
 		t.Errorf("ListenerFd = %d, want %d", got.ListenerFd, cp.ListenerFd)
+	}
+	if want := cp.WindowMirrors[7]; got.WindowMirrors[7] != want {
+		t.Errorf("WindowMirrors[7] = %+v, want %+v", got.WindowMirrors[7], want)
 	}
 	if got.SessionLockFd != cp.SessionLockFd {
 		t.Errorf("SessionLockFd = %d, want %d", got.SessionLockFd, cp.SessionLockFd)

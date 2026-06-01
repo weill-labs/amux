@@ -165,6 +165,7 @@ func (s *Session) buildReloadCheckpointWithSnapshot(snapshot paneHistoryScreenSn
 			Layout:        *snap,
 			MailboxSeq:    sess.mailboxEventSeq,
 		}
+		cp.WindowMirrors = windowMirrorCheckpoints(sess)
 
 		return reloadCheckpointWork{
 			cp:      cp,
@@ -366,6 +367,10 @@ func NewServerFromCheckpointWithScrollbackConfigLogger(cp *checkpoint.ServerChec
 		sess.ActiveWindowID = winID
 	}
 	sess.refreshInputTarget()
+
+	// Resume window-layout subscriptions (deferred start if hosts are not yet
+	// configured; ConfigureMirrors will start them once they are).
+	sess.restoreWindowMirrors(cp.WindowMirrors)
 
 	// Start PTY read loops for all restored panes (skip proxy panes)
 	for _, p := range sess.Panes {

@@ -53,6 +53,20 @@ type attachPaneClientResult struct {
 	err      error
 }
 
+type attachWindowClientEvent struct {
+	cc        *clientConn
+	windowRef string
+	cols      int
+	rows      int
+	reply     chan attachWindowClientResult
+}
+
+type attachWindowClientResult struct {
+	windowID uint32
+	layout   *proto.LayoutSnapshot
+	err      error
+}
+
 func (e detachClientEvent) handle(_ context.Context, s *Session) {
 	if !s.hasClient(e.cc) {
 		return
@@ -60,11 +74,39 @@ func (e detachClientEvent) handle(_ context.Context, s *Session) {
 	s.appendConnectionLog(connectionLogEventDetach, e.cc.ID, e.cc.cols, e.cc.rows, e.cc.disconnectReasonValue())
 	s.emitClientDisconnectEvent(e.cc, e.reason)
 	s.logClientDisconnect(e.cc, e.cc.disconnectReasonValue())
-	if e.cc.isPaneScoped() {
+	if e.cc.isPaneScoped() || e.cc.isWindowScoped() {
 		s.removeClientWithoutLayout(e.cc)
 		return
 	}
 	s.removeClient(e.cc)
+}
+
+// handle resolves the requested window, scopes the connection to layout-only
+// delivery, and registers it so subsequent layout broadcasts reach it. The
+// scope is set before addClient so the connection is never briefly treated as a
+// full client (which would receive pane output it should not).
+func (e attachWindowClientEvent) handle(_ context.Context, s *Session) {
+	w := s.resolveWindow(e.windowRef)
+	if w == nil {
+		e.reply <- attachWindowClientResult{err: fmt.Errorf("window %q not found", e.windowRef)}
+		return
+	}
+	// A mirror subscriber declares the size it wants the remote window rendered
+	// at. Apply it so the remote re-renders to match the local mirror window.
+	if e.cols > 0 && e.rows > 0 {
+		if s.resizeMirrorTargetWindow(w, e.cols, e.rows) {
+			s.broadcastLayoutNow()
+		}
+	}
+	snap := s.snapshotLayout(s.snapshotIdleState())
+	if snap == nil {
+		e.reply <- attachWindowClientResult{err: fmt.Errorf("no layout")}
+		return
+	}
+	e.cc.restrictToWindow(w.ID)
+	s.ensureClientManager().addClient(e.cc)
+	s.appendConnectionLog(connectionLogEventAttach, e.cc.ID, e.cc.cols, e.cc.rows, "")
+	e.reply <- attachWindowClientResult{windowID: w.ID, layout: snap}
 }
 
 func (e attachPaneClientEvent) handle(_ context.Context, s *Session) {
@@ -213,6 +255,28 @@ func (s *Session) enqueueAttachPaneClient(cc *clientConn, paneID uint32) attachP
 		return attachPaneClientResult{err: ctx.Err()}
 	case <-s.sessionEventDone:
 		return attachPaneClientResult{err: errSessionShuttingDown}
+	}
+}
+
+func (s *Session) enqueueAttachWindowClient(cc *clientConn, windowRef string, cols, rows int) attachWindowClientResult {
+	ctx := s.context()
+	if cc != nil {
+		ctx = cc.context()
+	}
+	reply := make(chan attachWindowClientResult, 1)
+	if !s.enqueueEvent(ctx, attachWindowClientEvent{cc: cc, windowRef: windowRef, cols: cols, rows: rows, reply: reply}) {
+		if err := ctx.Err(); err != nil {
+			return attachWindowClientResult{err: err}
+		}
+		return attachWindowClientResult{err: errSessionShuttingDown}
+	}
+	select {
+	case res := <-reply:
+		return res
+	case <-ctx.Done():
+		return attachWindowClientResult{err: ctx.Err()}
+	case <-s.sessionEventDone:
+		return attachWindowClientResult{err: errSessionShuttingDown}
 	}
 }
 

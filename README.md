@@ -399,6 +399,31 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux rename-window <name>` | Rename the active window |
 | `amux resize-window <cols> <rows>` | Resize window to given dimensions |
 
+### Remote (federation)
+
+Mirror panes and windows from another amux server over SSH. The local server
+dials `ssh <target>` and connects to the remote's Unix socket; mirrored panes
+stream the remote PTY output and forward input back.
+
+| Command | Description |
+|---------|-------------|
+| `amux remote add <name> --ssh <target> --socket <path> [--session <name>]` | Register a remote host |
+| `amux remote list` | List registered remotes and health |
+| `amux remote rm <name>` | Remove a remote |
+| `amux remote status` | Show active mirrors per host |
+| `amux remote panes <name>` | List a remote host's panes |
+| `amux remote windows <name>` | List a remote host's windows |
+| `amux remote attach <name>:<pane>` | Mirror a single remote pane locally |
+| `amux remote attach-window <name>:<window>` | Mirror a whole remote window into a new local window |
+| `amux remote detach <local-pane>` | Stop mirroring a pane |
+| `amux remote detach-window <local-window>` | Tear down a mirrored window |
+| `amux remote resize <local-pane>` | Resize the remote pane to match the local mirror |
+
+A window mirror reconstructs the remote window's split layout, tracks structural
+changes live (panes added/removed/re-split), and pushes the local window's size
+to the remote so it re-renders to match — most effective for headless remote
+windows. Mirrors survive server reloads.
+
 ## Keybindings
 
 Default prefix: `Ctrl-a`.

@@ -36,6 +36,9 @@ type Config struct {
 	RetryPolicy   remote.RetryPolicy
 	AttachTimeout time.Duration
 	OnMetaUpdate  func(paneID uint32, update proto.PaneMetaUpdate)
+	// OnWindowLayout is invoked with each layout snapshot a mirrored remote
+	// window pushes, so the owner can reconcile the local mirror window.
+	OnWindowLayout func(localWindowID uint32, ref WindowRef, layout *proto.LayoutSnapshot)
 }
 
 type Snapshot struct {
@@ -49,6 +52,11 @@ type Snapshot struct {
 type Manager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Window-layout mirrors (guarded by mu below). Kept in their own alignment
+	// group so adding these long field names does not re-tab the block below.
+	windowMirrors  map[uint32]*windowMirrorState
+	onWindowLayout func(localWindowID uint32, ref WindowRef, layout *proto.LayoutSnapshot)
 
 	mu            sync.Mutex
 	hosts         map[string]config.Host
@@ -78,9 +86,10 @@ type mirrorState struct {
 func NewManager(cfg Config) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
-		ctx:     ctx,
-		cancel:  cancel,
-		mirrors: make(map[uint32]*mirrorState),
+		ctx:           ctx,
+		cancel:        cancel,
+		mirrors:       make(map[uint32]*mirrorState),
+		windowMirrors: make(map[uint32]*windowMirrorState),
 	}
 	m.Configure(cfg)
 	return m
@@ -107,6 +116,9 @@ func (m *Manager) Configure(cfg Config) {
 	if cfg.OnMetaUpdate != nil {
 		m.onMetaUpdate = cfg.OnMetaUpdate
 	}
+	if cfg.OnWindowLayout != nil {
+		m.onWindowLayout = cfg.OnWindowLayout
+	}
 	var start []*mirrorState
 	for _, ms := range m.mirrors {
 		if ms.running || ms.state == StateDetached || ms.state == StateDead {
@@ -119,6 +131,16 @@ func (m *Manager) Configure(cfg Config) {
 	for _, ms := range start {
 		m.startLocked(ms)
 	}
+	// startWindowLocked only sets running + launches a goroutine; it does not
+	// mutate windowMirrors, so starting during the range is safe.
+	for _, ws := range m.windowMirrors {
+		if ws.running || ws.state == StateDetached || ws.state == StateDead {
+			continue
+		}
+		if _, ok := m.hosts[ws.ref.Host]; ok {
+			m.startWindowLocked(ws)
+		}
+	}
 	m.mu.Unlock()
 }
 
@@ -129,10 +151,15 @@ func (m *Manager) Close() {
 	m.cancel()
 
 	m.mu.Lock()
-	links := make([]*remote.Link, 0, len(m.mirrors))
+	links := make([]*remote.Link, 0, len(m.mirrors)+len(m.windowMirrors))
 	for _, ms := range m.mirrors {
 		if ms.link != nil {
 			links = append(links, ms.link)
+		}
+	}
+	for _, ws := range m.windowMirrors {
+		if ws.link != nil {
+			links = append(links, ws.link)
 		}
 	}
 	m.mu.Unlock()

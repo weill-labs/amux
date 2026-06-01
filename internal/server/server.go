@@ -110,6 +110,11 @@ type Session struct {
 	// panes are being reconstructed.
 	mirror *mirror.Manager
 
+	// windowMirrorSigs records the last structural signature applied per mirrored
+	// local window, so a window-layout broadcast that did not change structure is
+	// skipped. Accessed only on the session event loop.
+	windowMirrorSigs map[uint32]string
+
 	// Crash checkpoint coordination owns debounce/periodic scheduling and disk writes.
 	checkpointCoordinator crashCheckpointCoordinator
 	// watchdogRecoveryCheckpoint is a cheap last-known-good reload snapshot
@@ -518,7 +523,10 @@ func newSessionWithScrollbackConfigLogger(name string, scrollback ScrollbackConf
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()
-	sess.mirror = mirror.NewManager(mirror.Config{OnMetaUpdate: sess.enqueueMirrorPaneMetaUpdate})
+	sess.mirror = mirror.NewManager(mirror.Config{
+		OnMetaUpdate:   sess.enqueueMirrorPaneMetaUpdate,
+		OnWindowLayout: sess.enqueueWindowLayoutReconcile,
+	})
 	sess.input = newInputRouter()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.undo = newUndoManager(undoManagerConfig{})
@@ -907,6 +915,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.handleListPanes(cc, msg)
 	case MsgTypeAttachPane:
 		s.handleAttachPane(cc, msg)
+	case MsgTypeAttachWindow:
+		s.handleAttachWindow(cc, msg)
 	default:
 		cc.Close()
 	}
@@ -976,6 +986,35 @@ func (s *Server) handleAttachPane(cc *clientConn, msg *Message) {
 		return
 	}
 	cc.finishBootstrap(map[uint32]uint64{res.snapshot.paneID: res.snapshot.outputSeq})
+	cc.readLoop(s, sess)
+}
+
+// handleAttachWindow registers a window-scoped layout subscriber: it sends an
+// initial layout snapshot and then receives MsgTypeLayout on every layout
+// change. Used by remote window mirroring to track a remote window's structure.
+func (s *Server) handleAttachWindow(cc *clientConn, msg *Message) {
+	sess := s.sessionForProtocolMessage(msg)
+	if sess == nil {
+		cc.sendProtocolError("no session")
+		cc.Close()
+		return
+	}
+
+	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
+	cc.logger = sess.logger.With("client_id", cc.ID)
+	cc.startBootstrap()
+
+	res := sess.enqueueAttachWindowClient(cc, msg.WindowName, msg.Cols, msg.Rows)
+	if res.err != nil {
+		cc.sendProtocolError(res.err.Error())
+		cc.Close()
+		return
+	}
+	if err := cc.Send(&Message{Type: MsgTypeLayout, Layout: res.layout}); err != nil {
+		cc.Close()
+		return
+	}
+	cc.finishBootstrap(nil)
 	cc.readLoop(s, sess)
 }
 
