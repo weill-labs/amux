@@ -153,6 +153,17 @@ func BenchmarkEncodePaneHistoryPayload(b *testing.B) {
 	}
 }
 
+func BenchmarkEncodePaneHistoryPayloadStyledRuns(b *testing.B) {
+	msg := benchmarkPaneHistoryMessage(4_096, 240)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := encodePaneHistoryPayload(msg); err != nil {
+			b.Fatalf("encodePaneHistoryPayload: %v", err)
+		}
+	}
+}
+
 func BenchmarkEncodePaneHistoryPayloadCacheHit(b *testing.B) {
 	msg := benchmarkPaneHistoryMessage(10_000, 80)
 	var cache PaneHistoryPayloadCache
