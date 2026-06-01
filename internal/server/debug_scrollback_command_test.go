@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -14,7 +15,13 @@ func TestQueuedCommandDebugScrollbackReportsPaneAndSessionTotals(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1 := newTestPane(sess, 1, "pane-1")
+	p1 := sess.ownPane(mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+	}, 20, 2, 3, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	}))
 	p1.SetRetainedHistory([]string{"base-1", "base-2", "base-3"})
 	for line := 1; line <= 4; line++ {
 		p1.FeedOutput([]byte(fmt.Sprintf("live-%d\r\n", line)))
@@ -42,7 +49,8 @@ func TestQueuedCommandDebugScrollbackReportsPaneAndSessionTotals(t *testing.T) {
 		"panes=2",
 		"base=3",
 		"live=3",
-		"effective=6",
+		"resident=6",
+		"effective=3",
 	} {
 		if !strings.Contains(res.output, want) {
 			t.Fatalf("debug-scrollback output missing %q:\n%s", want, res.output)

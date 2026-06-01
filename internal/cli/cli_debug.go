@@ -173,6 +173,16 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 			timeout:       5 * time.Second,
 		}, nil
 	}
+	if args[0] == "scrollback" {
+		if len(args) != 1 {
+			return debugEndpointRequest{}, errors.New(debugUsage)
+		}
+		return debugEndpointRequest{
+			sockPath:      server.PprofSocketPath(sessionName),
+			serverCommand: "debug-scrollback",
+			timeout:       5 * time.Second,
+		}, nil
+	}
 
 	cfg, err := loadConfig()
 	if err != nil {

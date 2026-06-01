@@ -11,7 +11,7 @@ const (
 	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	captureUsage      = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
 	logUsage          = "usage: amux log <clients|panes>"
-	debugUsage        = "usage: amux debug <dump|goroutines|profile|heap|info|socket|frames|client-goroutines|client-profile|client-heap> [--summary] [--raw] [--output <path>] [--duration <duration-or-seconds>]"
+	debugUsage        = "usage: amux debug <dump|goroutines|profile|heap|info|socket|frames|scrollback|client-goroutines|client-profile|client-heap> [--summary] [--raw] [--output <path>] [--duration <duration-or-seconds>]"
 	diagUsage         = "usage: amux _diag [dump|goroutines|heap|info] [--output <path>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
@@ -175,6 +175,7 @@ Usage:
   amux [-s session] debug info         Print server runtime info and recent watchdog log lines
   amux [-s session] debug socket       Print the Unix socket path for the server pprof endpoint
   amux [-s session] debug frames       Dump client render frame stats from the attached client
+  amux [-s session] debug scrollback   Show per-pane server scrollback memory estimates
   amux [-s session] debug client-goroutines
                                        Print a live goroutine dump from the latest attached client pprof endpoint
   amux [-s session] debug client-profile [--duration 30s]
