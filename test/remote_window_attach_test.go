@@ -78,6 +78,115 @@ func TestRemoteCLIAttachWindowDynamicResync(t *testing.T) {
 	}
 }
 
+func TestRemoteCLISpawnWindowForwardsToMirroredWindow(t *testing.T) {
+	t.Parallel()
+
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("rename", "pane-1", "remote-agent")
+
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	winName := windowNameFromAttach(attachOut)
+	if winName == "" {
+		t.Fatalf("could not parse window name from %q", attachOut)
+	}
+
+	out := pair.local.runCmd("spawn", "--window", winName, "--name", "remote-by-window")
+	if !strings.Contains(out, "Spawned remote-by-window") {
+		t.Fatalf("spawn --window output = %q", out)
+	}
+	if remoteList := pair.remote.runCmd("list", "--no-cwd"); !strings.Contains(remoteList, "remote-by-window") {
+		t.Fatalf("spawn --window did not create a remote pane:\n%s", remoteList)
+	}
+	if !pair.local.waitForFunc(func(string) bool {
+		return len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)) == 2
+	}, 5*time.Second) {
+		t.Fatalf("local mirror did not reconcile the remote spawn")
+	}
+}
+
+func TestRemoteCLISpawnAtMirrorPaneForwardsToRemotePane(t *testing.T) {
+	t.Parallel()
+
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("rename", "pane-1", "remote-agent")
+
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	if !strings.Contains(attachOut, "1 panes") {
+		t.Fatalf("attach-window output = %q", attachOut)
+	}
+	mirrors := localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)
+	if len(mirrors) != 1 {
+		t.Fatalf("initial mirror panes = %v, want one", mirrors)
+	}
+
+	out := pair.local.runCmd("spawn", "--at", mirrors[0], "--name", "remote-by-at")
+	if !strings.Contains(out, "Spawned remote-by-at") {
+		t.Fatalf("spawn --at mirror output = %q", out)
+	}
+	if remoteList := pair.remote.runCmd("list", "--no-cwd"); !strings.Contains(remoteList, "remote-by-at") {
+		t.Fatalf("spawn --at mirror did not create a remote pane:\n%s", remoteList)
+	}
+	if !pair.local.waitForFunc(func(string) bool {
+		return len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)) == 2
+	}, 5*time.Second) {
+		t.Fatalf("local mirror did not reconcile the remote spawn")
+	}
+}
+
+func TestRemoteCLISpawnActiveMirrorWindowForwardsToRemotePane(t *testing.T) {
+	t.Parallel()
+
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("rename", "pane-1", "remote-agent")
+
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	if !strings.Contains(attachOut, "1 panes") {
+		t.Fatalf("attach-window output = %q", attachOut)
+	}
+
+	out := pair.local.runCmd("spawn", "--name", "remote-by-active")
+	if !strings.Contains(out, "Spawned remote-by-active") {
+		t.Fatalf("spawn active mirror output = %q", out)
+	}
+	if remoteList := pair.remote.runCmd("list", "--no-cwd"); !strings.Contains(remoteList, "remote-by-active") {
+		t.Fatalf("spawn active mirror did not create a remote pane:\n%s", remoteList)
+	}
+	if !pair.local.waitForFunc(func(string) bool {
+		return len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)) == 2
+	}, 5*time.Second) {
+		t.Fatalf("local mirror did not reconcile the active mirror spawn")
+	}
+}
+
+func TestRemoteCLISplitMirrorPaneForwardsToRemotePane(t *testing.T) {
+	t.Parallel()
+
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("rename", "pane-1", "remote-agent")
+
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	if !strings.Contains(attachOut, "1 panes") {
+		t.Fatalf("attach-window output = %q", attachOut)
+	}
+	mirrors := localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)
+	if len(mirrors) != 1 {
+		t.Fatalf("initial mirror panes = %v, want one", mirrors)
+	}
+
+	out := pair.local.runControlCmd("split", mirrors[0], "--name", "remote-by-split")
+	if !strings.Contains(out, "Split horizontal: new pane remote-by-split") {
+		t.Fatalf("split mirror output = %q", out)
+	}
+	if remoteList := pair.remote.runCmd("list", "--no-cwd"); !strings.Contains(remoteList, "remote-by-split") {
+		t.Fatalf("split mirror did not create a remote pane:\n%s", remoteList)
+	}
+	if !pair.local.waitForFunc(func(string) bool {
+		return len(localMirrorNames(pair.local.runCmd("list", "--no-cwd"), remoteCLITestHost)) == 2
+	}, 5*time.Second) {
+		t.Fatalf("local mirror did not reconcile the remote split")
+	}
+}
+
 // TestRemoteCLIDetachWindow tears down a mirrored window and verifies the local
 // panes are gone while the remote panes survive.
 func TestRemoteCLIDetachWindow(t *testing.T) {
