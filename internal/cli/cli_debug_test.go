@@ -169,6 +169,26 @@ func TestParseDebugCommand(t *testing.T) {
 			wantErr: debugUsage,
 		},
 		{
+			name: "parses scrollback without loading config",
+			loadConfig: func() (*config.Config, error) {
+				t.Fatal("loadConfig should not be called for debug scrollback")
+				return nil, nil
+			},
+			args:         []string{"scrollback"},
+			wantCommand:  "debug-scrollback",
+			wantTimeout:  5 * time.Second,
+			wantSockPath: wantSocket,
+		},
+		{
+			name: "rejects extra scrollback args",
+			loadConfig: func() (*config.Config, error) {
+				t.Fatal("loadConfig should not be called for debug scrollback")
+				return nil, nil
+			},
+			args:    []string{"scrollback", "extra"},
+			wantErr: debugUsage,
+		},
+		{
 			name:         "parses default profile duration",
 			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
 			args:         []string{"profile"},
@@ -375,6 +395,39 @@ func TestRunDebugCommandWithIO(t *testing.T) {
 		}
 		if got := out.String(); got != "frame stats\n" {
 			t.Fatalf("stdout = %q, want %q", got, "frame stats\n")
+		}
+	})
+
+	t.Run("delegates scrollback to server command runner", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		called := false
+		err := runDebugCommandWithDeps(&out, "scrollback-session", []string{"scrollback"}, func() (*config.Config, error) {
+			t.Fatal("loadConfig should not be called for debug scrollback")
+			return nil, nil
+		}, func(w io.Writer, sessionName string, cmdName string, args []string) error {
+			called = true
+			if sessionName != "scrollback-session" {
+				t.Fatalf("sessionName = %q, want %q", sessionName, "scrollback-session")
+			}
+			if cmdName != "debug-scrollback" {
+				t.Fatalf("cmdName = %q, want %q", cmdName, "debug-scrollback")
+			}
+			if len(args) != 0 {
+				t.Fatalf("args = %v, want empty", args)
+			}
+			_, writeErr := io.WriteString(w, "scrollback stats\n")
+			return writeErr
+		})
+		if err != nil {
+			t.Fatalf("runDebugCommandWithDeps(scrollback): %v", err)
+		}
+		if !called {
+			t.Fatal("scrollback runner was not called")
+		}
+		if got := out.String(); got != "scrollback stats\n" {
+			t.Fatalf("stdout = %q, want %q", got, "scrollback stats\n")
 		}
 	})
 
