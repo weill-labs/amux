@@ -58,6 +58,13 @@ func encodeKeyChunks(hexMode bool, keys []string) ([]encodedKeyChunk, error) {
 	return out, nil
 }
 
+func encodeSendKeysChunks(opts sendKeysOptions) ([]encodedKeyChunk, error) {
+	if opts.submit {
+		return encodeSubmitChunks(opts.hexMode, opts.keys)
+	}
+	return encodeKeyChunks(opts.hexMode, opts.keys)
+}
+
 func pacedKeyToken(key string) bool {
 	return keyscmd.PacedKeyToken(key)
 }
@@ -202,12 +209,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 	if len(opts.keys) == 0 {
 		return "", 0, false, errors.New(sendKeysUsage)
 	}
-	var chunks []encodedKeyChunk
-	if opts.submit {
-		chunks, err = encodeSubmitChunks(opts.hexMode, opts.keys)
-	} else {
-		chunks, err = encodeKeyChunks(opts.hexMode, opts.keys)
-	}
+	chunks, err := encodeSendKeysChunks(opts)
 	if err != nil {
 		return "", 0, false, err
 	}

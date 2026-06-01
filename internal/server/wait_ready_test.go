@@ -165,6 +165,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 			want: sendKeysOptions{
 				transport:   sendKeysViaPTY,
 				waitTimeout: 10 * time.Second,
+				submit:      true,
 				keys:        []string{"first\nsecond"},
 			},
 		},
@@ -255,6 +256,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 				got.requestedClientID != tt.want.requestedClientID ||
 				got.waitTimeout != tt.want.waitTimeout ||
 				got.delayFinal != tt.want.delayFinal ||
+				got.submit != tt.want.submit ||
 				got.hexMode != tt.want.hexMode ||
 				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
 				t.Fatalf("opts = %#v, want %#v", got, tt.want)

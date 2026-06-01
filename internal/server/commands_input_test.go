@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"strings"
@@ -45,28 +46,73 @@ func TestSendKeysCommandUsageIncludesReadyAndVia(t *testing.T) {
 func TestCmdSendKeysSubmitWrapsBodyAsBracketedPasteAndEnter(t *testing.T) {
 	t.Parallel()
 
-	writes := make(chan string, 2)
+	tests := []struct {
+		name string
+		args []string
+		body string
+	}{
+		{
+			name: "literal body",
+			args: []string{"--submit", "first line\nsecond line"},
+			body: "first line\nsecond line",
+		},
+		{
+			name: "hex body",
+			args: []string{"--submit", "--hex", hex.EncodeToString([]byte("first line\nsecond line"))},
+			body: "first line\nsecond line",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			writes := make(chan string, 2)
+			srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
+				writes <- string(data)
+				return len(data), nil
+			})
+			defer cleanup()
+
+			paste := ansi.BracketedPasteStart + tt.body + ansi.BracketedPasteEnd
+			args := append([]string{"pane-1"}, tt.args...)
+			res := runTestCommand(t, srv, sess, "send-keys", args...)
+			if res.cmdErr != "" {
+				t.Fatalf("send-keys --submit cmdErr = %q", res.cmdErr)
+			}
+			if got, want := res.output, fmt.Sprintf("Submitted %d bytes to pane-1\n", len(paste)+1); got != want {
+				t.Fatalf("send-keys --submit output = %q, want %q", got, want)
+			}
+
+			if got := <-writes; got != paste {
+				t.Fatalf("first write = %q, want bracketed paste %q", got, paste)
+			}
+			if got := <-writes; got != "\r" {
+				t.Fatalf("second write = %q, want carriage return", got)
+			}
+		})
+	}
+}
+
+func TestCmdSendKeysSubmitReportsInvalidHexWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	writes := make(chan string, 1)
 	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
 		writes <- string(data)
 		return len(data), nil
 	})
 	defer cleanup()
 
-	body := "first line\nsecond line"
-	paste := ansi.BracketedPasteStart + body + ansi.BracketedPasteEnd
-	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--submit", body)
-	if res.cmdErr != "" {
-		t.Fatalf("send-keys --submit cmdErr = %q", res.cmdErr)
+	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--submit", "--hex", "zz")
+	if got := res.cmdErr; got != "invalid hex: zz" {
+		t.Fatalf("send-keys --submit invalid hex error = %q", got)
 	}
-	if got, want := res.output, fmt.Sprintf("Submitted %d bytes to pane-1\n", len(paste)+1); got != want {
-		t.Fatalf("send-keys --submit output = %q, want %q", got, want)
-	}
-
-	if got := <-writes; got != paste {
-		t.Fatalf("first write = %q, want bracketed paste %q", got, paste)
-	}
-	if got := <-writes; got != "\r" {
-		t.Fatalf("second write = %q, want carriage return", got)
+	select {
+	case got := <-writes:
+		t.Fatalf("send-keys --submit invalid hex wrote %q", got)
+	default:
 	}
 }
 
