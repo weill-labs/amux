@@ -88,6 +88,69 @@ background after the session parks. The script:
 - prints only a bounded command reminder. It does not include mailbox bodies,
   subjects, sender metadata, or message metadata.
 
+### Global install (all sessions)
+
+The project recipe above only fires inside this repo, because its wrapper finds
+the library via `git rev-parse`. To run the gate in **every** Claude Code session
+regardless of working directory, install it under `~/.claude/` and source the
+library through a stable path instead. Symlink the repo library into the hooks
+directory so it tracks the repo on every `git pull`, then drop in a
+path-agnostic wrapper that sources the sibling symlink:
+
+```bash
+AMUX_REPO=$(git -C /path/to/amux rev-parse --show-toplevel)
+mkdir -p ~/.claude/hooks
+ln -sfn "$AMUX_REPO/docs/integrations/amux-mailbox-drain-lib.sh" \
+  ~/.claude/hooks/amux-mailbox-drain-lib.sh
+
+cat > ~/.claude/hooks/amux-mailbox-drain.sh <<'EOF'
+#!/usr/bin/env bash
+set -u
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HOOK_DIR/amux-mailbox-drain-lib.sh"
+amux_mailbox_drain_main claude "$@"
+EOF
+chmod +x ~/.claude/hooks/amux-mailbox-drain.sh
+```
+
+Replace `/path/to/amux` with your local amux checkout (or run the `git -C` line
+from inside the repo). An unsubstituted path creates a dangling symlink: because
+the wrapper uses `set -u` without `set -e`, the failed `source` continues and the
+undefined function call exits `127` — an error, not the fail-open path. Confirm
+the link resolves with `readlink ~/.claude/hooks/amux-mailbox-drain-lib.sh`.
+
+Then add a `Stop` hook with the **absolute** wrapper path to
+`~/.claude/settings.json` (global hooks run from arbitrary directories, so a
+relative path will not resolve):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/you/.claude/hooks/amux-mailbox-drain.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Use your real home directory in the `command` path — `/Users/you` is macOS; on
+Linux it is `/home/<username>` (run `echo $HOME`). The hooks JSON is strict JSON
+and does not accept comments, so substitute the path rather than annotating it. A
+wrong path is silently skipped with no startup error.
+
+Claude Code merges global and project `Stop` hooks, so inside the amux repo both
+the global and the project recipe fire. The shared per-`AMUX_SESSION` +
+`AMUX_PANE` + socket marker dedupes them into a single nudge, so the redundancy
+is harmless.
+
 ## Codex
 
 The repo ships a Codex project-local example in `.codex/hooks.json`:
@@ -121,6 +184,60 @@ Codex requires project-local hooks to be reviewed and trusted with `/hooks`
 before they run. Stop hooks expect JSON on stdout when they exit successfully;
 diagnostics from this recipe go to the bounded log instead.
 
+### Global install (all sessions)
+
+Install under `~/.codex/` to run the gate in every Codex session. Use the same
+symlinked-library + path-agnostic-wrapper pattern as the Claude Code global
+recipe, but pass `codex` mode so the hook emits the `{"decision":"block"}` JSON
+Codex expects:
+
+```bash
+AMUX_REPO=$(git -C /path/to/amux rev-parse --show-toplevel)
+mkdir -p ~/.codex/hooks
+ln -sfn "$AMUX_REPO/docs/integrations/amux-mailbox-drain-lib.sh" \
+  ~/.codex/hooks/amux-mailbox-drain-lib.sh
+
+cat > ~/.codex/hooks/amux-mailbox-drain.sh <<'EOF'
+#!/usr/bin/env bash
+set -u
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HOOK_DIR/amux-mailbox-drain-lib.sh"
+amux_mailbox_drain_main codex "$@"
+EOF
+chmod +x ~/.codex/hooks/amux-mailbox-drain.sh
+```
+
+As above, substitute `/path/to/amux` with your checkout and confirm the link
+resolves with `readlink ~/.codex/hooks/amux-mailbox-drain-lib.sh` — a dangling
+symlink makes the wrapper exit `127` rather than fail open.
+
+Then add a `Stop` hook with the **absolute** wrapper path to `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/you/.codex/hooks/amux-mailbox-drain.sh",
+            "timeout": 10,
+            "statusMessage": "Checking amux mailbox"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+As with the Claude Code recipe, use your real home directory in the `command`
+path — `/Users/you` is macOS; on Linux it is `/home/<username>` (run
+`echo $HOME`). A wrong path is silently skipped.
+
+Run `/hooks` in Codex once to review and trust the global hook before it fires.
+
 ## Shared Hook Behavior
 
 Both wrappers source `docs/integrations/amux-mailbox-drain-lib.sh`.
@@ -145,13 +262,23 @@ output is stricter than the Stop drain output: it tells Claude to run
 `amux msg ack <id> --for <pane> --status seen` for the pending IDs from that
 JSON. It intentionally omits the IDs and summaries from the hook output.
 
-Run a local sanity check:
+Fail-open means a global install carries no risk: a session launched from a
+stripped-`PATH` context (cron, launchd) where `amux`, `jq`, `flock`, or `timeout`
+are not resolvable simply releases the stop — the gate is skipped, never wedged.
+If you want the gate to fire in such contexts, ensure the launch environment puts
+those tools on `PATH` (or prepend their directories in the wrapper before the
+`. "$HOOK_DIR/..."` line).
+
+Run a local sanity check (project or global wrapper, whichever you installed):
 
 ```bash
-.claude/hooks/mailbox-drain.sh --self-test
-.claude/hooks/mailbox-rewake.sh --self-test
-.codex/hooks/amux-mailbox-drain.sh --self-test
+.claude/hooks/mailbox-drain.sh --self-test            # project recipe
+.claude/hooks/mailbox-rewake.sh --self-test           # project rewake watcher
+.codex/hooks/amux-mailbox-drain.sh --self-test        # project recipe
+~/.claude/hooks/amux-mailbox-drain.sh --self-test     # global recipe
+~/.codex/hooks/amux-mailbox-drain.sh --self-test      # global recipe
 ```
 
 The self-test validates local tools and that the installed `amux` binary knows
-the required mailbox commands; it does not require pending mail.
+the required mailbox commands; it does not require pending mail. Run it from a
+login shell so the wrapper sees your full `PATH`.
