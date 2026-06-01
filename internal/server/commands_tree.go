@@ -59,6 +59,28 @@ type treeCommandContext struct {
 	*CommandContext
 }
 
+func runActorWindowMutation(ctx *CommandContext, actorPaneID uint32, mutate func(*mux.Window) commandMutationResult) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		w := mctx.windowForActor(actorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+		return mutate(w)
+	}))
+}
+
+func resolvePanePair(w *mux.Window, firstRef, secondRef string) (*mux.Pane, *mux.Pane, error) {
+	first, err := w.ResolvePane(firstRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	second, err := w.ResolvePane(secondRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	return first, second, nil
+}
+
 func (ctx treeCommandContext) SwapForward(actorPaneID uint32) commandpkg.Result {
 	return runSwapForward(ctx.CommandContext, actorPaneID)
 }
@@ -92,43 +114,26 @@ func (ctx treeCommandContext) Rotate(forward bool) commandpkg.Result {
 }
 
 func runSwapForward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
 		if err := w.SwapPaneForward(); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
-	}))
+	})
 }
 
 func runSwapBackward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
 		if err := w.SwapPaneBackward(); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
-	}))
+	})
 }
 
 func runSwap(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
-		pane1, err := w.ResolvePane(paneRef)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		pane2, err := w.ResolvePane(targetRef)
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
+		pane1, pane2, err := resolvePanePair(w, paneRef, targetRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -136,7 +141,7 @@ func runSwap(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string)
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
-	}))
+	})
 }
 
 func cmdSwap(ctx *CommandContext) {
@@ -144,17 +149,8 @@ func cmdSwap(ctx *CommandContext) {
 }
 
 func runSwapTree(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
-		pane1, err := w.ResolvePane(paneRef)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		pane2, err := w.ResolvePane(targetRef)
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
+		pane1, pane2, err := resolvePanePair(w, paneRef, targetRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -162,7 +158,7 @@ func runSwapTree(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef str
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Swapped tree\n", broadcastLayout: true}
-	}))
+	})
 }
 
 func cmdSwapTree(ctx *CommandContext) {
@@ -170,17 +166,8 @@ func cmdSwapTree(ctx *CommandContext) {
 }
 
 func runMove(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string, before bool) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
-		pane, err := w.ResolvePane(paneRef)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		target, err := w.ResolvePane(targetRef)
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
+		pane, target, err := resolvePanePair(w, paneRef, targetRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -196,7 +183,7 @@ func runMove(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string,
 			output:          fmt.Sprintf("Moved %s %s %s\n", pane.Meta.Name, pos, target.Meta.Name),
 			broadcastLayout: true,
 		}
-	}))
+	})
 }
 
 func cmdMove(ctx *CommandContext) {
@@ -204,17 +191,8 @@ func cmdMove(ctx *CommandContext) {
 }
 
 func runMoveTo(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
-		pane, err := w.ResolvePane(paneRef)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		target, err := w.ResolvePane(targetRef)
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
+		pane, target, err := resolvePanePair(w, paneRef, targetRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -226,7 +204,7 @@ func runMoveTo(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef strin
 			output:          fmt.Sprintf("Moved %s to %s's column\n", pane.Meta.Name, target.Meta.Name),
 			broadcastLayout: true,
 		}
-	}))
+	})
 }
 
 func cmdMoveTo(ctx *CommandContext) {
@@ -297,12 +275,7 @@ func cmdDropPane(ctx *CommandContext) {
 }
 
 func runMoveSibling(ctx *CommandContext, actorPaneID uint32, paneRef, direction string) commandpkg.Result {
-	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
+	return runActorWindowMutation(ctx, actorPaneID, func(w *mux.Window) commandMutationResult {
 		pane, err := w.ResolvePane(paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
@@ -324,7 +297,7 @@ func runMoveSibling(ctx *CommandContext, actorPaneID uint32, paneRef, direction 
 			output:          fmt.Sprintf("Moved %s %s\n", pane.Meta.Name, direction),
 			broadcastLayout: true,
 		}
-	}))
+	})
 }
 
 func cmdMoveUp(ctx *CommandContext) {
