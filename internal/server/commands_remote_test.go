@@ -183,15 +183,37 @@ func TestDiscoverRemoteHostProbesExactSessionSocket(t *testing.T) {
 	if strings.Contains(runner.script, "ls ") || !strings.Contains(runner.script, `"/tmp/amux-${uid}/${session}"`) {
 		t.Fatalf("probe script should test the exact socket without listing /tmp; script:\n%s", runner.script)
 	}
+	if strings.Contains(runner.script, "nc -h") || !strings.Contains(runner.script, "nc -U /dev/null") {
+		t.Fatalf("probe script should test nc -U option parsing without relying on help text; script:\n%s", runner.script)
+	}
 	if result.host != (config.Host{SSH: "hetzner-1", Session: "main", SocketPath: "/tmp/amux-1000/main"}) {
 		t.Fatalf("discovered host = %+v, want socket derived from remote uid/session", result.host)
 	}
 	output := formatRemoteDiscoverResult(result, false)
-	if !strings.Contains(output, "amux remote add hetzner-1 --ssh hetzner-1 --session main --socket /tmp/amux-1000/main") {
+	if !strings.Contains(output, "amux remote add 'hetzner-1' --ssh 'hetzner-1' --session 'main' --socket '/tmp/amux-1000/main'") {
 		t.Fatalf("discover output missing copyable add command:\n%s", output)
 	}
 	if !strings.Contains(output, "Saved remote hetzner-1") {
 		t.Fatalf("discover output missing saved line:\n%s", output)
+	}
+}
+
+func TestRemoteDiscoverAddCommandShellQuotesArgs(t *testing.T) {
+	t.Parallel()
+
+	result := remoteDiscoverResult{
+		name: "prod server",
+		host: config.Host{
+			SSH:        "user@host with spaces",
+			Session:    "main'lab",
+			SocketPath: "/tmp/amux-1000/main socket",
+		},
+	}
+
+	got := remoteDiscoverAddCommand(result)
+	want := "amux remote add 'prod server' --ssh 'user@host with spaces' --session 'main'\\''lab' --socket '/tmp/amux-1000/main socket'"
+	if got != want {
+		t.Fatalf("remoteDiscoverAddCommand() = %q, want %q", got, want)
 	}
 }
 

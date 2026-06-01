@@ -31,12 +31,15 @@ if ! command -v nc >/dev/null 2>&1; then
 	printf 'ERR\tnc_missing\n'
 	exit 0
 fi
-nc_help=$(nc -h 2>&1 || true)
-case "$nc_help" in
-	*"-U"*) ;;
-	*)
+# Probe option parsing against a non-socket path instead of trusting help text.
+# Supported variants fail with a target error; unsupported ones reject -U.
+nc_probe=$(printf '' | nc -U /dev/null 2>&1 || true)
+case "$nc_probe" in
+	*"invalid option"*|*"illegal option"*|*"unknown option"*|*"unrecognized option"*|*"bad option"*|*[Uu][Nn][Ii][Xx]*"not supported"*|*[Uu][Nn][Ii][Xx]*"unsupported"*)
 		printf 'ERR\tnc_no_unix\n'
 		exit 0
+		;;
+	*)
 		;;
 esac
 printf 'OK\t%s\t%s\n' "$uid" "$socket"
@@ -154,7 +157,7 @@ func discoverRemoteHost(ctx context.Context, args remoteDiscoverArgs, runner rem
 func parseRemoteDiscoverResponse(args remoteDiscoverArgs, output string) (remoteDiscoverResult, error) {
 	line := strings.TrimSpace(output)
 	fields := strings.Split(line, "\t")
-	if len(fields) == 0 || fields[0] == "" {
+	if fields[0] == "" {
 		return remoteDiscoverResult{}, fmt.Errorf("unexpected discovery response from %s: %q", args.ssh, line)
 	}
 	switch fields[0] {
@@ -224,5 +227,13 @@ func formatRemoteDiscoverResult(result remoteDiscoverResult, printOnly bool) str
 
 func remoteDiscoverAddCommand(result remoteDiscoverResult) string {
 	return fmt.Sprintf("amux remote add %s --ssh %s --session %s --socket %s",
-		result.name, result.host.SSH, result.host.Session, result.host.SocketPath)
+		remoteShellQuote(result.name),
+		remoteShellQuote(result.host.SSH),
+		remoteShellQuote(result.host.Session),
+		remoteShellQuote(result.host.SocketPath),
+	)
+}
+
+func remoteShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
