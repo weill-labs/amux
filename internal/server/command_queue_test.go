@@ -11,6 +11,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/server/mirror"
 )
 
 func TestEnqueueCommandMutationReturnsOnSessionShutdown(t *testing.T) {
@@ -347,6 +348,88 @@ func TestQueuedCommandNewWindow(t *testing.T) {
 		t.Fatal("expected layout generation to increment")
 	}
 	assertSessionLayoutConsistent(t, sess)
+}
+
+func TestQueuedCommandCloseWindowClosesOnlyActiveWindow(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+	w1 := newTestWindowWithPanes(t, sess, 1, "main", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "logs", p2, p3)
+	setSessionLayoutForTest(t, sess, w2.ID, []*mux.Window{w1, w2}, p1, p2, p3)
+
+	before := sess.generation.Load()
+	res := runTestCommand(t, srv, sess, "close-window")
+
+	if res.cmdErr != "" {
+		t.Fatalf("close-window error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, "Closed window logs") {
+		t.Fatalf("close-window output = %q", res.output)
+	}
+	if sess.generation.Load() <= before {
+		t.Fatal("expected layout generation to increment")
+	}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		if len(sess.Windows) != 1 || sess.Windows[0].ID != w1.ID {
+			t.Fatalf("windows after close = %+v, want only main", sess.Windows)
+		}
+		if sess.ActiveWindowID != w1.ID {
+			t.Fatalf("active window = %d, want %d", sess.ActiveWindowID, w1.ID)
+		}
+		if len(sess.Panes) != 1 || sess.Panes[0].ID != p1.ID {
+			t.Fatalf("panes after close = %+v, want only pane-1", sess.Panes)
+		}
+		return struct{}{}
+	})
+	assertSessionLayoutConsistent(t, sess)
+}
+
+func TestQueuedCommandCloseWindowDetachesMirrorWindow(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	mgr := mirror.NewManager(mirror.Config{})
+	t.Cleanup(mgr.Close)
+	sess.mirror = mgr
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "mirror-left")
+	p3 := newTestPane(sess, 3, "mirror-right")
+	w1 := newTestWindowWithPanes(t, sess, 1, "main", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "host:remote", p2, p3)
+	setSessionLayoutForTest(t, sess, w2.ID, []*mux.Window{w1, w2}, p1, p2, p3)
+	if err := mgr.TrackWindow(w2.ID, mirror.WindowRef{Host: "host", Session: "main", WindowName: "remote"}, w2.Width, w2.Height); err != nil {
+		t.Fatalf("TrackWindow: %v", err)
+	}
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.windowMirrorSigs = map[uint32]string{w2.ID: "sig"}
+	})
+
+	res := runTestCommand(t, srv, sess, "close-window")
+
+	if res.cmdErr != "" {
+		t.Fatalf("close-window error: %s", res.cmdErr)
+	}
+	if _, ok := mgr.WindowSnapshot(w2.ID); ok {
+		t.Fatal("window mirror subscription should be detached")
+	}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		if _, ok := sess.windowMirrorSigs[w2.ID]; ok {
+			t.Fatal("window mirror signature should be removed")
+		}
+		if len(sess.Windows) != 1 || sess.Windows[0].ID != w1.ID {
+			t.Fatalf("windows after close = %+v, want only main", sess.Windows)
+		}
+		return struct{}{}
+	})
 }
 
 func TestQueuedCommandSpawnLocal(t *testing.T) {
