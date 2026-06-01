@@ -27,6 +27,8 @@ func TestCommandSpawnAtMirroredWindowFailsWhenRemoteHostMissing(t *testing.T) {
 }
 
 func TestCommandSpawnWindowMirroredWindowFailsWhenWindowMirrorUntracked(t *testing.T) {
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
@@ -40,6 +42,8 @@ func TestCommandSpawnWindowMirroredWindowFailsWhenWindowMirrorUntracked(t *testi
 }
 
 func TestCommandSplitMirroredPaneFailsWhenPaneMirrorUntracked(t *testing.T) {
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
