@@ -197,6 +197,8 @@ type paneOutputRenderInfo struct {
 	paneVisible   bool
 	screenChanged bool
 	cursorChanged bool
+	scrollbackLen int
+	hasScrollback bool
 }
 
 type paneOutputBatchItem struct {
@@ -253,6 +255,10 @@ func (r *Renderer) handlePaneOutputBatchInfo(st *rendererActorState, items []pan
 			if emu := st.emulators[paneID]; emu != nil {
 				st.warmPaneOutput(paneID, st.emulators)
 				_, _ = emu.Write(item.data)
+				info := infos[paneID]
+				info.scrollbackLen = emu.ScrollbackLen()
+				info.hasScrollback = true
+				infos[paneID] = info
 				dirtyCapturePanes[paneID] = struct{}{}
 				continue
 			}
@@ -275,6 +281,8 @@ func (r *Renderer) handlePaneOutputBatchInfo(st *rendererActorState, items []pan
 		_, _ = emu.Write(item.data)
 		info := infos[paneID]
 		info.paneVisible = true
+		info.scrollbackLen = emu.ScrollbackLen()
+		info.hasScrollback = true
 		infos[paneID] = info
 		dirtyCapturePanes[paneID] = struct{}{}
 	}

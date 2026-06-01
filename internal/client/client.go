@@ -206,6 +206,7 @@ func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte,
 			}
 		}
 	}
+	cr.trimBaseHistoryAfterPaneOutputInfo(paneID, info)
 	if !paneOutputNeedsRender(info, copyModeVisible) {
 		return info
 	}
@@ -663,6 +664,7 @@ func (cr *ClientRenderer) handlePaneOutputBatch(msgs []*RenderMsg) ([]clientEffe
 	}
 
 	infos := cr.renderer.HandlePaneOutputBatchInfo(items)
+	cr.trimBaseHistoryAfterPaneOutputInfos(infos)
 	dirtyPaneIDs := make([]uint32, 0, len(paneOrder))
 	for _, paneID := range paneOrder {
 		info := infos[paneID]
