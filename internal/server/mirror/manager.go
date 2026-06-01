@@ -268,6 +268,20 @@ func (m *Manager) RemoteRef(paneID uint32) (*checkpoint.RemoteRef, bool) {
 	return &ref, true
 }
 
+func (m *Manager) Host(name string) (config.Host, bool) {
+	if m == nil {
+		return config.Host{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	host, ok := m.hosts[name]
+	return host, ok
+}
+
+func (m *Manager) Dialer() remote.Dialer {
+	return m.currentDialer()
+}
+
 func (m *Manager) Snapshot(paneID uint32) (Snapshot, bool) {
 	if m == nil {
 		return Snapshot{}, false

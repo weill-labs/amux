@@ -896,9 +896,13 @@ func listRemotePanes(parent context.Context, host config.Host) (*proto.LayoutSna
 }
 
 func runRemoteOneShotCommand(parent context.Context, host config.Host, name string, args []string) (*proto.Message, error) {
+	return runRemoteOneShotCommandWithDialer(parent, host, nil, name, args)
+}
+
+func runRemoteOneShotCommandWithDialer(parent context.Context, host config.Host, dialer remote.Dialer, name string, args []string) (*proto.Message, error) {
 	ctx, cancel := context.WithTimeout(parent, remoteCommandTimeout)
 	defer cancel()
-	link := remote.NewLink(host, nil)
+	link := remote.NewLink(host, dialer)
 	if err := link.Connect(ctx); err != nil {
 		return nil, err
 	}

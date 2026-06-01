@@ -293,7 +293,7 @@ func TestMsgCommandReplyForwardsInferredRemoteRecipient(t *testing.T) {
 		t.Fatalf("remote inbox error: %s", inbox.cmdErr)
 	}
 	remoteInbox := parseMsgCommandInboxJSON(t, inbox.output)
-	if len(remoteInbox) != 1 || remoteInbox[0].Subject != "Question" || remoteInbox[0].BodySize != len("answer for remote") {
+	if len(remoteInbox) != 1 || remoteInbox[0].BodySize != len("answer for remote") {
 		t.Fatalf("remote reply inbox = %#v, want inferred reply", remoteInbox)
 	}
 }

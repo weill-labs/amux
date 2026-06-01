@@ -8,14 +8,18 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/remote"
 )
 
 const (
 	msgUsage             = "usage: msg <send|reply|inbox|drain-status|read|ack> ..."
 	msgSendUsage         = "usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]"
 	msgReplyUsage        = "usage: msg reply <msg-id> [--from pane] [--to pane[,pane...]] [--subject text] [--topic name] [--group name] [--metadata json] [--ack status] [--ack-note text] --body text [--format json]"
+	msgDeliverUsage      = "usage: msg deliver <payload-json> [--format json]"
 	msgInboxUsage        = "usage: msg inbox [pane] [--unread] [--format json]"
 	msgDrainStatusUsage  = "usage: msg drain-status [pane] [--format json]"
 	msgReadUsage         = "usage: msg read <msg-id> [--for pane] [--peek] [--format json]"
@@ -66,6 +70,11 @@ type msgReplyOptions struct {
 	ackStatus string
 	ackNote   string
 	format    msgFormat
+}
+
+type msgDeliverOptions struct {
+	payload msgRemoteDeliverPayload
+	format  msgFormat
 }
 
 type msgReadOptions struct {
@@ -148,6 +157,45 @@ type msgAckOutput struct {
 	Delivery  mailbox.DeliveryState `json:"delivery"`
 }
 
+type msgRecipientTarget struct {
+	address   mailbox.PaneAddress
+	remoteRef *checkpoint.RemoteRef
+}
+
+type msgRemoteRecipient struct {
+	address mailbox.PaneAddress
+	ref     checkpoint.RemoteRef
+}
+
+type msgRemoteDeliverPayload struct {
+	Sender     mailbox.PaneAddress        `json:"sender"`
+	Recipients []string                   `json:"recipients"`
+	Topics     []string                   `json:"topics,omitempty"`
+	Groups     []string                   `json:"groups,omitempty"`
+	Subject    string                     `json:"subject"`
+	Body       []byte                     `json:"body"`
+	Metadata   map[string]json.RawMessage `json:"metadata,omitempty"`
+	ThreadID   mailbox.ThreadID           `json:"thread_id,omitempty"`
+	ReplyTo    mailbox.MessageID          `json:"reply_to,omitempty"`
+}
+
+type msgSendPlan struct {
+	sender           mailbox.PaneAddress
+	localRecipients  []mailbox.PaneAddress
+	remoteRecipients map[string][]msgRemoteRecipient
+	remoteThreadID   mailbox.ThreadID
+}
+
+type msgReplyPlan struct {
+	sender           mailbox.PaneAddress
+	parent           mailbox.Message
+	localRecipients  []mailbox.PaneAddress
+	remoteRecipients map[string][]msgRemoteRecipient
+	topics           []string
+	groups           []string
+	remoteThreadID   mailbox.ThreadID
+}
+
 func cmdMsg(ctx *CommandContext) {
 	if len(ctx.Args) == 0 {
 		ctx.replyErr(msgUsage)
@@ -161,18 +209,24 @@ func cmdMsg(ctx *CommandContext) {
 			ctx.replyErr(err.Error())
 			return
 		}
-		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-			output, err := runMsgSend(mctx, ctx.ActorPaneID, opts)
-			return commandMutationResult{output: output, err: err}
-		}))
+		output, err := runMsgSendCommand(ctx, opts)
+		ctx.replyCommandMutation(commandMutationResult{output: output, err: err})
 	case "reply":
 		opts, err := parseMsgReplyOptions(ctx.Args[1:])
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}
+		output, err := runMsgReplyCommand(ctx, opts)
+		ctx.replyCommandMutation(commandMutationResult{output: output, err: err})
+	case "deliver":
+		opts, err := parseMsgDeliverOptions(ctx.Args[1:])
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
-			output, err := runMsgReply(mctx, ctx.ActorPaneID, opts)
+			output, err := runMsgDeliver(mctx, opts)
 			return commandMutationResult{output: output, err: err}
 		}))
 	case "inbox":
@@ -387,6 +441,30 @@ func parseMsgReplyOptions(args []string) (msgReplyOptions, error) {
 	return opts, nil
 }
 
+func parseMsgDeliverOptions(args []string) (msgDeliverOptions, error) {
+	opts := msgDeliverOptions{format: msgFormatText}
+	if len(args) == 0 {
+		return opts, errors.New(msgDeliverUsage)
+	}
+	if err := json.Unmarshal([]byte(args[0]), &opts.payload); err != nil {
+		return opts, fmt.Errorf("invalid deliver payload JSON: %w", err)
+	}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			format, next, err := parseMsgFormatFlag(args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.format = format
+			i = next
+		default:
+			return opts, errors.New(msgDeliverUsage)
+		}
+	}
+	return opts, nil
+}
+
 func parseMsgInboxOptions(args []string) (msgInboxOptions, error) {
 	opts := msgInboxOptions{format: msgFormatText}
 	for i := 0; i < len(args); i++ {
@@ -554,6 +632,203 @@ func parseMsgMetadata(raw string) (map[string]json.RawMessage, error) {
 	return metadata, nil
 }
 
+func runMsgSendCommand(ctx *CommandContext, opts msgSendOptions) (string, error) {
+	var plan msgSendPlan
+	res := ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		var err error
+		plan, err = planMsgSend(mctx, ctx.ActorPaneID, opts)
+		return commandMutationResult{err: err}
+	})
+	if res.err != nil {
+		return "", res.err
+	}
+
+	remoteOutputs, err := forwardRemoteMailboxDeliveries(ctx, plan.sender, plan.remoteRecipients, msgRemoteDeliverPayload{
+		Sender:   plan.sender,
+		Topics:   opts.topics,
+		Groups:   opts.groups,
+		Subject:  opts.subject,
+		Body:     opts.body,
+		Metadata: opts.metadata,
+		ThreadID: plan.remoteThreadID,
+	}, opts.format)
+	if err != nil {
+		return "", err
+	}
+
+	if len(plan.localRecipients) == 0 {
+		return firstRemoteMailboxOutput(remoteOutputs)
+	}
+	var msg mailbox.Message
+	res = ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		var err error
+		msg, err = mctx.sess.sendMailboxMessage(mailbox.SendRequest{
+			Sender:     plan.sender,
+			Recipients: plan.localRecipients,
+			Topics:     opts.topics,
+			Groups:     opts.groups,
+			Subject:    opts.subject,
+			Body:       opts.body,
+			Metadata:   opts.metadata,
+			ReplyTo:    opts.replyTo,
+		})
+		return commandMutationResult{err: err}
+	})
+	if res.err != nil {
+		return "", res.err
+	}
+	return formatMsgSendOutput(msg, opts.format)
+}
+
+func runMsgReplyCommand(ctx *CommandContext, opts msgReplyOptions) (string, error) {
+	var plan msgReplyPlan
+	res := ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		var err error
+		plan, err = planMsgReply(mctx, ctx.ActorPaneID, opts)
+		return commandMutationResult{err: err}
+	})
+	if res.err != nil {
+		return "", res.err
+	}
+
+	remoteOutputs, err := forwardRemoteMailboxDeliveries(ctx, plan.sender, plan.remoteRecipients, msgRemoteDeliverPayload{
+		Sender:   plan.sender,
+		Topics:   plan.topics,
+		Groups:   plan.groups,
+		Subject:  opts.subject,
+		Body:     opts.body,
+		Metadata: opts.metadata,
+		ThreadID: plan.remoteThreadID,
+	}, opts.format)
+	if err != nil {
+		return "", err
+	}
+
+	var msg mailbox.Message
+	if len(plan.localRecipients) > 0 {
+		res = ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+			var err error
+			msg, err = mctx.sess.sendMailboxMessage(mailbox.SendRequest{
+				Sender:     plan.sender,
+				Recipients: plan.localRecipients,
+				Topics:     plan.topics,
+				Groups:     plan.groups,
+				Subject:    opts.subject,
+				Body:       opts.body,
+				Metadata:   opts.metadata,
+				ReplyTo:    plan.parent.ID,
+			})
+			return commandMutationResult{err: err}
+		})
+		if res.err != nil {
+			return "", res.err
+		}
+	}
+
+	if opts.ackStatus != "" || opts.ackNote != "" {
+		res = ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+			_, err := mctx.sess.ackMailboxMessage(plan.parent.ID, plan.sender.ID, mailbox.AckRequest{Status: opts.ackStatus, Note: opts.ackNote})
+			return commandMutationResult{err: err}
+		})
+		if res.err != nil {
+			return "", res.err
+		}
+	}
+
+	if msg.ID != "" {
+		return formatMsgSendOutput(msg, opts.format)
+	}
+	return firstRemoteMailboxOutput(remoteOutputs)
+}
+
+func runMsgDeliver(mctx *MutationContext, opts msgDeliverOptions) (string, error) {
+	recipients, err := resolveMailboxRecipients(mctx, 0, opts.payload.Recipients)
+	if err != nil {
+		return "", err
+	}
+	msg, err := mctx.sess.sendMailboxMessage(mailbox.SendRequest{
+		Sender:     opts.payload.Sender,
+		Recipients: recipients,
+		Topics:     opts.payload.Topics,
+		Groups:     opts.payload.Groups,
+		Subject:    opts.payload.Subject,
+		Body:       opts.payload.Body,
+		Metadata:   opts.payload.Metadata,
+		ReplyTo:    opts.payload.ReplyTo,
+		ThreadID:   opts.payload.ThreadID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return formatMsgSendOutput(msg, opts.format)
+}
+
+func planMsgSend(mctx *MutationContext, actorPaneID uint32, opts msgSendOptions) (msgSendPlan, error) {
+	sender, err := resolveMailboxSender(mctx, actorPaneID, opts.from)
+	if err != nil {
+		return msgSendPlan{}, err
+	}
+	targets, err := resolveMailboxRecipientTargets(mctx, actorPaneID, opts.to)
+	if err != nil {
+		return msgSendPlan{}, err
+	}
+	remoteThreadID, err := mailboxThreadForReplyTo(mctx, opts.replyTo)
+	if err != nil {
+		return msgSendPlan{}, err
+	}
+	localRecipients, remoteRecipients, err := splitMailboxRecipientTargets(targets)
+	if err != nil {
+		return msgSendPlan{}, err
+	}
+	return msgSendPlan{
+		sender:           sender,
+		localRecipients:  localRecipients,
+		remoteRecipients: remoteRecipients,
+		remoteThreadID:   remoteThreadID,
+	}, nil
+}
+
+func planMsgReply(mctx *MutationContext, actorPaneID uint32, opts msgReplyOptions) (msgReplyPlan, error) {
+	sender, err := resolveMailboxSender(mctx, actorPaneID, opts.from)
+	if err != nil {
+		return msgReplyPlan{}, err
+	}
+	parent, ok := mctx.sess.ensureMailbox().Message(opts.id)
+	if !ok {
+		return msgReplyPlan{}, fmt.Errorf("message %q not found", opts.id)
+	}
+	targets, err := resolveMailboxReplyRecipientTargets(mctx, actorPaneID, sender, parent, opts.to)
+	if err != nil {
+		return msgReplyPlan{}, err
+	}
+	if opts.ackStatus != "" || opts.ackNote != "" {
+		if _, err := mctx.sess.ensureMailbox().DeliverySummary(parent.ID, sender.ID); err != nil {
+			return msgReplyPlan{}, fmt.Errorf("cannot ack reply parent as %s: %w", sender.Name, err)
+		}
+	}
+	topics := opts.topics
+	if len(topics) == 0 {
+		topics = parent.Topics
+	}
+	groups := opts.groups
+	if len(groups) == 0 {
+		groups = parent.Groups
+	}
+	localRecipients, remoteRecipients, err := splitMailboxRecipientTargets(targets)
+	if err != nil {
+		return msgReplyPlan{}, err
+	}
+	return msgReplyPlan{
+		sender:           sender,
+		parent:           parent,
+		localRecipients:  localRecipients,
+		remoteRecipients: remoteRecipients,
+		topics:           topics,
+		groups:           groups,
+		remoteThreadID:   parent.ThreadID,
+	}, nil
+}
+
 func runMsgSend(mctx *MutationContext, actorPaneID uint32, opts msgSendOptions) (string, error) {
 	sender, err := resolveMailboxSender(mctx, actorPaneID, opts.from)
 	if err != nil {
@@ -718,6 +993,17 @@ func resolveMailboxReplyRecipients(mctx *MutationContext, actorPaneID uint32, se
 	return recipients, nil
 }
 
+func resolveMailboxReplyRecipientTargets(mctx *MutationContext, actorPaneID uint32, sender mailbox.PaneAddress, parent mailbox.Message, refs []string) ([]msgRecipientTarget, error) {
+	if len(refs) > 0 {
+		return resolveMailboxRecipientTargets(mctx, actorPaneID, refs)
+	}
+	recipients, err := resolveMailboxReplyRecipients(mctx, actorPaneID, sender, parent, nil)
+	if err != nil {
+		return nil, err
+	}
+	return mailboxRecipientTargetsForAddresses(mctx, recipients)
+}
+
 func messageHasRecipient(msg mailbox.Message, paneID uint32) bool {
 	for _, recipient := range msg.Recipients {
 		if recipient.ID == paneID {
@@ -756,6 +1042,21 @@ func resolveMailboxRecipients(mctx *MutationContext, actorPaneID uint32, refs []
 	return recipients, nil
 }
 
+func resolveMailboxRecipientTargets(mctx *MutationContext, actorPaneID uint32, refs []string) ([]msgRecipientTarget, error) {
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("at least one recipient is required")
+	}
+	targets := make([]msgRecipientTarget, 0, len(refs))
+	for _, ref := range refs {
+		target, err := resolveMailboxPaneTarget(mctx, actorPaneID, ref, "recipient")
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, target)
+	}
+	return targets, nil
+}
+
 func mailboxActorAddress(mctx *MutationContext, actorPaneID uint32, role string) (mailbox.PaneAddress, error) {
 	if actorPaneID == 0 {
 		return mailbox.PaneAddress{}, fmt.Errorf("%s pane is required", role)
@@ -781,11 +1082,192 @@ func resolveMailboxPaneRef(mctx *MutationContext, actorPaneID uint32, ref, role 
 	return mailboxCommandAddressForPane(pane), nil
 }
 
+func resolveMailboxPaneTarget(mctx *MutationContext, actorPaneID uint32, ref, role string) (msgRecipientTarget, error) {
+	pane, window, err := mctx.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
+	if err != nil {
+		return msgRecipientTarget{}, err
+	}
+	if window == nil {
+		return msgRecipientTarget{}, fmt.Errorf("%s pane %q is not in any window", role, ref)
+	}
+	return mailboxRecipientTargetForPane(mctx, pane, role)
+}
+
+func mailboxRecipientTargetsForAddresses(mctx *MutationContext, addrs []mailbox.PaneAddress) ([]msgRecipientTarget, error) {
+	targets := make([]msgRecipientTarget, 0, len(addrs))
+	for _, addr := range addrs {
+		target := msgRecipientTarget{address: addr}
+		if isRemoteMailboxAddress(addr) {
+			ref, err := mailboxRemoteRefForPaneID(mctx, addr.ID, "recipient")
+			if err != nil {
+				return nil, err
+			}
+			target.remoteRef = ref
+		}
+		targets = append(targets, target)
+	}
+	return targets, nil
+}
+
+func mailboxRecipientTargetForPane(mctx *MutationContext, pane *mux.Pane, role string) (msgRecipientTarget, error) {
+	addr := mailboxCommandAddressForPane(pane)
+	target := msgRecipientTarget{address: addr}
+	if isRemoteMailboxAddress(addr) {
+		ref, err := mailboxRemoteRefForPaneID(mctx, addr.ID, role)
+		if err != nil {
+			return msgRecipientTarget{}, err
+		}
+		target.remoteRef = ref
+	}
+	return target, nil
+}
+
+func mailboxRemoteRefForPaneID(mctx *MutationContext, paneID uint32, role string) (*checkpoint.RemoteRef, error) {
+	if mctx == nil || mctx.sess == nil || mctx.sess.mirror == nil {
+		return nil, fmt.Errorf("%s pane %d is remote but mirror manager is not configured", role, paneID)
+	}
+	ref, ok := mctx.sess.mirror.RemoteRef(paneID)
+	if !ok || ref == nil {
+		return nil, fmt.Errorf("%s pane %d is remote but has no remote ref", role, paneID)
+	}
+	return ref, nil
+}
+
 func mailboxCommandAddressForPane(pane *mux.Pane) mailbox.PaneAddress {
 	if pane == nil {
 		return mailbox.PaneAddress{}
 	}
 	return mailbox.PaneAddress{ID: pane.ID, Name: pane.Meta.Name, Host: pane.Meta.Host}
+}
+
+func splitMailboxRecipientTargets(targets []msgRecipientTarget) ([]mailbox.PaneAddress, map[string][]msgRemoteRecipient, error) {
+	localRecipients := make([]mailbox.PaneAddress, 0, len(targets))
+	remoteRecipients := make(map[string][]msgRemoteRecipient)
+	for _, target := range targets {
+		if !isRemoteMailboxAddress(target.address) {
+			localRecipients = append(localRecipients, target.address)
+			continue
+		}
+		if target.remoteRef == nil {
+			return nil, nil, fmt.Errorf("recipient pane %d is remote but has no remote ref", target.address.ID)
+		}
+		remoteRecipients[target.remoteRef.Host] = append(remoteRecipients[target.remoteRef.Host], msgRemoteRecipient{
+			address: target.address,
+			ref:     *target.remoteRef,
+		})
+	}
+	return localRecipients, remoteRecipients, nil
+}
+
+func isRemoteMailboxAddress(addr mailbox.PaneAddress) bool {
+	host := strings.TrimSpace(addr.Host)
+	return host != "" && host != mux.DefaultHost
+}
+
+func mailboxThreadForReplyTo(mctx *MutationContext, replyTo mailbox.MessageID) (mailbox.ThreadID, error) {
+	if replyTo == "" {
+		return "", nil
+	}
+	parent, ok := mctx.sess.ensureMailbox().Message(replyTo)
+	if !ok {
+		return "", fmt.Errorf("reply parent %q not found", replyTo)
+	}
+	return parent.ThreadID, nil
+}
+
+func forwardRemoteMailboxDeliveries(ctx *CommandContext, sender mailbox.PaneAddress, recipients map[string][]msgRemoteRecipient, base msgRemoteDeliverPayload, format msgFormat) ([]string, error) {
+	if len(recipients) == 0 {
+		return nil, nil
+	}
+	outputs := make([]string, 0, len(recipients))
+	for hostName, hostRecipients := range recipients {
+		if len(hostRecipients) == 0 {
+			continue
+		}
+		payload := base
+		payload.Sender = sender
+		payload.Recipients = remoteMailboxRecipientRefs(hostRecipients)
+		output, err := forwardRemoteMailboxDelivery(ctx, hostRecipients[0].ref, payload, format)
+		if err != nil {
+			return nil, err
+		}
+		if output == "" {
+			output = fmt.Sprintf("Sent mailbox message to %s\n", hostName)
+		}
+		outputs = append(outputs, output)
+	}
+	return outputs, nil
+}
+
+func remoteMailboxRecipientRefs(recipients []msgRemoteRecipient) []string {
+	refs := make([]string, 0, len(recipients))
+	for _, recipient := range recipients {
+		refs = append(refs, recipient.ref.PaneName)
+	}
+	return refs
+}
+
+func forwardRemoteMailboxDelivery(ctx *CommandContext, ref checkpoint.RemoteRef, payload msgRemoteDeliverPayload, format msgFormat) (string, error) {
+	host, dialer, err := mailboxRemoteTransport(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"deliver", string(raw)}
+	if format == msgFormatJSON {
+		args = append(args, "--format", "json")
+	}
+	msg, err := runRemoteOneShotCommandWithDialer(ctx.context(), host, dialer, "msg", args)
+	if err != nil {
+		return "", fmt.Errorf("forward mailbox message to %s: %w", ref.Host, err)
+	}
+	return msg.CmdOutput, nil
+}
+
+func mailboxRemoteTransport(ctx *CommandContext, ref checkpoint.RemoteRef) (config.Host, remote.Dialer, error) {
+	if ref.Host == "" {
+		return config.Host{}, nil, fmt.Errorf("remote host is required")
+	}
+	var (
+		host   config.Host
+		dialer remote.Dialer
+		ok     bool
+	)
+	if ctx != nil && ctx.Sess != nil && ctx.Sess.mirror != nil {
+		host, ok = ctx.Sess.mirror.Host(ref.Host)
+		dialer = ctx.Sess.mirror.Dialer()
+	}
+	if !ok {
+		var err error
+		host, err = lookupRemoteHost(ref.Host)
+		if err != nil {
+			return config.Host{}, nil, err
+		}
+	}
+	if strings.TrimSpace(host.Session) == "" {
+		host.Session = ref.Session
+	}
+	if strings.TrimSpace(host.Session) == "" {
+		host.Session = DefaultSessionName
+	}
+	return host, dialer, nil
+}
+
+func firstRemoteMailboxOutput(outputs []string) (string, error) {
+	if len(outputs) == 0 {
+		return "", fmt.Errorf("at least one recipient is required")
+	}
+	return outputs[0], nil
+}
+
+func formatMsgSendOutput(msg mailbox.Message, format msgFormat) (string, error) {
+	if format == msgFormatJSON {
+		return encodeMsgJSON(sendOutputForMessage(msg))
+	}
+	return fmt.Sprintf("Sent %s to %s\n", msg.ID, joinPaneNames(msg.Recipients)), nil
 }
 
 func sendOutputForMessage(msg mailbox.Message) msgSendOutput {
