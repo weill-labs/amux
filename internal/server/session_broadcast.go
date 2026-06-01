@@ -179,7 +179,9 @@ func (s *Session) snapshotLayout(idleSnap map[uint32]bool) *proto.LayoutSnapshot
 	snap.Notice = s.notice
 
 	for i, win := range s.Windows {
-		snap.Windows = append(snap.Windows, win.SnapshotWindow(i+1))
+		windowSnap := win.SnapshotWindow(i + 1)
+		windowSnap.RemoteMirror = s.isRemoteMirrorWindow(win.ID)
+		snap.Windows = append(snap.Windows, windowSnap)
 	}
 
 	for i := range snap.Panes {

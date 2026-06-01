@@ -24,6 +24,8 @@ type WindowInfo struct {
 	IsActive bool
 	Panes    int
 	Zoomed   bool
+	// IsRemoteMirror marks windows created by remote attach-window.
+	IsRemoteMirror bool
 }
 
 // RenderStats captures lightweight render counters alongside ANSI output.

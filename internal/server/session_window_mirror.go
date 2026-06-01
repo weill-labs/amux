@@ -212,6 +212,18 @@ func (s *Session) restoreWindowMirrors(refs map[uint32]checkpoint.RemoteWindowRe
 	}
 }
 
+func (s *Session) isRemoteMirrorWindow(windowID uint32) bool {
+	if s == nil {
+		return false
+	}
+	return isRemoteMirrorWindowID(s.windowMirrorSigs, windowID)
+}
+
+func isRemoteMirrorWindowID(windowMirrorSigs map[uint32]string, windowID uint32) bool {
+	_, ok := windowMirrorSigs[windowID]
+	return ok
+}
+
 // pushMirrorWindowSize forwards a local mirror window's size to the remote so it
 // re-renders the window to match. A no-op for non-mirror windows. Event-loop only.
 func (s *Session) pushMirrorWindowSize(w *mux.Window) {
