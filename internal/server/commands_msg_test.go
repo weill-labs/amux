@@ -220,6 +220,30 @@ func TestMsgCommandSendInboxReadAck(t *testing.T) {
 	}
 }
 
+func TestMsgCommandListAliasMatchesInbox(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	send := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--subject", "Alias", "--body", "alias body", "--format", "json")
+	if send.cmdErr != "" {
+		t.Fatalf("msg send error: %s", send.cmdErr)
+	}
+
+	inbox := runTestCommand(t, srv, sess, "msg", "inbox", "pane-2", "--format", "json")
+	if inbox.cmdErr != "" {
+		t.Fatalf("msg inbox error: %s", inbox.cmdErr)
+	}
+	list := runTestCommand(t, srv, sess, "msg", "list", "pane-2", "--format", "json")
+	if list.cmdErr != "" {
+		t.Fatalf("msg list error: %s", list.cmdErr)
+	}
+	if list.output != inbox.output {
+		t.Fatalf("msg list output = %s, want inbox output %s", list.output, inbox.output)
+	}
+}
+
 func TestMsgCommandDefaultsToActorPane(t *testing.T) {
 	t.Parallel()
 
