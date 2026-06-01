@@ -11,6 +11,10 @@ func cmdNewWindow(ctx *CommandContext) {
 	ctx.applyCommandResult(layoutcmd.NewWindow(layoutCommandContext{ctx}, ctx.Args))
 }
 
+func cmdCloseWindow(ctx *CommandContext) {
+	ctx.applyCommandResult(layoutcmd.CloseWindow(layoutCommandContext{ctx}, ctx.Args))
+}
+
 func cmdSelectWindow(ctx *CommandContext) {
 	ctx.applyCommandResult(layoutcmd.SelectWindow(layoutCommandContext{ctx}, ctx.Args))
 }

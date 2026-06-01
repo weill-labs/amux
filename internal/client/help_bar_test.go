@@ -29,7 +29,7 @@ func TestBuildHelpBarUsesBindingMap(t *testing.T) {
 	if !strings.Contains(view, "? close") {
 		t.Fatalf("help bar view = %q, want the toggle key to advertise close while active", view)
 	}
-	for _, want := range []string{"\\ root-vsplit", "_ root-hsplit", "x kill", "z zoom", ". rename-pane"} {
+	for _, want := range []string{"\\ root-vsplit", "_ root-hsplit", "x kill", "X close-win", "z zoom", ". rename-pane"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help bar view = %q, want %q item", view, want)
 		}
@@ -89,7 +89,7 @@ func TestHelpBarDisplayOnlyAndDismiss(t *testing.T) {
 	cr.RenderDiff()
 
 	display := cr.CaptureDisplay()
-	for _, want := range []string{"? close", "x kill", "c new-win", ". rename-pane"} {
+	for _, want := range []string{"? close", "x kill", "X close-win", "c new-win", ". rename-pane"} {
 		if !strings.Contains(display, want) {
 			t.Fatalf("display capture should include %q in the bottom help bar, got:\n%s", want, display)
 		}

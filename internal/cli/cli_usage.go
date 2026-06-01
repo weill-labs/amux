@@ -42,6 +42,7 @@ const (
 	undoUsage         = "usage: amux undo"
 	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui|msg> ..."
 	newWindowUsage    = "usage: amux new-window [--name NAME]"
+	closeWindowUsage  = "usage: amux close-window"
 	nextWindowUsage   = "usage: amux next-window"
 	prevWindowUsage   = "usage: amux prev-window"
 	lastWindowUsage   = "usage: amux last-window"
@@ -75,6 +76,7 @@ var commandUsageByName = map[string]string{
 	"move":             moveUsage,
 	"new":              "usage: amux new [name]",
 	"new-window":       newWindowUsage,
+	"close-window":     closeWindowUsage,
 	"next-window":      nextWindowUsage,
 	"prev-window":      prevWindowUsage,
 	"last-window":      lastWindowUsage,
@@ -248,6 +250,7 @@ Usage:
   amux [-s session] msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]
                                        Manage pane mailbox messages
   amux [-s session] new-window         Create a new window
+  amux [-s session] close-window       Close the active window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name
   amux [-s session] next-window        Switch to next window
@@ -292,6 +295,7 @@ Inside an amux session:
   Ctrl-a _                           Root-level split top/bottom
   Ctrl-a a                           Spawn pane in column-fill order
   Ctrl-a x                           Kill active pane
+  Ctrl-a X                           Close active window
   Ctrl-a z                           Toggle zoom on active pane
   Ctrl-a q                           Show pane labels and jump to a pane
   Ctrl-a }                           Swap active pane with next

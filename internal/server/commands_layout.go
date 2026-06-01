@@ -399,6 +399,10 @@ func (ctx layoutCommandContext) NewWindow(name string) commandpkg.Result {
 	return runNewWindow(ctx.CommandContext, name)
 }
 
+func (ctx layoutCommandContext) CloseWindow() commandpkg.Result {
+	return runCloseWindow(ctx.CommandContext)
+}
+
 func (ctx layoutCommandContext) SelectWindow(ref string) commandpkg.Result {
 	return runSelectWindow(ctx.CommandContext, ref)
 }
@@ -916,6 +920,79 @@ func runNewWindow(ctx *CommandContext, name string) commandpkg.Result {
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func runCloseWindow(ctx *CommandContext) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+		w := mctx.activeWindow()
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no window")}
+		}
+		name := w.Name
+		paneIDs := windowPaneIDs(w)
+		if len(paneIDs) == 0 {
+			return commandMutationResult{err: fmt.Errorf("window %q has no panes", name)}
+		}
+
+		detachWindowMirror(mctx, w)
+
+		removedPanes := make([]*mux.Pane, 0, len(paneIDs))
+		removedCount := 0
+		for _, paneID := range paneIDs {
+			removed := mctx.softClosePane(paneID)
+			if removed.pane == nil {
+				continue
+			}
+			removedCount++
+			removedPanes = append(removedPanes, removed.pane)
+			mctx.appendPaneLog(paneLogEventExit, removed.pane, "closed window")
+			mctx.emitEvent(Event{
+				Type:     EventPaneExit,
+				PaneID:   removed.pane.ID,
+				PaneName: removed.paneName,
+				Host:     removed.pane.Meta.Host,
+				Reason:   "closed window",
+			})
+			if removed.sendExit {
+				for _, pane := range removedPanes {
+					mctx.ScheduleClose(pane)
+				}
+				return commandMutationResult{
+					output:         fmt.Sprintf("Closed window %s (session exiting)\n", name),
+					sendExit:       true,
+					shutdownServer: true,
+				}
+			}
+		}
+		if removedCount == 0 {
+			return commandMutationResult{err: fmt.Errorf("window %q has no panes to close", name)}
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Closed window %s (%s)\n", name, paneCountLabel(removedCount)),
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(mctx.activeWindow()),
+		}
+	}))
+}
+
+func detachWindowMirror(mctx *MutationContext, w *mux.Window) {
+	if mctx == nil || mctx.sess == nil || w == nil {
+		return
+	}
+	if _, ok := mctx.sess.windowMirrorSigs[w.ID]; !ok {
+		return
+	}
+	if mctx.sess.mirror != nil {
+		mctx.sess.mirror.DetachWindow(w.ID)
+	}
+	delete(mctx.sess.windowMirrorSigs, w.ID)
+}
+
+func paneCountLabel(n int) string {
+	if n == 1 {
+		return "1 pane"
+	}
+	return fmt.Sprintf("%d panes", n)
 }
 
 func runSelectWindow(ctx *CommandContext, ref string) commandpkg.Result {

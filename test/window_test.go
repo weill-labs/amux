@@ -658,6 +658,42 @@ func TestLastWindowKeybinding(t *testing.T) {
 	}
 }
 
+func TestCloseWindowKeybinding(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	gen := h.generation()
+	h.sendClientKeys("C-a", "c")
+	h.waitLayout(gen)
+	h.assertActive("pane-2")
+
+	gen = h.generation()
+	h.sendClientKeys("C-a", "|")
+	h.waitLayout(gen)
+	h.assertActive("pane-3")
+
+	gen = h.generation()
+	h.sendClientKeys("C-a", "x")
+	h.waitLayout(gen)
+	h.assertActive("pane-2")
+	if strings.Contains(h.capture(), "[pane-3]") {
+		t.Fatalf("lowercase Ctrl-a x should close only active pane-3.\nScreen:\n%s", h.capture())
+	}
+	if bar := h.globalBar(); !hasWindowTab(bar, 1) || !hasWindowTab(bar, 2) {
+		t.Fatalf("lowercase Ctrl-a x should preserve both windows, got bar %q", bar)
+	}
+
+	gen = h.generation()
+	h.sendClientKeys("C-a", "X")
+	if !h.waitLayoutOrTimeout(gen, "2s") {
+		t.Fatalf("capital Ctrl-a X should change the layout.\nScreen:\n%s", h.capture())
+	}
+	h.assertActive("pane-1")
+	if bar := h.globalBar(); hasWindowTab(bar, 2) {
+		t.Fatalf("capital Ctrl-a X should remove window 2, got bar %q", bar)
+	}
+}
+
 func TestWindowPaneIsolation(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

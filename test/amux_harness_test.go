@@ -132,12 +132,22 @@ func newAmuxHarnessHandle(tb testing.TB, outer *ServerHarness, inner, binPath st
 		outer:          outer,
 		inner:          inner,
 		innerBin:       binPath,
-		innerSocketDir: tb.TempDir(),
+		innerSocketDir: newInnerSocketDir(tb),
 		tb:             tb,
 		session:        inner,
 	}
 	tb.Cleanup(h.cleanup)
 	return h
+}
+
+func newInnerSocketDir(tb testing.TB) string {
+	tb.Helper()
+	dir, err := os.MkdirTemp(testSocketDir(), "inner-")
+	if err != nil {
+		tb.Fatalf("creating inner socket dir: %v", err)
+	}
+	tb.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }
 
 // cleanup detaches the inner client, then SIGTERMs the inner server.

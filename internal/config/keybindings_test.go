@@ -79,6 +79,11 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "last-window"},
 		},
 		{
+			name: "capital x closes the active window",
+			key:  'X',
+			want: Binding{Action: "close-window"},
+		},
+		{
 			name: "m remains reserved for compat bell",
 			key:  'm',
 			want: Binding{Action: "compat-bell"},

@@ -251,6 +251,12 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "close-window uses no-arg session command",
+			args:        []string{"close-window"},
+			wantCmd:     "close-window",
+			wantHandled: true,
+		},
+		{
 			name:        "rename forwards pane and new name",
 			args:        []string{"rename", "pane-1", "logs"},
 			wantCmd:     "rename",
@@ -620,6 +626,12 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			wantStdout:  "usage: amux last-window\n",
 		},
 		{
+			name:        "close-window help",
+			args:        []string{"close-window", "--help"},
+			wantHandled: true,
+			wantStdout:  "usage: amux close-window\n",
+		},
+		{
 			name:        "rename help",
 			args:        []string{"rename", "--help"},
 			wantHandled: true,
@@ -668,6 +680,17 @@ func TestPrintUsageOmitsDelegate(t *testing.T) {
 
 	if strings.Contains(buf.String(), "amux [-s session] delegate <pane>") {
 		t.Fatalf("printUsage should omit delegate:\n%s", buf.String())
+	}
+}
+
+func TestPrintUsageIncludesCloseWindowKeybinding(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	WriteUsage(&buf)
+
+	if !strings.Contains(buf.String(), "Ctrl-a X                           Close active window") {
+		t.Fatalf("printUsage should include close-window keybinding:\n%s", buf.String())
 	}
 }
 
@@ -803,6 +826,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			wantExit: 0,
 			wantCalls: []cliCall{
 				{kind: "server-command", session: resolvedSessionMarker, cmd: "last-window"},
+			},
+		},
+		{
+			name:     "close-window dispatches through server",
+			args:     []string{"close-window"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "close-window"},
 			},
 		},
 		{
