@@ -286,7 +286,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			if resolvedWindow == nil {
 				return createPaneSnapshot{}, fmt.Errorf("pane not in any window")
 			}
-			snapshot := createPaneSnapshot{
+			return createPaneSnapshotWithMirrorTarget(sess, resolvedWindow, pane, createPaneSnapshot{
 				inheritPane:              pane,
 				windowWidth:              resolvedWindow.Width,
 				windowHeight:             resolvedWindow.Height,
@@ -294,11 +294,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 				inheritProxy:             pane.IsProxy(),
 				targetPaneID:             pane.ID,
 				treatLeadPaneAsWindowRef: command == "spawn",
-			}
-			if err := snapshotRemoteMirrorTarget(sess, resolvedWindow, pane, &snapshot); err != nil {
-				return createPaneSnapshot{}, err
-			}
-			return snapshot, nil
+			})
 		}
 		w, err := resolveCreatePaneTargetWindow(sess, actorPaneID, command, windowRef)
 		if err != nil {
@@ -310,7 +306,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 		if w.ActivePane == nil {
 			return createPaneSnapshot{}, fmt.Errorf("no active pane")
 		}
-		snapshot := createPaneSnapshot{
+		return createPaneSnapshotWithMirrorTarget(sess, w, w.ActivePane, createPaneSnapshot{
 			inheritPane:              w.ActivePane,
 			windowWidth:              w.Width,
 			windowHeight:             w.Height,
@@ -318,23 +314,19 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			inheritProxy:             w.ActivePane.IsProxy(),
 			targetPaneID:             w.ActivePane.ID,
 			treatLeadPaneAsWindowRef: command == "spawn",
-		}
-		if err := snapshotRemoteMirrorTarget(sess, w, w.ActivePane, &snapshot); err != nil {
-			return createPaneSnapshot{}, err
-		}
-		return snapshot, nil
+		})
 	})
 }
 
-func snapshotRemoteMirrorTarget(sess *Session, w *mux.Window, pane *mux.Pane, snapshot *createPaneSnapshot) error {
+func createPaneSnapshotWithMirrorTarget(sess *Session, w *mux.Window, pane *mux.Pane, snapshot createPaneSnapshot) (createPaneSnapshot, error) {
 	target, ok, err := remoteMirrorCreatePaneTarget(sess, w, pane)
 	if err != nil {
-		return err
+		return createPaneSnapshot{}, err
 	}
 	if ok {
 		snapshot.mirrorTarget = &target
 	}
-	return nil
+	return snapshot, nil
 }
 
 func remoteMirrorCreatePaneTarget(sess *Session, w *mux.Window, pane *mux.Pane) (mirroredCreatePaneTarget, bool, error) {
@@ -414,7 +406,7 @@ func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, comman
 	if plan.RootSplit {
 		targetPaneID = plan.InheritPaneID
 	}
-	snapshot := createPaneSnapshot{
+	return createPaneSnapshotWithMirrorTarget(sess, w, inheritPane, createPaneSnapshot{
 		inheritPane:   inheritPane,
 		windowWidth:   w.Width,
 		windowHeight:  w.Height,
@@ -422,11 +414,7 @@ func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, comman
 		inheritProxy:  inheritPane.IsProxy(),
 		targetPaneID:  targetPaneID,
 		autoRootSplit: plan.RootSplit,
-	}
-	if err := snapshotRemoteMirrorTarget(sess, w, inheritPane, &snapshot); err != nil {
-		return createPaneSnapshot{}, err
-	}
-	return snapshot, nil
+	})
 }
 
 func resolveCreatePaneWindow(ctx *MutationContext, actorPaneID uint32, placement createPanePlacement, snapshot createPaneSnapshot) (*mux.Window, error) {
