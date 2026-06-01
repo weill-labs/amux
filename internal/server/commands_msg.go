@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -163,8 +164,7 @@ type msgRecipientTarget struct {
 }
 
 type msgRemoteRecipient struct {
-	address mailbox.PaneAddress
-	ref     checkpoint.RemoteRef
+	ref checkpoint.RemoteRef
 }
 
 type msgRemoteDeliverPayload struct {
@@ -829,34 +829,6 @@ func planMsgReply(mctx *MutationContext, actorPaneID uint32, opts msgReplyOption
 	}, nil
 }
 
-func runMsgSend(mctx *MutationContext, actorPaneID uint32, opts msgSendOptions) (string, error) {
-	sender, err := resolveMailboxSender(mctx, actorPaneID, opts.from)
-	if err != nil {
-		return "", err
-	}
-	recipients, err := resolveMailboxRecipients(mctx, actorPaneID, opts.to)
-	if err != nil {
-		return "", err
-	}
-	msg, err := mctx.sess.sendMailboxMessage(mailbox.SendRequest{
-		Sender:     sender,
-		Recipients: recipients,
-		Topics:     opts.topics,
-		Groups:     opts.groups,
-		Subject:    opts.subject,
-		Body:       opts.body,
-		Metadata:   opts.metadata,
-		ReplyTo:    opts.replyTo,
-	})
-	if err != nil {
-		return "", err
-	}
-	if opts.format == msgFormatJSON {
-		return encodeMsgJSON(sendOutputForMessage(msg))
-	}
-	return fmt.Sprintf("Sent %s to %s\n", msg.ID, joinPaneNames(msg.Recipients)), nil
-}
-
 func runMsgInbox(mctx *MutationContext, actorPaneID uint32, opts msgInboxOptions) (string, error) {
 	recipient, err := resolveMailboxTarget(mctx, actorPaneID, opts.target, "inbox target")
 	if err != nil {
@@ -885,56 +857,6 @@ func runMsgDrainStatus(mctx *MutationContext, actorPaneID uint32, opts msgDrainS
 		return encodeMsgJSON(drainStatusOutput(status))
 	}
 	return fmt.Sprintf("%d\n", status.Pending), nil
-}
-
-func runMsgReply(mctx *MutationContext, actorPaneID uint32, opts msgReplyOptions) (string, error) {
-	sender, err := resolveMailboxSender(mctx, actorPaneID, opts.from)
-	if err != nil {
-		return "", err
-	}
-	parent, ok := mctx.sess.ensureMailbox().Message(opts.id)
-	if !ok {
-		return "", fmt.Errorf("message %q not found", opts.id)
-	}
-	recipients, err := resolveMailboxReplyRecipients(mctx, actorPaneID, sender, parent, opts.to)
-	if err != nil {
-		return "", err
-	}
-	if opts.ackStatus != "" || opts.ackNote != "" {
-		if _, err := mctx.sess.ensureMailbox().DeliverySummary(parent.ID, sender.ID); err != nil {
-			return "", fmt.Errorf("cannot ack reply parent as %s: %w", sender.Name, err)
-		}
-	}
-	topics := opts.topics
-	if len(topics) == 0 {
-		topics = parent.Topics
-	}
-	groups := opts.groups
-	if len(groups) == 0 {
-		groups = parent.Groups
-	}
-	msg, err := mctx.sess.sendMailboxMessage(mailbox.SendRequest{
-		Sender:     sender,
-		Recipients: recipients,
-		Topics:     topics,
-		Groups:     groups,
-		Subject:    opts.subject,
-		Body:       opts.body,
-		Metadata:   opts.metadata,
-		ReplyTo:    parent.ID,
-	})
-	if err != nil {
-		return "", err
-	}
-	if opts.ackStatus != "" || opts.ackNote != "" {
-		if _, err := mctx.sess.ackMailboxMessage(parent.ID, sender.ID, mailbox.AckRequest{Status: opts.ackStatus, Note: opts.ackNote}); err != nil {
-			return "", err
-		}
-	}
-	if opts.format == msgFormatJSON {
-		return encodeMsgJSON(sendOutputForMessage(msg))
-	}
-	return fmt.Sprintf("Sent %s to %s\n", msg.ID, joinPaneNames(msg.Recipients)), nil
 }
 
 func runMsgRead(mctx *MutationContext, actorPaneID uint32, opts msgReadOptions) (string, error) {
@@ -1152,8 +1074,7 @@ func splitMailboxRecipientTargets(targets []msgRecipientTarget) ([]mailbox.PaneA
 			return nil, nil, fmt.Errorf("recipient pane %d is remote but has no remote ref", target.address.ID)
 		}
 		remoteRecipients[target.remoteRef.Host] = append(remoteRecipients[target.remoteRef.Host], msgRemoteRecipient{
-			address: target.address,
-			ref:     *target.remoteRef,
+			ref: *target.remoteRef,
 		})
 	}
 	return localRecipients, remoteRecipients, nil
@@ -1180,7 +1101,13 @@ func forwardRemoteMailboxDeliveries(ctx *CommandContext, sender mailbox.PaneAddr
 		return nil, nil
 	}
 	outputs := make([]string, 0, len(recipients))
-	for hostName, hostRecipients := range recipients {
+	hostNames := make([]string, 0, len(recipients))
+	for hostName := range recipients {
+		hostNames = append(hostNames, hostName)
+	}
+	sort.Strings(hostNames)
+	for _, hostName := range hostNames {
+		hostRecipients := recipients[hostName]
 		if len(hostRecipients) == 0 {
 			continue
 		}
