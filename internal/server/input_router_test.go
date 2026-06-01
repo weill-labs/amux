@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -59,5 +60,46 @@ func TestInputRouterSyncPanesReplacesQueueWhenPaneInstanceChanges(t *testing.T) 
 	}
 	if len(newWrites) != 1 || string(newWrites[0]) != "new" {
 		t.Fatalf("new pane writes = %q, want only new input", newWrites)
+	}
+}
+
+func TestEnqueueLivePaneInputChunksSkipsEmptyChunks(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	writes := make(chan string, 1)
+	pane := sess.ownPane(newProxyPane(7, mux.PaneMeta{
+		Name:  "worker",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	}))
+
+	if err := sess.enqueueLivePaneInputChunks(pane, nil); err != nil {
+		t.Fatalf("enqueue nil chunks: %v", err)
+	}
+	if err := sess.enqueueLivePaneInputChunks(pane, []encodedKeyChunk{{}, {data: nil}}); err != nil {
+		t.Fatalf("enqueue empty chunks: %v", err)
+	}
+	select {
+	case got := <-writes:
+		t.Fatalf("unexpected write for empty chunks: %q", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	if err := sess.enqueueLivePaneInputChunks(pane, []encodedKeyChunk{{}, {data: []byte("payload")}}); err != nil {
+		t.Fatalf("enqueue mixed chunks: %v", err)
+	}
+	select {
+	case got := <-writes:
+		if got != "payload" {
+			t.Fatalf("write = %q, want payload", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for non-empty chunk write")
 	}
 }
