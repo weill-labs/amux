@@ -313,6 +313,14 @@ func TestPaneHistoryCodecHelpers(t *testing.T) {
 		if got := paneHistoryCellRunCount(nil); got != 0 {
 			t.Fatalf("paneHistoryCellRunCount(nil) = %d, want 0", got)
 		}
+
+		var emptyRuns bytes.Buffer
+		if err := writePaneHistoryCellRuns(&emptyRuns, nil, nil); err != nil {
+			t.Fatalf("writePaneHistoryCellRuns(nil) error = %v, want nil", err)
+		}
+		if got := emptyRuns.Bytes(); !bytes.Equal(got, []byte{0}) {
+			t.Fatalf("writePaneHistoryCellRuns(nil) = %v, want zero run count", got)
+		}
 	})
 }
 
@@ -375,6 +383,19 @@ func TestPaneHistoryBinaryErrorPaths(t *testing.T) {
 		}
 		if _, err := encodePaneHistoryPayload(msg); err == nil || !strings.Contains(err.Error(), "negative cell width") {
 			t.Fatalf("encodePaneHistoryPayload(negative width) error = %v, want negative cell width", err)
+		}
+	})
+
+	t.Run("cell run writer rejects negative width before final run", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		cells := []Cell{
+			{Char: "x", Width: -1},
+			{Char: "y", Width: 1},
+		}
+		if err := writePaneHistoryCellRuns(&buf, cells, nil); err == nil || !strings.Contains(err.Error(), "negative cell width") {
+			t.Fatalf("writePaneHistoryCellRuns(negative width) error = %v, want negative cell width", err)
 		}
 	})
 
