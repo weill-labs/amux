@@ -37,6 +37,7 @@ func DefaultKeybindings() *Keybindings {
 			'L':  {Action: "resize-active", Args: []string{"right", "2"}},
 			'=':  {Action: "equalize"},
 			'x':  {Action: "kill"},
+			'X':  {Action: "close-window"},
 			'z':  {Action: "zoom"},
 			// Reserve lowercase m so it does not fall through as literal input.
 			'm': {Action: "compat-bell"},

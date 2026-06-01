@@ -197,6 +197,7 @@ var commandRegistry = map[string]CommandHandler{
 	"broadcast":           cmdBroadcast,
 	"status":              cmdStatus,
 	"new-window":          cmdNewWindow,
+	"close-window":        cmdCloseWindow,
 	"list-windows":        cmdListWindows,
 	"list-clients":        cmdListClients,
 	"connection-log":      cmdConnectionLog,

@@ -7,6 +7,9 @@ func windowCLICommands() map[string]commandHandler {
 		"new-window": func(inv invocation, args []string) int {
 			return inv.runSessionCommand("new-window", args)
 		},
+		"close-window": func(inv invocation, args []string) int {
+			return inv.runSessionCommand("close-window", nil)
+		},
 		"list-windows": func(inv invocation, args []string) int {
 			return inv.runSessionCommand("list-windows", nil)
 		},

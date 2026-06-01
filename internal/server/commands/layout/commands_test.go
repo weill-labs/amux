@@ -123,6 +123,10 @@ func (f *fakeLayoutContext) NewWindow(string) commandpkg.Result {
 	return commandpkg.Result{}
 }
 
+func (f *fakeLayoutContext) CloseWindow() commandpkg.Result {
+	return commandpkg.Result{}
+}
+
 func (f *fakeLayoutContext) SelectWindow(string) commandpkg.Result {
 	return commandpkg.Result{}
 }

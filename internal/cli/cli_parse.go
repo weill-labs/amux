@@ -40,6 +40,7 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"list-clients":  {connectName: "list-clients", usage: listClientsUsage, argMode: sessionCommandNoArgs},
 	"list-windows":  {connectName: "list-windows", usage: listWindowsUsage, argMode: sessionCommandNoArgs},
 	"new-window":    {connectName: "new-window", usage: newWindowUsage, argMode: sessionCommandForwardArgs},
+	"close-window":  {connectName: "close-window", usage: closeWindowUsage, argMode: sessionCommandNoArgs},
 	"next-window":   {connectName: "next-window", usage: nextWindowUsage, argMode: sessionCommandNoArgs},
 	"prev-window":   {connectName: "prev-window", usage: prevWindowUsage, argMode: sessionCommandNoArgs},
 	"last-window":   {connectName: "last-window", usage: lastWindowUsage, argMode: sessionCommandNoArgs},

@@ -27,6 +27,7 @@ type Context interface {
 	Undo() commandpkg.Result
 	CopyMode(actorPaneID uint32, opts CopyModeOptions) commandpkg.Result
 	NewWindow(name string) commandpkg.Result
+	CloseWindow() commandpkg.Result
 	SelectWindow(ref string) commandpkg.Result
 	NextWindow() commandpkg.Result
 	PrevWindow() commandpkg.Result
@@ -136,6 +137,10 @@ func NewWindow(ctx Context, args []string) commandpkg.Result {
 		}
 	}
 	return ctx.NewWindow(name)
+}
+
+func CloseWindow(ctx Context, _ []string) commandpkg.Result {
+	return ctx.CloseWindow()
 }
 
 func SelectWindow(ctx Context, args []string) commandpkg.Result {

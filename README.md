@@ -391,6 +391,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | Command | Description |
 |---------|-------------|
 | `amux new-window [--name NAME]` | Create a new window |
+| `amux close-window` | Close the active window |
 | `amux list-windows` | List all windows |
 | `amux select-window <index\|name>` | Switch to a window |
 | `amux next-window` | Switch to next window |
@@ -436,6 +437,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a _` | Root-level split top/bottom |
 | `Ctrl-a a` | Spawn pane in column-fill order |
 | `Ctrl-a x` | Kill active pane |
+| `Ctrl-a X` | Close active window |
 | `Ctrl-a z` | Toggle zoom on active pane |
 | `Ctrl-a }` / `Ctrl-a {` | Swap active pane with next/previous |
 | `Ctrl-a o` | Cycle focus to next pane |

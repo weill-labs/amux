@@ -69,6 +69,7 @@ func buildHelpBar(kb *config.Keybindings) *helpBarState {
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"--focus"}}), "hsplit"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "equalize"}), "equalize"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "kill"}), "kill"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "close-window"}), "close-win"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "zoom"}), "zoom"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "undo"}), "undo"),
 		helpBarItemForKeys(helpBarJoinParts(

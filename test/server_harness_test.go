@@ -556,6 +556,7 @@ func formatHarnessCommandResult(cmdName string, msg *server.Message) string {
 var attachedClientCommands = map[string]bool{
 	"_layout-json": true,
 	"cursor":       true,
+	"close-window": true,
 	"focus":        true,
 	"new-window":   true,
 	"send-keys":    true,
