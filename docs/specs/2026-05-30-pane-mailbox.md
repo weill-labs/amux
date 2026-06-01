@@ -1,4 +1,4 @@
-# Pane Mailbox Design
+# amux Pane Mailbox Design
 
 Date: 2026-05-30. Issue: LAB-1990.
 
@@ -15,6 +15,11 @@ server-owned mailbox**. It belongs to amux rather than any agent runtime.
 amux stores messages, tracks per-recipient read/ack state, emits mailbox events,
 and exposes a generic CLI. External tools can build policy on top of it, but the
 mailbox itself stays a small transport and state primitive.
+
+The amux mailbox is independent of external mail systems, including MCP servers
+such as `mcp_agent_mail`. Those systems may expose their own agent-mail
+concepts or fail during startup without affecting `amux msg`, `amux wait msg`,
+or the server-owned mailbox state described here.
 
 ## Design Principles
 

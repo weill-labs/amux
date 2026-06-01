@@ -4,6 +4,11 @@ The mailbox drain gate is an optional Stop-hook integration for agents running
 inside amux panes. It nudges an agent to read and ack pending amux mailbox work
 before the agent parks at the end of a turn.
 
+The gate uses the native amux mailbox exposed by `amux msg` and `amux wait msg`.
+It does not require any external MCP mail server. In particular, a failure to
+start an MCP server named `mcp_agent_mail` is unrelated to this hook and does
+not indicate that amux mailbox delivery is broken.
+
 The default contract is intentionally **block-once / best-effort**:
 
 - `amux msg drain-status` reports pending mailbox work where a delivery is

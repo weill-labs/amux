@@ -196,13 +196,18 @@ The terminal-event example above abbreviates `terminal.palette`; the real event 
 
 Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, plus a client-generated `reconnect`. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no foreground process remains; `terminal` fires when preserved pane metadata changes (cursor style, colors, hyperlink, alt-screen, palette). New subscribers receive the current state as an initial snapshot (including attached clients as `client-connect` events), so nothing is missed between subscribe and the first event. Output events are throttled per pane (`--throttle`, default 50ms; `0s` disables); other events pass through immediately. The stream auto-reconnects with backoff unless `--no-reconnect` is set.
 
-### Pane Mailbox
+### amux Mailbox (`amux msg`)
 
-`amux msg` is an out-of-band mailbox for panes. Sending a message stores it in
-the amux server and records delivery state; it does not write to the
-recipient's PTY, change focus, or interrupt whatever is running. A human in
-another terminal or any agent or process can use it when pane-to-pane
+The amux mailbox is the native `amux msg` message path for panes. Sending a
+message stores it in the amux server and records delivery state; it does not
+write to the recipient's PTY, change focus, or interrupt whatever is running. A
+human in another terminal or any agent or process can use it when pane-to-pane
 coordination needs an explicit unread/read/ack flow instead of keystrokes.
+
+This mailbox is part of amux itself. It does not depend on any external MCP
+mail server, including tools named like `mcp_agent_mail`; a startup failure in
+one of those external MCP servers does not mean `amux msg`, `amux wait msg`, or
+the amux mailbox drain hooks are broken.
 
 Send a message with an explicit sender and one or more recipients:
 
@@ -525,7 +530,7 @@ The old `amux _diag` entrypoint is deprecated. `amux _diag dump` and
 `amux _diag heap` remain as compatibility aliases during the deprecation window;
 new scripts should use `amux debug dump` and `amux debug heap --raw`.
 
-### MCP Mailbox Server
+### amux MCP Server
 
 `amux mcp-server` runs a local MCP server over stdio for the selected amux
 session. Configure MCP clients that accept command/args servers with:
@@ -541,10 +546,15 @@ session. Configure MCP clients that accept command/args servers with:
 }
 ```
 
-The server exposes pane mailbox tools for sending messages, listing an inbox,
-reading a message, acknowledging a delivery, and waiting for the next matching
-message. The tools use the same mailbox semantics as `amux msg` and `amux wait
-msg`, including pane references by name, numeric ID, or prefix.
+The server exposes tools for the native amux mailbox: sending messages, listing
+an inbox, reading a message, acknowledging a delivery, and waiting for the next
+matching message. These tools use the same mailbox semantics as `amux msg` and
+`amux wait msg`, including pane references by name, numeric ID, or prefix.
+
+`amux mcp-server` is an optional MCP bridge to the same server-owned amux
+mailbox. It is not the external `mcp_agent_mail` server or any other separate
+MCP mail service, and those servers can fail independently of amux mailbox
+commands.
 
 ## AI Agent Support
 
