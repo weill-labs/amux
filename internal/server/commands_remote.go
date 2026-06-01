@@ -117,21 +117,25 @@ func runRemoteAdd(ctx *CommandContext) commandpkg.Result {
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
+	if err := saveRemoteHostConfig(ctx, parsed.name, parsed.host); err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: fmt.Sprintf("Added remote %s\n", parsed.name)}
+}
+
+func saveRemoteHostConfig(ctx *CommandContext, name string, host config.Host) error {
 	cfg, err := loadRemoteConfig()
 	if err != nil {
-		return commandpkg.Result{Err: err}
+		return err
 	}
 	if cfg.Remote.Hosts == nil {
 		cfg.Remote.Hosts = make(map[string]config.Host)
 	}
-	cfg.Remote.Hosts[parsed.name] = parsed.host
+	cfg.Remote.Hosts[name] = host
 	if err := config.ValidateRemoteHosts(cfg.Remote.Hosts); err != nil {
-		return commandpkg.Result{Err: err}
+		return err
 	}
-	if err := saveRemoteConfig(ctx, cfg); err != nil {
-		return commandpkg.Result{Err: err}
-	}
-	return commandpkg.Result{Output: fmt.Sprintf("Added remote %s\n", parsed.name)}
+	return saveRemoteConfig(ctx, cfg)
 }
 
 func runRemoteList(ctx *CommandContext) commandpkg.Result {

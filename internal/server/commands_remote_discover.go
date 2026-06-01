@@ -133,18 +133,7 @@ func runRemoteDiscover(ctx *CommandContext) commandpkg.Result {
 		return commandpkg.Result{Err: err}
 	}
 	if !parsed.printOnly {
-		cfg, err := loadRemoteConfig()
-		if err != nil {
-			return commandpkg.Result{Err: err}
-		}
-		if cfg.Remote.Hosts == nil {
-			cfg.Remote.Hosts = make(map[string]config.Host)
-		}
-		cfg.Remote.Hosts[result.name] = result.host
-		if err := config.ValidateRemoteHosts(cfg.Remote.Hosts); err != nil {
-			return commandpkg.Result{Err: err}
-		}
-		if err := saveRemoteConfig(ctx, cfg); err != nil {
+		if err := saveRemoteHostConfig(ctx, result.name, result.host); err != nil {
 			return commandpkg.Result{Err: err}
 		}
 	}
