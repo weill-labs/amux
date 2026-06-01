@@ -1,6 +1,7 @@
 package mailbox
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -27,6 +28,7 @@ const (
 	defaultRecipientsPerMsg   = 128
 	defaultStoredMessages     = 10_000
 	defaultStoredMailboxBytes = 64 * 1024 * 1024
+	defaultDrainLatestLimit   = 5
 )
 
 var labelRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$`)
@@ -117,6 +119,19 @@ type ReadOptions struct {
 
 type ListOptions struct {
 	UnreadOnly bool
+}
+
+type DrainOptions struct {
+	LatestLimit int
+}
+
+type DrainStatus struct {
+	Unread             int
+	Unacked            int
+	Pending            int
+	PendingFingerprint string
+	PendingIDs         []MessageID
+	Latest             []DeliverySummary
 }
 
 type AckRequest struct {
@@ -461,6 +476,63 @@ func (s *Store) List(recipientID uint32, opts ListOptions) ([]DeliverySummary, e
 	return summaries, nil
 }
 
+func (s *Store) DrainStatus(recipientID uint32, opts DrainOptions) (DrainStatus, error) {
+	if s == nil {
+		return DrainStatus{}, fmt.Errorf("mailbox store is nil")
+	}
+	if recipientID == 0 {
+		return DrainStatus{}, fmt.Errorf("recipient pane ID is required")
+	}
+	byMessage := s.deliveries[recipientID]
+	if len(byMessage) == 0 {
+		return DrainStatus{}, nil
+	}
+
+	ids := make([]MessageID, 0, len(byMessage))
+	for id := range byMessage {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+
+	var status DrainStatus
+	for _, id := range ids {
+		delivery := byMessage[id]
+		needsRead := delivery.ReadAt.IsZero()
+		needsAck := delivery.AckedAt.IsZero()
+		if needsRead {
+			status.Unread++
+		}
+		if needsAck {
+			status.Unacked++
+		}
+		if !needsRead && !needsAck {
+			continue
+		}
+		status.Pending++
+		status.PendingIDs = append(status.PendingIDs, id)
+		status.Latest = append(status.Latest, summaryFor(s.messages[id], delivery))
+	}
+
+	if status.Pending == 0 {
+		return status, nil
+	}
+	status.PendingFingerprint = drainFingerprint(byMessage, status.PendingIDs)
+	sort.Slice(status.Latest, func(i, j int) bool {
+		left := status.Latest[i]
+		right := status.Latest[j]
+		if !left.DeliveredAt.Equal(right.DeliveredAt) {
+			return left.DeliveredAt.After(right.DeliveredAt)
+		}
+		return left.MessageID > right.MessageID
+	})
+	if limit := normalizedDrainLatestLimit(opts.LatestLimit); len(status.Latest) > limit {
+		status.Latest = status.Latest[:limit]
+	}
+	return status, nil
+}
+
 func (s *Store) DeliverySummary(id MessageID, recipientID uint32) (DeliverySummary, error) {
 	if s == nil {
 		return DeliverySummary{}, fmt.Errorf("mailbox store is nil")
@@ -470,6 +542,22 @@ func (s *Store) DeliverySummary(id MessageID, recipientID uint32) (DeliverySumma
 		return DeliverySummary{}, err
 	}
 	return summaryFor(msg, delivery), nil
+}
+
+func drainFingerprint(byMessage map[MessageID]*DeliveryState, ids []MessageID) string {
+	hash := sha256.New()
+	for _, id := range ids {
+		delivery := byMessage[id]
+		fmt.Fprintf(hash, "%s\x00%t\x00%t\n", id, delivery.ReadAt.IsZero(), delivery.AckedAt.IsZero())
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func normalizedDrainLatestLimit(limit int) int {
+	if limit <= 0 {
+		return defaultDrainLatestLimit
+	}
+	return limit
 }
 
 func (s *Store) SetLastEventSeq(id MessageID, recipientID uint32, seq uint64) (DeliverySummary, error) {

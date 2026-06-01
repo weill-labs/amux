@@ -6,18 +6,22 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
 const (
-	msgUsage      = "usage: msg <send|reply|inbox|read|ack> ..."
-	msgSendUsage  = "usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]"
-	msgReplyUsage = "usage: msg reply <msg-id> [--from pane] [--to pane[,pane...]] [--subject text] [--topic name] [--group name] [--metadata json] [--ack status] [--ack-note text] --body text [--format json]"
-	msgInboxUsage = "usage: msg inbox [pane] [--unread] [--format json]"
-	msgReadUsage  = "usage: msg read <msg-id> [--for pane] [--peek] [--format json]"
-	msgAckUsage   = "usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
+	msgUsage             = "usage: msg <send|reply|inbox|drain-status|read|ack> ..."
+	msgSendUsage         = "usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]"
+	msgReplyUsage        = "usage: msg reply <msg-id> [--from pane] [--to pane[,pane...]] [--subject text] [--topic name] [--group name] [--metadata json] [--ack status] [--ack-note text] --body text [--format json]"
+	msgInboxUsage        = "usage: msg inbox [pane] [--unread] [--format json]"
+	msgDrainStatusUsage  = "usage: msg drain-status [pane] [--format json]"
+	msgReadUsage         = "usage: msg read <msg-id> [--for pane] [--peek] [--format json]"
+	msgAckUsage          = "usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
+	msgDrainLatestLimit  = 5
+	msgSubjectBriefLimit = 120
 )
 
 type msgFormat string
@@ -43,6 +47,11 @@ type msgInboxOptions struct {
 	target     string
 	unreadOnly bool
 	format     msgFormat
+}
+
+type msgDrainStatusOptions struct {
+	target string
+	format msgFormat
 }
 
 type msgReplyOptions struct {
@@ -107,6 +116,15 @@ type msgSummaryOutput struct {
 	PartCount   int                 `json:"part_count"`
 }
 
+type msgDrainStatusOutput struct {
+	Unread             int                 `json:"unread"`
+	Unacked            int                 `json:"unacked"`
+	Pending            int                 `json:"pending"`
+	PendingFingerprint string              `json:"pending_fingerprint"`
+	PendingIDs         []mailbox.MessageID `json:"pending_ids"`
+	Latest             []msgSummaryOutput  `json:"latest"`
+}
+
 type msgReadOutput struct {
 	ID         mailbox.MessageID          `json:"id"`
 	Sender     mailbox.PaneAddress        `json:"sender"`
@@ -165,6 +183,16 @@ func cmdMsg(ctx *CommandContext) {
 		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 			output, err := runMsgInbox(mctx, ctx.ActorPaneID, opts)
+			return commandMutationResult{output: output, err: err}
+		}))
+	case "drain-status":
+		opts, err := parseMsgDrainStatusOptions(ctx.Args[1:])
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+			output, err := runMsgDrainStatus(mctx, ctx.ActorPaneID, opts)
 			return commandMutationResult{output: output, err: err}
 		}))
 	case "read":
@@ -385,6 +413,30 @@ func parseMsgInboxOptions(args []string) (msgInboxOptions, error) {
 	return opts, nil
 }
 
+func parseMsgDrainStatusOptions(args []string) (msgDrainStatusOptions, error) {
+	opts := msgDrainStatusOptions{format: msgFormatText}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			format, next, err := parseMsgFormatFlag(args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.format = format
+			i = next
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return opts, errors.New(msgDrainStatusUsage)
+			}
+			if opts.target != "" {
+				return opts, errors.New(msgDrainStatusUsage)
+			}
+			opts.target = args[i]
+		}
+	}
+	return opts, nil
+}
+
 func parseMsgReadOptions(args []string) (msgReadOptions, error) {
 	opts := msgReadOptions{format: msgFormatText}
 	if len(args) == 0 {
@@ -543,6 +595,21 @@ func runMsgInbox(mctx *MutationContext, actorPaneID uint32, opts msgInboxOptions
 		return encodeMsgJSON(summariesOutput(summaries))
 	}
 	return formatMsgInboxText(summaries), nil
+}
+
+func runMsgDrainStatus(mctx *MutationContext, actorPaneID uint32, opts msgDrainStatusOptions) (string, error) {
+	recipient, err := resolveMailboxTarget(mctx, actorPaneID, opts.target, "drain-status target")
+	if err != nil {
+		return "", err
+	}
+	status, err := mctx.sess.ensureMailbox().DrainStatus(recipient.ID, mailbox.DrainOptions{LatestLimit: msgDrainLatestLimit})
+	if err != nil {
+		return "", err
+	}
+	if opts.format == msgFormatJSON {
+		return encodeMsgJSON(drainStatusOutput(status))
+	}
+	return fmt.Sprintf("%d\n", status.Pending), nil
 }
 
 func runMsgReply(mctx *MutationContext, actorPaneID uint32, opts msgReplyOptions) (string, error) {
@@ -745,6 +812,25 @@ func summariesOutput(summaries []mailbox.DeliverySummary) []msgSummaryOutput {
 	return out
 }
 
+func drainStatusOutput(status mailbox.DrainStatus) msgDrainStatusOutput {
+	return msgDrainStatusOutput{
+		Unread:             status.Unread,
+		Unacked:            status.Unacked,
+		Pending:            status.Pending,
+		PendingFingerprint: status.PendingFingerprint,
+		PendingIDs:         append([]mailbox.MessageID(nil), status.PendingIDs...),
+		Latest:             drainStatusLatestOutput(status.Latest),
+	}
+}
+
+func drainStatusLatestOutput(summaries []mailbox.DeliverySummary) []msgSummaryOutput {
+	out := summariesOutput(summaries)
+	for i := range out {
+		out[i].Subject = briefMsgSubject(out[i].Subject, msgSubjectBriefLimit)
+	}
+	return out
+}
+
 func summaryOutput(summary mailbox.DeliverySummary) msgSummaryOutput {
 	out := msgSummaryOutput{
 		ID:          summary.MessageID,
@@ -769,6 +855,20 @@ func summaryOutput(summary mailbox.DeliverySummary) msgSummaryOutput {
 		out.AckedAt = summary.AckedAt.Format(time.RFC3339Nano)
 	}
 	return out
+}
+
+func briefMsgSubject(subject string, limit int) string {
+	if limit <= 0 || len([]byte(subject)) <= limit {
+		return subject
+	}
+	if limit <= 3 {
+		return "..."
+	}
+	for len(subject) > 0 && len([]byte(subject)) > limit-3 {
+		_, size := utf8.DecodeLastRuneInString(subject)
+		subject = subject[:len(subject)-size]
+	}
+	return subject + "..."
 }
 
 func readOutputForMessage(msg mailbox.Message, delivery mailbox.DeliveryState, body string) msgReadOutput {
