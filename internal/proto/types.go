@@ -116,6 +116,16 @@ type CaptureMeta struct {
 	TrackedIssues []TrackedIssue    `json:"tracked_issues,omitempty"`
 }
 
+// CaptureMirror describes the remote mirror backing a local proxy pane.
+type CaptureMirror struct {
+	State        string `json:"state"`
+	Host         string `json:"host"`
+	Session      string `json:"session"`
+	PaneName     string `json:"pane_name"`
+	RemotePaneID uint32 `json:"remote_pane_id,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
+}
+
 // MailboxAddress identifies a pane in capture-safe mailbox summaries.
 type MailboxAddress struct {
 	ID   uint32 `json:"id"`
@@ -170,6 +180,7 @@ type CapturePane struct {
 	History     []string         `json:"history,omitempty"`
 	CopyMode    bool             `json:"copy_mode,omitempty"`
 	Mailbox     *CaptureMailbox  `json:"mailbox,omitempty"`
+	Mirror      *CaptureMirror   `json:"mirror,omitempty"`
 
 	// CWD/branch metadata.
 	Cwd       string `json:"cwd,omitempty"`
@@ -272,6 +283,14 @@ func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
 	cp.IdleSince = st.IdleSince
 	cp.CurrentCommand = st.CurrentCommand
 	cp.LastOutput = st.LastOutput
+}
+
+func CloneCaptureMirror(src *CaptureMirror) *CaptureMirror {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	return &dst
 }
 
 func EmptyCaptureMailbox() *CaptureMailbox {

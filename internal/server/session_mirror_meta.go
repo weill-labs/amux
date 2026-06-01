@@ -175,3 +175,21 @@ func (s *Session) forwardedAgentStatusForPane(pane *mux.Pane) (proto.PaneAgentSt
 	}
 	return s.mirror.AgentStatus(pane.ID)
 }
+
+func (s *Session) captureMirrorForPane(paneID uint32) *proto.CaptureMirror {
+	if s == nil || s.mirror == nil {
+		return nil
+	}
+	snap, ok := s.mirror.Snapshot(paneID)
+	if !ok {
+		return nil
+	}
+	return &proto.CaptureMirror{
+		State:        string(snap.State),
+		Host:         snap.RemoteRef.Host,
+		Session:      snap.RemoteRef.Session,
+		PaneName:     snap.RemoteRef.PaneName,
+		RemotePaneID: snap.RemotePaneID,
+		LastError:    snap.LastError,
+	}
+}

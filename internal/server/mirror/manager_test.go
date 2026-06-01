@@ -95,8 +95,8 @@ func TestManagerApplyPaneMetaUpdateStoresStatusAndDropsStaleGeneration(t *testin
 	if err := mgr.applyMessage(pane.ID, 1, stale); err != nil {
 		t.Fatalf("apply stale meta update: %v", err)
 	}
-	if status, ok := mgr.AgentStatus(pane.ID); ok || status.CurrentCommand != "" {
-		t.Fatalf("stale AgentStatus = (%+v, %v), want zero false", status, ok)
+	if status, ok := mgr.AgentStatus(pane.ID); !ok || status.CurrentCommand != "remote:agent" {
+		t.Fatalf("stale AgentStatus = (%+v, %v), want connected mirror fallback", status, ok)
 	}
 	select {
 	case update := <-updates:

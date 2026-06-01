@@ -154,6 +154,7 @@ type PaneInput struct {
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
 	Mailbox       *proto.CaptureMailbox
+	Mirror        *proto.CaptureMirror
 	Cursor        proto.CaptureCursor
 	Terminal      *proto.CaptureTerminal
 	Content       []string
@@ -264,6 +265,7 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 	if input.Mailbox != nil {
 		cp.Mailbox = proto.CloneCaptureMailbox(input.Mailbox)
 	}
+	cp.Mirror = proto.CloneCaptureMirror(input.Mirror)
 	cp.ApplyAgentStatus(agentStatus)
 	return cp
 }

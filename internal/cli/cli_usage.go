@@ -23,7 +23,7 @@ const (
 	msgReadUsage      = "usage: amux msg read <msg-id> [--for pane] [--peek] [--format json]"
 	msgAckUsage       = "usage: amux msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	remoteUsage       = "usage: amux remote <add|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
+	remoteUsage       = "usage: amux remote <add|discover|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
 	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--attach <host>:<pane-name>] [--name NAME] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"

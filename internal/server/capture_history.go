@@ -18,6 +18,7 @@ type capturePaneTarget struct {
 	zoomed      bool
 	lead        bool
 	mailbox     *proto.CaptureMailbox
+	mirror      *proto.CaptureMirror
 }
 
 func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref string) (capturePaneTarget, error) {
@@ -41,6 +42,7 @@ func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref strin
 			zoomed:      activeWindow != nil && activeWindow.ZoomedPaneID == pane.ID,
 			lead:        activeWindow != nil && activeWindow.LeadPaneID == pane.ID,
 			mailbox:     s.mailboxCaptureSummary(pane.ID),
+			mirror:      s.captureMirrorForPane(pane.ID),
 		}, nil
 	})
 }
@@ -96,6 +98,7 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		TrackedPRs:    target.pane.Meta.TrackedPRs,
 		TrackedIssues: target.pane.Meta.TrackedIssues,
 		Mailbox:       target.mailbox,
+		Mirror:        target.mirror,
 		Cursor:        cursor,
 		Terminal:      caputil.TerminalFromState(textSnap.Terminal),
 		Content:       content,

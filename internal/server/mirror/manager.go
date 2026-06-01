@@ -294,8 +294,17 @@ func (m *Manager) AgentStatus(paneID uint32) (proto.PaneAgentStatus, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ms := m.mirrors[paneID]
-	if ms == nil || !ms.hasAgentStatus {
+	if ms == nil {
 		return proto.PaneAgentStatus{}, false
+	}
+	if !ms.hasAgentStatus {
+		if ms.state != StateConnected {
+			return proto.PaneAgentStatus{}, false
+		}
+		return proto.PaneAgentStatus{
+			Exited:         false,
+			CurrentCommand: "remote:" + ms.ref.PaneName,
+		}, true
 	}
 	return ms.agentStatus, true
 }
