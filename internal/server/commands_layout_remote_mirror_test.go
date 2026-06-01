@@ -41,6 +41,29 @@ func TestCommandSpawnWindowMirroredWindowFailsWhenWindowMirrorUntracked(t *testi
 	assertPaneCount(t, sess, 1)
 }
 
+func TestCommandSpawnWindowMirroredWindowDoesNotRequirePaneMirrorTracking(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	seedMirroredCreatePaneWindow(t, sess, true, false)
+
+	snapshot, err := queryCreatePaneSnapshot(sess, 1, "spawn", createPanePlacementSplitAt, "", "mirror-window")
+	if err != nil {
+		t.Fatalf("queryCreatePaneSnapshot: %v", err)
+	}
+	if snapshot.mirrorTarget == nil {
+		t.Fatalf("mirror target is nil")
+	}
+	if got := snapshot.mirrorTarget.windowRef.WindowName; got != "remote-main" {
+		t.Fatalf("mirror window name = %q, want remote-main", got)
+	}
+	if got := snapshot.mirrorTarget.targetPaneName; got != "" {
+		t.Fatalf("target pane name = %q, want empty", got)
+	}
+}
+
 func TestCommandSplitMirroredPaneFailsWhenPaneMirrorUntracked(t *testing.T) {
 	t.Parallel()
 
