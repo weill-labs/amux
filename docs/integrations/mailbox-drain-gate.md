@@ -113,6 +113,12 @@ EOF
 chmod +x ~/.claude/hooks/amux-mailbox-drain.sh
 ```
 
+Replace `/path/to/amux` with your local amux checkout (or run the `git -C` line
+from inside the repo). An unsubstituted path creates a dangling symlink: because
+the wrapper uses `set -u` without `set -e`, the failed `source` continues and the
+undefined function call exits `127` — an error, not the fail-open path. Confirm
+the link resolves with `readlink ~/.claude/hooks/amux-mailbox-drain-lib.sh`.
+
 Then add a `Stop` hook with the **absolute** wrapper path to
 `~/.claude/settings.json` (global hooks run from arbitrary directories, so a
 relative path will not resolve):
@@ -200,6 +206,10 @@ amux_mailbox_drain_main codex "$@"
 EOF
 chmod +x ~/.codex/hooks/amux-mailbox-drain.sh
 ```
+
+As above, substitute `/path/to/amux` with your checkout and confirm the link
+resolves with `readlink ~/.codex/hooks/amux-mailbox-drain-lib.sh` — a dangling
+symlink makes the wrapper exit `127` rather than fail open.
 
 Then add a `Stop` hook with the **absolute** wrapper path to `~/.codex/hooks.json`:
 
