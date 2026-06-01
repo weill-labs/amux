@@ -11,6 +11,7 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
+	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
 
 const (
@@ -75,6 +76,12 @@ type createPaneSnapshot struct {
 	targetPaneID             uint32
 	autoRootSplit            bool
 	treatLeadPaneAsWindowRef bool
+	mirrorTarget             *mirroredCreatePaneTarget
+}
+
+type mirroredCreatePaneTarget struct {
+	windowRef      mirrorpkg.WindowRef
+	targetPaneName string
 }
 
 const (
@@ -116,6 +123,9 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 	if req.attach != nil {
 		return runCreateMirrorPane(ctx, actorPaneID, command, placement, req, keepFocus, snapshot)
 	}
+	if snapshot.mirrorTarget != nil {
+		return runCreatePaneInRemoteMirror(ctx, command, placement, req, keepFocus, snapshot)
+	}
 
 	meta := mux.PaneMeta{
 		Name:  req.name,
@@ -142,6 +152,84 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func runCreatePaneInRemoteMirror(ctx *CommandContext, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool, snapshot createPaneSnapshot) commandpkg.Result {
+	target := snapshot.mirrorTarget
+	if target == nil {
+		return commandpkg.Result{Err: fmt.Errorf("remote mirror target is missing")}
+	}
+	host, err := lookupRemoteHost(target.windowRef.Host)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	args := remoteCreatePaneArgs(command, placement, req, keepFocus, *target)
+	msg, err := runRemoteOneShotCommand(ctx.context(), host, command, args)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	if msg == nil || msg.CmdOutput == "" {
+		return commandpkg.Result{Err: fmt.Errorf("%s forwarded to remote mirror produced no result", command)}
+	}
+	return commandpkg.Result{Output: msg.CmdOutput}
+}
+
+func remoteCreatePaneArgs(command string, placement createPanePlacement, req createPaneRequest, keepFocus bool, target mirroredCreatePaneTarget) []string {
+	args := make([]string, 0, 12)
+	if command == "split" {
+		if target.targetPaneName != "" {
+			args = append(args, target.targetPaneName)
+		}
+		if placement == createPanePlacementRootSplit {
+			args = append(args, "root")
+		}
+		args = appendCreatePaneDirArg(args, req.dir)
+		args = appendCreatePaneFocusArg(args, keepFocus)
+		return appendCreatePaneMetaArgs(args, req)
+	}
+
+	if placement == createPanePlacementColumnFill {
+		args = append(args, "--auto")
+	} else if placement == createPanePlacementRootSplit {
+		args = append(args, "--root")
+	}
+	if req.windowRef != "" {
+		args = append(args, "--window", target.windowRef.WindowName)
+	} else if target.targetPaneName != "" {
+		args = append(args, "--at", target.targetPaneName)
+	}
+	if placement != createPanePlacementColumnFill {
+		args = appendCreatePaneDirArg(args, req.dir)
+	}
+	args = appendCreatePaneFocusArg(args, keepFocus)
+	return appendCreatePaneMetaArgs(args, req)
+}
+
+func appendCreatePaneDirArg(args []string, dir mux.SplitDir) []string {
+	if dir == mux.SplitVertical {
+		return append(args, "--vertical")
+	}
+	return append(args, "--horizontal")
+}
+
+func appendCreatePaneFocusArg(args []string, keepFocus bool) []string {
+	if keepFocus {
+		return args
+	}
+	return append(args, "--focus")
+}
+
+func appendCreatePaneMetaArgs(args []string, req createPaneRequest) []string {
+	if req.name != "" {
+		args = append(args, "--name", req.name)
+	}
+	if req.task != "" {
+		args = append(args, "--task", req.task)
+	}
+	if req.color != "" {
+		args = append(args, "--color", req.color)
+	}
+	return args
 }
 
 func runCreateMirrorPane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool, snapshot createPaneSnapshot) commandpkg.Result {
@@ -198,7 +286,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			if resolvedWindow == nil {
 				return createPaneSnapshot{}, fmt.Errorf("pane not in any window")
 			}
-			return createPaneSnapshot{
+			return createPaneSnapshotWithMirrorTarget(sess, resolvedWindow, pane, createPaneSnapshot{
 				inheritPane:              pane,
 				windowWidth:              resolvedWindow.Width,
 				windowHeight:             resolvedWindow.Height,
@@ -206,7 +294,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 				inheritProxy:             pane.IsProxy(),
 				targetPaneID:             pane.ID,
 				treatLeadPaneAsWindowRef: command == "spawn",
-			}, nil
+			})
 		}
 		w, err := resolveCreatePaneTargetWindow(sess, actorPaneID, command, windowRef)
 		if err != nil {
@@ -218,7 +306,12 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 		if w.ActivePane == nil {
 			return createPaneSnapshot{}, fmt.Errorf("no active pane")
 		}
-		return createPaneSnapshot{
+		mirrorTargetPane := w.ActivePane
+		if windowRef != "" {
+			// Explicit --window forwarding only needs the remote window name.
+			mirrorTargetPane = nil
+		}
+		return createPaneSnapshotWithMirrorTarget(sess, w, mirrorTargetPane, createPaneSnapshot{
 			inheritPane:              w.ActivePane,
 			windowWidth:              w.Width,
 			windowHeight:             w.Height,
@@ -226,8 +319,44 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			inheritProxy:             w.ActivePane.IsProxy(),
 			targetPaneID:             w.ActivePane.ID,
 			treatLeadPaneAsWindowRef: command == "spawn",
-		}, nil
+		})
 	})
+}
+
+func createPaneSnapshotWithMirrorTarget(sess *Session, w *mux.Window, pane *mux.Pane, snapshot createPaneSnapshot) (createPaneSnapshot, error) {
+	target, ok, err := remoteMirrorCreatePaneTarget(sess, w, pane)
+	if err != nil {
+		return createPaneSnapshot{}, err
+	}
+	if ok {
+		snapshot.mirrorTarget = &target
+	}
+	return snapshot, nil
+}
+
+func remoteMirrorCreatePaneTarget(sess *Session, w *mux.Window, pane *mux.Pane) (mirroredCreatePaneTarget, bool, error) {
+	if sess == nil || w == nil || sess.windowMirrorSigs == nil {
+		return mirroredCreatePaneTarget{}, false, nil
+	}
+	if _, ok := sess.windowMirrorSigs[w.ID]; !ok {
+		return mirroredCreatePaneTarget{}, false, nil
+	}
+	if sess.mirror == nil {
+		return mirroredCreatePaneTarget{}, false, fmt.Errorf("window %q is a remote mirror but mirror manager is not configured", w.Name)
+	}
+	info, ok := sess.mirror.WindowMirrorInfos()[w.ID]
+	if !ok {
+		return mirroredCreatePaneTarget{}, false, fmt.Errorf("window %q is not tracked by the remote mirror manager", w.Name)
+	}
+	target := mirroredCreatePaneTarget{windowRef: info.Ref}
+	if pane != nil {
+		ref, ok := sess.mirror.RemoteRef(pane.ID)
+		if !ok || ref == nil || ref.PaneName == "" {
+			return mirroredCreatePaneTarget{}, false, fmt.Errorf("pane %s is not tracked by the remote mirror manager", pane.Meta.Name)
+		}
+		target.targetPaneName = ref.PaneName
+	}
+	return target, true, nil
 }
 
 func resolveCreatePaneWindowHint(sess *Session, actorPaneID uint32, paneRef, windowRef string) (string, error) {
@@ -282,7 +411,7 @@ func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, comman
 	if plan.RootSplit {
 		targetPaneID = plan.InheritPaneID
 	}
-	return createPaneSnapshot{
+	return createPaneSnapshotWithMirrorTarget(sess, w, inheritPane, createPaneSnapshot{
 		inheritPane:   inheritPane,
 		windowWidth:   w.Width,
 		windowHeight:  w.Height,
@@ -290,7 +419,7 @@ func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, comman
 		inheritProxy:  inheritPane.IsProxy(),
 		targetPaneID:  targetPaneID,
 		autoRootSplit: plan.RootSplit,
-	}, nil
+	})
 }
 
 func resolveCreatePaneWindow(ctx *MutationContext, actorPaneID uint32, placement createPanePlacement, snapshot createPaneSnapshot) (*mux.Window, error) {

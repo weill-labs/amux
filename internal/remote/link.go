@@ -190,17 +190,12 @@ func (SSHDialer) Dial(ctx context.Context, host config.Host) (net.Conn, error) {
 		return nil, fmt.Errorf("starting ssh: %w", err)
 	}
 
-	waitCh := make(chan error, 1)
-	go func() {
-		waitCh <- cmd.Wait()
-	}()
-
 	return &commandConn{
 		cmd:    cmd,
 		cancel: cancel,
 		stdin:  stdin,
 		stdout: stdout,
-		waitCh: waitCh,
+		wait:   cmd.Wait,
 	}, nil
 }
 
@@ -209,7 +204,7 @@ type commandConn struct {
 	cancel context.CancelFunc
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
-	waitCh <-chan error
+	wait   func() error
 
 	closeOnce sync.Once
 	closeErr  error
@@ -235,11 +230,19 @@ func (c *commandConn) closeWithTimeout(grace, killWait time.Duration) error {
 		if c.stdin != nil {
 			_ = c.stdin.Close()
 		}
+		waitCh := make(chan error, 1)
+		if c.wait != nil {
+			go func() {
+				waitCh <- c.wait()
+			}()
+		} else {
+			waitCh <- nil
+		}
 		graceTimer := time.NewTimer(grace)
 		defer graceTimer.Stop()
 
 		select {
-		case err := <-c.waitCh:
+		case err := <-waitCh:
 			c.closeErr = acceptableWaitErr(err)
 		case <-graceTimer.C:
 			if c.cancel != nil {
@@ -251,7 +254,7 @@ func (c *commandConn) closeWithTimeout(grace, killWait time.Duration) error {
 			killTimer := time.NewTimer(killWait)
 			defer killTimer.Stop()
 			select {
-			case err := <-c.waitCh:
+			case err := <-waitCh:
 				c.closeErr = acceptableWaitErr(err)
 			case <-killTimer.C:
 				c.closeErr = errors.New("waiting for ssh process after kill: timeout")
