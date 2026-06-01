@@ -3,11 +3,13 @@ package render
 import (
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -971,6 +973,97 @@ func TestRenderDiffWithOverlayDirtySuppressesStableEmptyFrame(t *testing.T) {
 	if stats.CellsDiffed != 0 {
 		t.Fatalf("CellsDiffed = %d, want 0 for an unchanged frame", stats.CellsDiffed)
 	}
+}
+
+func TestRenderDiffWithOverlayDirtyAllocationsTrackDirtyRows(t *testing.T) {
+	// Not parallel: this samples process-wide allocation counters.
+	const (
+		width   = 200
+		layoutH = 60
+		totalH  = layoutH + GlobalBarHeight
+		panes   = 20
+		runs    = 25
+	)
+
+	root, paneIDs := stackedDirtyAllocLayout(panes, width, layoutH)
+	paneDataMap := make(map[uint32]*styledPaneData, panes)
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		rows := blankScreenCellRows(cell.W, mux.PaneContentHeight(cell.H))
+		paneDataMap[pid] = &styledPaneData{
+			fakePaneData: fakePaneData{id: pid, name: fmt.Sprintf("pane-%d", pid), cursorHidden: true},
+			cells:        rows,
+		}
+	})
+
+	dirtyPaneID := paneIDs[0]
+	dirtyCell := root.FindByPaneID(dirtyPaneID)
+	cellsA := blankScreenCellRows(dirtyCell.W, mux.PaneContentHeight(dirtyCell.H))
+	cellsB := blankScreenCellRows(dirtyCell.W, mux.PaneContentHeight(dirtyCell.H))
+	cellsA[0][0] = ScreenCell{Char: "x", Width: 1}
+	cellsB[0][0] = ScreenCell{Char: "y", Width: 1}
+	paneDataMap[dirtyPaneID].cells = cellsA
+
+	lookup := func(id uint32) PaneData { return paneDataMap[id] }
+	dirtyPanes := map[uint32]struct{}{dirtyPaneID: {}}
+	comp := NewCompositor(width, totalH, "test")
+	comp.RenderDiffWithOverlayDirtyStats(root, dirtyPaneID, lookup, OverlayState{}, dirtyPanes, true)
+
+	var frame int
+	bytesPerRun := allocatedBytesPerRun(runs, func() {
+		if frame%2 == 0 {
+			paneDataMap[dirtyPaneID].cells = cellsB
+		} else {
+			paneDataMap[dirtyPaneID].cells = cellsA
+		}
+		frame++
+		comp.RenderDiffWithOverlayDirtyStats(root, dirtyPaneID, lookup, OverlayState{}, dirtyPanes, false)
+	})
+
+	fullGridCellBytes := uint64(width*totalH) * uint64(unsafe.Sizeof(ScreenCell{}))
+	maxBytesPerRun := fullGridCellBytes / 2
+	if bytesPerRun > maxBytesPerRun {
+		t.Fatalf("dirty render allocated %d bytes/run; want <= %d so small dirty pane updates do not clone the %d-byte grid", bytesPerRun, maxBytesPerRun, fullGridCellBytes)
+	}
+}
+
+func stackedDirtyAllocLayout(n, w, h int) (*mux.LayoutCell, []uint32) {
+	ids := make([]uint32, 0, n)
+	win := mux.NewWindow(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, w, h)
+	ids = append(ids, 1)
+	for i := 2; i <= n; i++ {
+		pane := &mux.Pane{ID: uint32(i), Meta: mux.PaneMeta{Name: fmt.Sprintf("pane-%d", i)}}
+		if _, err := win.SplitRoot(mux.SplitHorizontal, pane); err != nil {
+			panic(err)
+		}
+		ids = append(ids, uint32(i))
+	}
+	return win.Root, ids
+}
+
+func blankScreenCellRows(width, height int) [][]ScreenCell {
+	rows := make([][]ScreenCell, height)
+	for row := range rows {
+		rows[row] = make([]ScreenCell, width)
+		for col := range rows[row] {
+			rows[row][col] = ScreenCell{Char: " ", Width: 1}
+		}
+	}
+	return rows
+}
+
+func allocatedBytesPerRun(runs int, fn func()) uint64 {
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for i := 0; i < runs; i++ {
+		fn()
+	}
+	runtime.ReadMemStats(&after)
+	return (after.TotalAlloc - before.TotalAlloc) / uint64(runs)
 }
 
 func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *testing.T) {
