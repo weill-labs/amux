@@ -88,6 +88,58 @@ background after the session parks. The script:
 - prints only a bounded command reminder. It does not include mailbox bodies,
   subjects, sender metadata, or message metadata.
 
+### Global install (all sessions)
+
+The project recipe above only fires inside this repo, because its wrapper finds
+the library via `git rev-parse`. To run the gate in **every** Claude Code session
+regardless of working directory, install it under `~/.claude/` and source the
+library through a stable path instead. Symlink the repo library into the hooks
+directory so it tracks the repo on every `git pull`, then drop in a
+path-agnostic wrapper that sources the sibling symlink:
+
+```bash
+AMUX_REPO=$(git -C /path/to/amux rev-parse --show-toplevel)
+mkdir -p ~/.claude/hooks
+ln -sfn "$AMUX_REPO/docs/integrations/amux-mailbox-drain-lib.sh" \
+  ~/.claude/hooks/amux-mailbox-drain-lib.sh
+
+cat > ~/.claude/hooks/amux-mailbox-drain.sh <<'EOF'
+#!/usr/bin/env bash
+set -u
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HOOK_DIR/amux-mailbox-drain-lib.sh"
+amux_mailbox_drain_main claude "$@"
+EOF
+chmod +x ~/.claude/hooks/amux-mailbox-drain.sh
+```
+
+Then add a `Stop` hook with the **absolute** wrapper path to
+`~/.claude/settings.json` (global hooks run from arbitrary directories, so a
+relative path will not resolve):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/you/.claude/hooks/amux-mailbox-drain.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude Code merges global and project `Stop` hooks, so inside the amux repo both
+the global and the project recipe fire. The shared per-`AMUX_SESSION` +
+`AMUX_PANE` + socket marker dedupes them into a single nudge, so the redundancy
+is harmless.
+
 ## Codex
 
 The repo ships a Codex project-local example in `.codex/hooks.json`:
@@ -121,6 +173,52 @@ Codex requires project-local hooks to be reviewed and trusted with `/hooks`
 before they run. Stop hooks expect JSON on stdout when they exit successfully;
 diagnostics from this recipe go to the bounded log instead.
 
+### Global install (all sessions)
+
+Install under `~/.codex/` to run the gate in every Codex session. Use the same
+symlinked-library + path-agnostic-wrapper pattern as the Claude Code global
+recipe, but pass `codex` mode so the hook emits the `{"decision":"block"}` JSON
+Codex expects:
+
+```bash
+AMUX_REPO=$(git -C /path/to/amux rev-parse --show-toplevel)
+mkdir -p ~/.codex/hooks
+ln -sfn "$AMUX_REPO/docs/integrations/amux-mailbox-drain-lib.sh" \
+  ~/.codex/hooks/amux-mailbox-drain-lib.sh
+
+cat > ~/.codex/hooks/amux-mailbox-drain.sh <<'EOF'
+#!/usr/bin/env bash
+set -u
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HOOK_DIR/amux-mailbox-drain-lib.sh"
+amux_mailbox_drain_main codex "$@"
+EOF
+chmod +x ~/.codex/hooks/amux-mailbox-drain.sh
+```
+
+Then add a `Stop` hook with the **absolute** wrapper path to `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/you/.codex/hooks/amux-mailbox-drain.sh",
+            "timeout": 10,
+            "statusMessage": "Checking amux mailbox"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Run `/hooks` in Codex once to review and trust the global hook before it fires.
+
 ## Shared Hook Behavior
 
 Both wrappers source `docs/integrations/amux-mailbox-drain-lib.sh`.
@@ -139,6 +237,7 @@ The shared logic:
 - only uses message IDs, sender names, body sizes, and quoted/truncated subjects
   in model-visible output.
 
+<<<<<<< HEAD
 The Claude rewake watcher also sources the shared library. Its model-visible
 output is stricter than the Stop drain output: it tells Claude to run
 `amux msg drain-status --format json`, then `amux msg read <id> --for <pane>` and
@@ -155,3 +254,24 @@ Run a local sanity check:
 
 The self-test validates local tools and that the installed `amux` binary knows
 the required mailbox commands; it does not require pending mail.
+=======
+Fail-open means a global install carries no risk: a session launched from a
+stripped-`PATH` context (cron, launchd) where `amux`, `jq`, `flock`, or `timeout`
+are not resolvable simply releases the stop — the gate is skipped, never wedged.
+If you want the gate to fire in such contexts, ensure the launch environment puts
+those tools on `PATH` (or prepend their directories in the wrapper before the
+`. "$HOOK_DIR/..."` line).
+
+Run a local sanity check (project or global wrapper, whichever you installed):
+
+```bash
+.claude/hooks/mailbox-drain.sh --self-test          # project recipe
+.codex/hooks/amux-mailbox-drain.sh --self-test       # project recipe
+~/.claude/hooks/amux-mailbox-drain.sh --self-test     # global recipe
+~/.codex/hooks/amux-mailbox-drain.sh --self-test      # global recipe
+```
+
+The self-test validates local tools and that the installed `amux` binary knows
+`msg drain-status`; it does not require pending mail. Run it from a login shell
+so the wrapper sees your full `PATH`.
+>>>>>>> 29c52ec (Document global install of mailbox drain hooks)
