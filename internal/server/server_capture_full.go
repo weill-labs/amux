@@ -30,6 +30,7 @@ type serverCapturePane struct {
 	info     proto.PaneSnapshot
 	position proto.CapturePos
 	render   mux.PaneRenderSnapshot
+	mirror   *proto.CaptureMirror
 }
 
 func (s serverFullSessionCapture) lookup(paneID uint32) render.PaneData {
@@ -92,6 +93,7 @@ func (s serverFullSessionCapture) buildJSON(req caputil.Request, agentStatus map
 			TrackedPRs:    pane.info.TrackedPRs,
 			TrackedIssues: pane.info.TrackedIssues,
 			Mailbox:       pane.info.Mailbox,
+			Mirror:        pane.mirror,
 			Cursor: caputil.CursorFromState(
 				pane.render.CursorCol,
 				pane.render.CursorRow,
@@ -245,6 +247,7 @@ func (s *Session) captureFullSessionSnapshot() (serverFullSessionCapture, error)
 					Height: cell.H,
 				},
 				render: pane.CaptureRenderSnapshot(),
+				mirror: s.captureMirrorForPane(paneID),
 			}
 			panes = append(panes, capturePane)
 			panesByID[paneID] = capturePane

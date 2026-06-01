@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	remoteCommandUsage      = "usage: remote <add|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
+	remoteCommandUsage      = "usage: remote <add|discover|list|rm|panes|windows|status|attach|attach-window|detach|detach-window|resize> ..."
 	remoteAddUsage          = "usage: remote add <name> --ssh <target> --socket <path> [--session <name>]"
+	remoteDiscoverUsage     = "usage: remote discover <name> [--ssh <target>] [--session <name>] [--print]"
 	remoteListUsage         = "usage: remote list"
 	remoteStatusUsage       = "usage: remote status"
 	remoteRmUsage           = "usage: remote rm <name>"
@@ -84,6 +85,8 @@ func runRemoteCommand(ctx *CommandContext) commandpkg.Result {
 	switch ctx.Args[0] {
 	case "add":
 		return runRemoteAdd(ctx)
+	case "discover":
+		return runRemoteDiscover(ctx)
 	case "list":
 		return runRemoteList(ctx)
 	case "status":
@@ -114,21 +117,25 @@ func runRemoteAdd(ctx *CommandContext) commandpkg.Result {
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
+	if err := saveRemoteHostConfig(ctx, parsed.name, parsed.host); err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: fmt.Sprintf("Added remote %s\n", parsed.name)}
+}
+
+func saveRemoteHostConfig(ctx *CommandContext, name string, host config.Host) error {
 	cfg, err := loadRemoteConfig()
 	if err != nil {
-		return commandpkg.Result{Err: err}
+		return err
 	}
 	if cfg.Remote.Hosts == nil {
 		cfg.Remote.Hosts = make(map[string]config.Host)
 	}
-	cfg.Remote.Hosts[parsed.name] = parsed.host
+	cfg.Remote.Hosts[name] = host
 	if err := config.ValidateRemoteHosts(cfg.Remote.Hosts); err != nil {
-		return commandpkg.Result{Err: err}
+		return err
 	}
-	if err := saveRemoteConfig(ctx, cfg); err != nil {
-		return commandpkg.Result{Err: err}
-	}
-	return commandpkg.Result{Output: fmt.Sprintf("Added remote %s\n", parsed.name)}
+	return saveRemoteConfig(ctx, cfg)
 }
 
 func runRemoteList(ctx *CommandContext) commandpkg.Result {

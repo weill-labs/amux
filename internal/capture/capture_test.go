@@ -313,6 +313,35 @@ func TestBuildPane(t *testing.T) {
 	}
 }
 
+func TestBuildPaneIncludesMirrorMetadata(t *testing.T) {
+	t.Parallel()
+
+	mirror := &proto.CaptureMirror{
+		State:        "connected",
+		Host:         "hetzner-1",
+		Session:      "main",
+		PaneName:     "agent",
+		RemotePaneID: 42,
+	}
+	got := BuildPane(PaneInput{
+		ID:     7,
+		Name:   "pane-7",
+		Host:   "hetzner-1",
+		Mirror: mirror,
+	}, nil)
+	if got.Mirror == nil {
+		t.Fatal("BuildPane().Mirror = nil, want mirror metadata")
+	}
+	if *got.Mirror != *mirror {
+		t.Fatalf("BuildPane().Mirror = %+v, want %+v", got.Mirror, mirror)
+	}
+
+	mirror.State = "dead"
+	if got.Mirror.State != "connected" {
+		t.Fatalf("BuildPane should clone mirror metadata, got state %q", got.Mirror.State)
+	}
+}
+
 func TestHexColor(t *testing.T) {
 	t.Parallel()
 

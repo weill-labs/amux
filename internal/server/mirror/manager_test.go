@@ -95,8 +95,8 @@ func TestManagerApplyPaneMetaUpdateStoresStatusAndDropsStaleGeneration(t *testin
 	if err := mgr.applyMessage(pane.ID, 1, stale); err != nil {
 		t.Fatalf("apply stale meta update: %v", err)
 	}
-	if status, ok := mgr.AgentStatus(pane.ID); ok || status.CurrentCommand != "" {
-		t.Fatalf("stale AgentStatus = (%+v, %v), want zero false", status, ok)
+	if status, ok := mgr.AgentStatus(pane.ID); !ok || status.CurrentCommand != "remote:agent" {
+		t.Fatalf("stale AgentStatus = (%+v, %v), want connected mirror fallback", status, ok)
 	}
 	select {
 	case update := <-updates:
@@ -139,6 +139,30 @@ func TestManagerApplyPaneMetaUpdateStoresStatusAndDropsStaleGeneration(t *testin
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for fresh update callback")
+	}
+}
+
+func TestManagerConnectedMirrorAgentStatusFallback(t *testing.T) {
+	t.Parallel()
+
+	pane := newMirrorTestPane(t, 2)
+	mgr := NewManager(Config{})
+	t.Cleanup(mgr.Close)
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = &mirrorState{
+		pane:  pane,
+		ref:   checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+		state: StateConnecting,
+	}
+	mgr.mu.Unlock()
+	mgr.markConnected(pane.ID, 42, nil)
+
+	status, ok := mgr.AgentStatus(pane.ID)
+	if !ok {
+		t.Fatal("AgentStatus ok=false, want connected mirror fallback")
+	}
+	if status.Exited || status.CurrentCommand != "remote:agent" {
+		t.Fatalf("AgentStatus = %+v, want non-exited remote:agent fallback", status)
 	}
 }
 
