@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/config"
 )
 
@@ -24,6 +25,24 @@ func TestGoldenRemoteMirrorWindowSelector(t *testing.T) {
 
 	assertWindowSelectorGolden(t, "remote_mirror_window_selector.golden", strings.TrimRight(gridRowText(grid, 0, windowSelectorGoldenWidth), " ")+"\n")
 	assertWindowSelectorGolden(t, "remote_mirror_window_selector.color", windowSelectorColorMap(grid, 0,
+		"1:local",
+		"2:hetzner-1:main",
+		"3:logs",
+	)+"\n")
+}
+
+func TestGoldenPowerlineRemoteMirrorWindowSelector(t *testing.T) {
+	t.Parallel()
+
+	grid := NewScreenGrid(windowSelectorGoldenWidth, 1)
+	buildGlobalBarCellsWithStyle(grid, "session", 4, windowSelectorGoldenWidth, 0, []WindowInfo{
+		{Index: 1, Name: "local"},
+		{Index: 2, Name: "hetzner-1:main", IsActive: true, IsRemoteMirror: true},
+		{Index: 3, Name: "logs"},
+	}, "", time.Date(2025, 1, 1, 12, 34, 0, 0, time.UTC), config.StatusStylePowerline)
+
+	assertWindowSelectorGolden(t, "powerline_remote_mirror_window_selector.golden", strings.TrimRight(gridRowText(grid, 0, windowSelectorGoldenWidth), " ")+"\n")
+	assertWindowSelectorGolden(t, "powerline_remote_mirror_window_selector.color", windowSelectorColorMap(grid, 0,
 		"1:local",
 		"2:hetzner-1:main",
 		"3:logs",
@@ -62,6 +81,8 @@ func windowSelectorColorLetter(cell ScreenCell) byte {
 	switch {
 	case cellColorMatches(cell, config.BlueHex):
 		return 'B'
+	case cellColorMatches(cell, config.GreenHex) && cell.Style.Attrs&uv.AttrBold != 0:
+		return 'g'
 	case cellColorMatches(cell, config.GreenHex):
 		return 'G'
 	case cellColorMatches(cell, config.TextColorHex):

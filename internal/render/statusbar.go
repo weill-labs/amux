@@ -1025,7 +1025,6 @@ func buildPowerlineGlobalBarCells(sessionName string, paneCount int, width int, 
 			}
 			if tab.window.IsRemoteMirror {
 				style.fgHex = config.GreenHex
-				style.bold = tab.window.IsActive
 			}
 			cells = appendStyledStatusCells(cells, tab.display, style)
 			cells = appendStyledStatusCells(cells, " ", baseStyle)
