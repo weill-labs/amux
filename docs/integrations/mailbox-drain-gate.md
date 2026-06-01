@@ -108,7 +108,9 @@ The shared logic:
   malformed command output.
 - writes bounded diagnostics to
   `${XDG_STATE_HOME:-$HOME/.local/state}/amux/mailbox-drain/hook.log`.
-- stores one marker per `AMUX_SESSION` + `AMUX_PANE`, protected by `flock`.
+- stores one marker per `AMUX_SESSION` + `AMUX_PANE` + session socket identity,
+  protected by `flock`, so stale markers from older same-name sessions do not
+  suppress the first nudge in a fresh session.
 - only uses message IDs, sender names, body sizes, and quoted/truncated subjects
   in model-visible output.
 

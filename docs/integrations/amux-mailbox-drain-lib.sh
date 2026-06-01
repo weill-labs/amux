@@ -29,8 +29,30 @@ amux_mailbox_drain_run() {
     "$timeout_bin" "${AMUX_MAILBOX_DRAIN_TIMEOUT:-8s}" amux "$@"
 }
 
+amux_mailbox_drain_socket_path() {
+    local dir session uid
+
+    session="${AMUX_SESSION:-main}"
+    dir="${AMUX_SOCKET_DIR:-}"
+    if [ -z "$dir" ]; then
+        uid="$(id -u 2>/dev/null || printf unknown)"
+        dir="/tmp/amux-$uid"
+    fi
+    printf '%s/%s\n' "$dir" "$session"
+}
+
+amux_mailbox_drain_socket_identity() {
+    local path identity
+
+    path="$(amux_mailbox_drain_socket_path)"
+    identity="$(stat -c '%d:%i:%Y' "$path" 2>/dev/null)" ||
+        identity="$(stat -f '%d:%i:%m' "$path" 2>/dev/null)" ||
+        identity=""
+    printf '%s\n' "$identity"
+}
+
 amux_mailbox_drain_key() {
-    printf '%s-%s' "${AMUX_SESSION:-default}" "${AMUX_PANE:-unknown}" | tr -c 'A-Za-z0-9_.-' '_'
+    printf '%s-%s-%s' "${AMUX_SESSION:-main}" "${AMUX_PANE:-unknown}" "$(amux_mailbox_drain_socket_identity)" | tr -c 'A-Za-z0-9_.-' '_'
 }
 
 amux_mailbox_drain_marker_paths() {
