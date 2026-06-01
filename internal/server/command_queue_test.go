@@ -432,6 +432,42 @@ func TestQueuedCommandCloseWindowDetachesMirrorWindow(t *testing.T) {
 	})
 }
 
+func TestQueuedCommandCloseWindowLastWindowExitsSession(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := newTestWindowWithPanes(t, sess, 1, "main", p1, p2)
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
+
+	res := runCloseWindow(&CommandContext{Sess: sess})
+
+	if res.Err != nil {
+		t.Fatalf("close-window error: %v", res.Err)
+	}
+	if !strings.Contains(res.Output, "Closed window main (session exiting)") {
+		t.Fatalf("close-window output = %q, want session exiting", res.Output)
+	}
+	if !res.SendExit {
+		t.Fatal("close-window should send session exit when closing the last window")
+	}
+	if !res.ShutdownServer {
+		t.Fatal("close-window should shut down the server when closing the last window")
+	}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		if len(sess.Windows) != 0 {
+			t.Fatalf("windows after close = %+v, want none", sess.Windows)
+		}
+		if len(sess.Panes) != 0 {
+			t.Fatalf("panes after close = %+v, want none", sess.Panes)
+		}
+		return struct{}{}
+	})
+}
+
 func TestQueuedCommandSpawnLocal(t *testing.T) {
 	t.Parallel()
 

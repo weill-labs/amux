@@ -683,6 +683,17 @@ func TestPrintUsageOmitsDelegate(t *testing.T) {
 	}
 }
 
+func TestPrintUsageIncludesCloseWindowKeybinding(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	WriteUsage(&buf)
+
+	if !strings.Contains(buf.String(), "Ctrl-a X                           Close active window") {
+		t.Fatalf("printUsage should include close-window keybinding:\n%s", buf.String())
+	}
+}
+
 func TestRunMainDefaultSession(t *testing.T) {
 	t.Run("attaches to resolved session", func(t *testing.T) {
 		t.Setenv("AMUX_CHECKPOINT", "")
