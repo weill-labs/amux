@@ -87,16 +87,12 @@ amux_mailbox_drain_self_test() {
 }
 
 amux_mailbox_drain_read_status_json() {
-    local json pending latest_len
+    local json pending
 
     json="$(amux_mailbox_drain_run msg drain-status --format json)" || return 1
     pending="$(printf '%s' "$json" | jq -r '.pending // empty')" || return 1
     if [ -z "$pending" ]; then
         return 1
-    fi
-    latest_len="$(printf '%s' "$json" | jq -r '(.latest // []) | length')" || return 1
-    if [ "$pending" -gt 0 ] && [ "$latest_len" -eq 0 ]; then
-        json="$(amux_mailbox_drain_run msg drain-status --format json)" || return 1
     fi
     printf '%s\n' "$json"
 }
@@ -224,19 +220,23 @@ amux_mailbox_drain_main() {
     }
     if ! flock -w "${AMUX_MAILBOX_DRAIN_LOCK_TIMEOUT:-2}" 9; then
         amux_mailbox_drain_log "cannot acquire marker lock; releasing stop"
+        exec 9>&-
         return 0
     fi
 
     if [ "${AMUX_MAILBOX_DRAIN_STRICT:-}" != "1" ]; then
         previous="$(cat "$marker" 2>/dev/null || true)"
         if [ "$previous" = "$fingerprint" ]; then
+            exec 9>&-
             return 0
         fi
     fi
     printf '%s\n' "$fingerprint" >"$marker" 2>/dev/null || {
         amux_mailbox_drain_log "cannot write marker; releasing stop"
+        exec 9>&-
         return 0
     }
+    exec 9>&-
 
     reason="$(amux_mailbox_drain_reason "$json")" || {
         amux_mailbox_drain_log "cannot build drain reason; releasing stop"

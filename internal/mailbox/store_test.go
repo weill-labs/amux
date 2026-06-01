@@ -272,6 +272,55 @@ func TestStoreDrainStatusCountsReadAndAckState(t *testing.T) {
 	}
 }
 
+func TestStoreDrainStatusLatestKeepsNewestWithinLimit(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+	old := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Old",
+		Body:       []byte("old body"),
+	})
+
+	now = time.Date(2026, 5, 30, 12, 10, 0, 0, time.UTC)
+	newest := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Newest",
+		Body:       []byte("newest body"),
+	})
+
+	now = time.Date(2026, 5, 30, 12, 5, 0, 0, time.UTC)
+	middle := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Middle",
+		Body:       []byte("middle body"),
+	})
+
+	now = time.Date(2026, 5, 30, 11, 0, 0, 0, time.UTC)
+	oldest := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Oldest",
+		Body:       []byte("oldest body"),
+	})
+
+	status, err := store.DrainStatus(2, DrainOptions{LatestLimit: 2})
+	if err != nil {
+		t.Fatalf("DrainStatus: %v", err)
+	}
+	wantIDs := []MessageID{old.ID, newest.ID, middle.ID, oldest.ID}
+	if fmt.Sprint(status.PendingIDs) != fmt.Sprint(wantIDs) {
+		t.Fatalf("PendingIDs = %v, want ID order %v", status.PendingIDs, wantIDs)
+	}
+	if len(status.Latest) != 2 || status.Latest[0].MessageID != newest.ID || status.Latest[1].MessageID != middle.ID {
+		t.Fatalf("Latest = %#v, want newest and middle summaries", status.Latest)
+	}
+}
+
 func TestStoreDrainStatusFingerprintTracksReadAckProgress(t *testing.T) {
 	t.Parallel()
 

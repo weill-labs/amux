@@ -306,6 +306,24 @@ func TestMsgCommandDrainStatusDefaultsToActorPane(t *testing.T) {
 	}
 }
 
+func TestMsgCommandDrainStatusJSONUsesEmptyArrays(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := setupMsgCommandSession(t)
+	defer cleanup()
+
+	res := runTestCommand(t, srv, sess, "msg", "drain-status", "pane-2", "--format", "json")
+	if res.cmdErr != "" {
+		t.Fatalf("msg drain-status json error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, `"pending_ids":[]`) {
+		t.Fatalf("drain-status JSON = %s, want pending_ids empty array", res.output)
+	}
+	if !strings.Contains(res.output, `"latest":[]`) {
+		t.Fatalf("drain-status JSON = %s, want latest empty array", res.output)
+	}
+}
+
 func TestMsgCommandReplyInfersRecipientAndThread(t *testing.T) {
 	t.Parallel()
 
@@ -869,6 +887,24 @@ func TestBriefMsgSubject(t *testing.T) {
 			subject: "abcdef",
 			limit:   3,
 			want:    "...",
+		},
+		{
+			name:    "limit two returns two dots",
+			subject: "abcdef",
+			limit:   2,
+			want:    "..",
+		},
+		{
+			name:    "limit one returns one dot",
+			subject: "abcdef",
+			limit:   1,
+			want:    ".",
+		},
+		{
+			name:    "zero limit leaves subject unchanged",
+			subject: "abcdef",
+			limit:   0,
+			want:    "abcdef",
 		},
 		{
 			name:    "utf8 truncates on rune boundary",

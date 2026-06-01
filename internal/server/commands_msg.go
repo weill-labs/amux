@@ -818,9 +818,15 @@ func drainStatusOutput(status mailbox.DrainStatus) msgDrainStatusOutput {
 		Unacked:            status.Unacked,
 		Pending:            status.Pending,
 		PendingFingerprint: status.PendingFingerprint,
-		PendingIDs:         append([]mailbox.MessageID(nil), status.PendingIDs...),
+		PendingIDs:         cloneMsgIDs(status.PendingIDs),
 		Latest:             drainStatusLatestOutput(status.Latest),
 	}
+}
+
+func cloneMsgIDs(ids []mailbox.MessageID) []mailbox.MessageID {
+	out := make([]mailbox.MessageID, len(ids))
+	copy(out, ids)
+	return out
 }
 
 func drainStatusLatestOutput(summaries []mailbox.DeliverySummary) []msgSummaryOutput {
@@ -862,7 +868,7 @@ func briefMsgSubject(subject string, limit int) string {
 		return subject
 	}
 	if limit <= 3 {
-		return "..."
+		return "..."[:limit]
 	}
 	for len(subject) > 0 && len([]byte(subject)) > limit-3 {
 		_, size := utf8.DecodeLastRuneInString(subject)

@@ -497,6 +497,7 @@ func (s *Store) DrainStatus(recipientID uint32, opts DrainOptions) (DrainStatus,
 	})
 
 	var status DrainStatus
+	latestLimit := normalizedDrainLatestLimit(opts.LatestLimit)
 	for _, id := range ids {
 		delivery := byMessage[id]
 		needsRead := delivery.ReadAt.IsZero()
@@ -512,25 +513,37 @@ func (s *Store) DrainStatus(recipientID uint32, opts DrainOptions) (DrainStatus,
 		}
 		status.Pending++
 		status.PendingIDs = append(status.PendingIDs, id)
-		status.Latest = append(status.Latest, summaryFor(s.messages[id], delivery))
+		status.Latest = insertDrainLatest(status.Latest, summaryFor(s.messages[id], delivery), latestLimit)
 	}
 
 	if status.Pending == 0 {
 		return status, nil
 	}
 	status.PendingFingerprint = drainFingerprint(byMessage, status.PendingIDs)
-	sort.Slice(status.Latest, func(i, j int) bool {
-		left := status.Latest[i]
-		right := status.Latest[j]
-		if !left.DeliveredAt.Equal(right.DeliveredAt) {
-			return left.DeliveredAt.After(right.DeliveredAt)
-		}
-		return left.MessageID > right.MessageID
-	})
-	if limit := normalizedDrainLatestLimit(opts.LatestLimit); len(status.Latest) > limit {
-		status.Latest = status.Latest[:limit]
-	}
 	return status, nil
+}
+
+func insertDrainLatest(latest []DeliverySummary, summary DeliverySummary, limit int) []DeliverySummary {
+	index := sort.Search(len(latest), func(i int) bool {
+		return drainSummaryNewer(summary, latest[i])
+	})
+	if index == len(latest) && len(latest) >= limit {
+		return latest
+	}
+	latest = append(latest, DeliverySummary{})
+	copy(latest[index+1:], latest[index:])
+	latest[index] = summary
+	if len(latest) > limit {
+		latest = latest[:limit]
+	}
+	return latest
+}
+
+func drainSummaryNewer(left, right DeliverySummary) bool {
+	if !left.DeliveredAt.Equal(right.DeliveredAt) {
+		return left.DeliveredAt.After(right.DeliveredAt)
+	}
+	return left.MessageID > right.MessageID
 }
 
 func (s *Store) DeliverySummary(id MessageID, recipientID uint32) (DeliverySummary, error) {
