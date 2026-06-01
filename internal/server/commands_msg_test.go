@@ -753,6 +753,11 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			want: "usage: msg drain-status",
 		},
 		{
+			name: "missing drain-status format",
+			args: []string{"drain-status", "pane-1", "--format"},
+			want: "missing value for --format",
+		},
+		{
 			name: "duplicate drain-status target",
 			args: []string{"drain-status", "pane-1", "pane-2"},
 			want: "usage: msg drain-status",
@@ -833,6 +838,53 @@ func TestMsgCommandErrorsFailLoudly(t *testing.T) {
 			}
 			if !strings.Contains(res.cmdErr, tt.want) {
 				t.Fatalf("msg %s error = %q, want substring %q", strings.Join(tt.args, " "), res.cmdErr, tt.want)
+			}
+		})
+	}
+}
+
+func TestBriefMsgSubject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		subject string
+		limit   int
+		want    string
+	}{
+		{
+			name:    "within limit",
+			subject: "short",
+			limit:   5,
+			want:    "short",
+		},
+		{
+			name:    "ascii truncates",
+			subject: "abcdef",
+			limit:   5,
+			want:    "ab...",
+		},
+		{
+			name:    "small limit returns ellipsis",
+			subject: "abcdef",
+			limit:   3,
+			want:    "...",
+		},
+		{
+			name:    "utf8 truncates on rune boundary",
+			subject: "abcédef",
+			limit:   7,
+			want:    "abc...",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := briefMsgSubject(tt.subject, tt.limit); got != tt.want {
+				t.Fatalf("briefMsgSubject(%q, %d) = %q, want %q", tt.subject, tt.limit, got, tt.want)
 			}
 		})
 	}

@@ -328,6 +328,20 @@ func TestStoreDrainStatusFingerprintTracksReadAckProgress(t *testing.T) {
 	}
 }
 
+func TestStoreDrainStatusRejectsInvalidRecipient(t *testing.T) {
+	t.Parallel()
+
+	var nilStore *Store
+	if _, err := nilStore.DrainStatus(2, DrainOptions{}); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil DrainStatus error = %v, want nil store", err)
+	}
+
+	store := NewStore(Options{})
+	if _, err := store.DrainStatus(0, DrainOptions{}); err == nil || !strings.Contains(err.Error(), "recipient pane ID") {
+		t.Fatalf("zero-recipient DrainStatus error = %v, want recipient pane ID", err)
+	}
+}
+
 func TestStoreMultiRecipientDeliveryTracksPerRecipientState(t *testing.T) {
 	t.Parallel()
 
