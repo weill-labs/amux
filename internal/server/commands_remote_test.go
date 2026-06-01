@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -73,6 +74,179 @@ func TestParseRemoteAddArgs(t *testing.T) {
 	}
 }
 
+func TestParseRemoteDiscoverArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		args        []string
+		want        remoteDiscoverArgs
+		wantErrText string
+	}{
+		{
+			name: "defaults ssh target and session",
+			args: []string{"hetzner-1"},
+			want: remoteDiscoverArgs{name: "hetzner-1", ssh: "hetzner-1", session: DefaultSessionName},
+		},
+		{
+			name: "explicit ssh target session and print",
+			args: []string{"prod", "--ssh", "root@example.test", "--session", "lab", "--print"},
+			want: remoteDiscoverArgs{name: "prod", ssh: "root@example.test", session: "lab", printOnly: true},
+		},
+		{
+			name:        "missing name",
+			wantErrText: remoteDiscoverUsage,
+		},
+		{
+			name:        "flag-like name",
+			args:        []string{"--bad"},
+			wantErrText: remoteDiscoverUsage,
+		},
+		{
+			name:        "missing ssh value",
+			args:        []string{"prod", "--ssh"},
+			wantErrText: remoteDiscoverUsage,
+		},
+		{
+			name:        "missing session value",
+			args:        []string{"prod", "--session"},
+			wantErrText: remoteDiscoverUsage,
+		},
+		{
+			name:        "unknown flag",
+			args:        []string{"prod", "--bogus"},
+			wantErrText: remoteDiscoverUsage,
+		},
+		{
+			name:        "session must stay a socket basename",
+			args:        []string{"prod", "--session", "../main"},
+			wantErrText: "remote session must not contain '/'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseRemoteDiscoverArgs(tt.args)
+			if tt.wantErrText != "" {
+				if err == nil || err.Error() != tt.wantErrText {
+					t.Fatalf("parseRemoteDiscoverArgs(%v) error = %v, want %q", tt.args, err, tt.wantErrText)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseRemoteDiscoverArgs(%v): %v", tt.args, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseRemoteDiscoverArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+type fakeRemoteDiscoverRunner struct {
+	output    string
+	err       error
+	calls     int
+	sshTarget string
+	session   string
+	script    string
+}
+
+func (f *fakeRemoteDiscoverRunner) Run(ctx context.Context, sshTarget, session, script string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	f.calls++
+	f.sshTarget = sshTarget
+	f.session = session
+	f.script = script
+	return f.output, f.err
+}
+
+func TestDiscoverRemoteHostProbesExactSessionSocket(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRemoteDiscoverRunner{output: "OK\t1000\t/tmp/amux-1000/main\n"}
+	result, err := discoverRemoteHost(context.Background(), remoteDiscoverArgs{
+		name:    "hetzner-1",
+		ssh:     "hetzner-1",
+		session: "main",
+	}, runner)
+	if err != nil {
+		t.Fatalf("discoverRemoteHost: %v", err)
+	}
+	if runner.calls != 1 || runner.sshTarget != "hetzner-1" || runner.session != "main" {
+		t.Fatalf("runner = calls %d ssh %q session %q, want one hetzner-1 main", runner.calls, runner.sshTarget, runner.session)
+	}
+	if strings.Contains(runner.script, "ls ") || !strings.Contains(runner.script, `"/tmp/amux-${uid}/${session}"`) {
+		t.Fatalf("probe script should test the exact socket without listing /tmp; script:\n%s", runner.script)
+	}
+	if result.host != (config.Host{SSH: "hetzner-1", Session: "main", SocketPath: "/tmp/amux-1000/main"}) {
+		t.Fatalf("discovered host = %+v, want socket derived from remote uid/session", result.host)
+	}
+	output := formatRemoteDiscoverResult(result, false)
+	if !strings.Contains(output, "amux remote add hetzner-1 --ssh hetzner-1 --session main --socket /tmp/amux-1000/main") {
+		t.Fatalf("discover output missing copyable add command:\n%s", output)
+	}
+	if !strings.Contains(output, "Saved remote hetzner-1") {
+		t.Fatalf("discover output missing saved line:\n%s", output)
+	}
+}
+
+func TestDiscoverRemoteHostActionableErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		output string
+		err    error
+		want   string
+	}{
+		{
+			name: "ssh failure",
+			err:  errors.New("permission denied"),
+			want: `checking remote "hetzner-1" over ssh: permission denied`,
+		},
+		{
+			name:   "socket missing",
+			output: "ERR\tsocket_missing\t/tmp/amux-1000/main\n",
+			want:   `remote amux socket /tmp/amux-1000/main does not exist for session "main" on hetzner-1`,
+		},
+		{
+			name:   "nc missing",
+			output: "ERR\tnc_missing\n",
+			want:   `remote host hetzner-1 does not have nc in PATH; install netcat with Unix socket (-U) support`,
+		},
+		{
+			name:   "nc lacks unix sockets",
+			output: "ERR\tnc_no_unix\n",
+			want:   `remote host hetzner-1 has nc but it does not support -U; install a netcat variant with Unix socket support`,
+		},
+		{
+			name:   "malformed output",
+			output: "wat\n",
+			want:   `unexpected discovery response from hetzner-1: "wat"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := discoverRemoteHost(context.Background(), remoteDiscoverArgs{
+				name:    "hetzner-1",
+				ssh:     "hetzner-1",
+				session: "main",
+			}, &fakeRemoteDiscoverRunner{output: tt.output, err: tt.err})
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("discoverRemoteHost error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunRemoteCommandUsageErrors(t *testing.T) {
 	t.Parallel()
 
@@ -84,6 +258,7 @@ func TestRunRemoteCommandUsageErrors(t *testing.T) {
 		{name: "missing subcommand", want: remoteCommandUsage},
 		{name: "unknown subcommand", args: []string{"bogus"}, want: remoteCommandUsage},
 		{name: "add usage", args: []string{"add"}, want: remoteAddUsage},
+		{name: "discover usage", args: []string{"discover"}, want: remoteDiscoverUsage},
 		{name: "list usage", args: []string{"list", "extra"}, want: remoteListUsage},
 		{name: "status usage", args: []string{"status", "extra"}, want: remoteStatusUsage},
 		{name: "rm usage", args: []string{"rm"}, want: remoteRmUsage},

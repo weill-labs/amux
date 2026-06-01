@@ -142,6 +142,30 @@ func TestManagerApplyPaneMetaUpdateStoresStatusAndDropsStaleGeneration(t *testin
 	}
 }
 
+func TestManagerConnectedMirrorAgentStatusFallback(t *testing.T) {
+	t.Parallel()
+
+	pane := newMirrorTestPane(t, 2)
+	mgr := NewManager(Config{})
+	t.Cleanup(mgr.Close)
+	mgr.mu.Lock()
+	mgr.mirrors[pane.ID] = &mirrorState{
+		pane:  pane,
+		ref:   checkpoint.RemoteRef{Host: "remote", Session: "main", PaneName: "agent"},
+		state: StateConnecting,
+	}
+	mgr.mu.Unlock()
+	mgr.markConnected(pane.ID, 42, nil)
+
+	status, ok := mgr.AgentStatus(pane.ID)
+	if !ok {
+		t.Fatal("AgentStatus ok=false, want connected mirror fallback")
+	}
+	if status.Exited || status.CurrentCommand != "remote:agent" {
+		t.Fatalf("AgentStatus = %+v, want non-exited remote:agent fallback", status)
+	}
+}
+
 func TestManagerRetryBudgetEndsDead(t *testing.T) {
 	t.Parallel()
 
