@@ -244,7 +244,7 @@ func TestCommandConnCloseCancelsOnNormalExit(t *testing.T) {
 		cancel: func() { cancelled = true },
 		stdin:  nopWriteCloser{},
 		stdout: nopReadCloser{},
-		waitCh: closedWait(nil),
+		wait:   func() error { return nil },
 	}
 
 	if err := conn.closeWithTimeout(time.Second, time.Second); err != nil {
@@ -259,11 +259,15 @@ func TestCommandConnCloseBoundsWaitAfterKill(t *testing.T) {
 	t.Parallel()
 
 	cancelled := false
+	waitCh := make(chan error)
+	defer close(waitCh)
 	conn := &commandConn{
 		cancel: func() { cancelled = true },
 		stdin:  nopWriteCloser{},
 		stdout: nopReadCloser{},
-		waitCh: make(chan error),
+		wait: func() error {
+			return <-waitCh
+		},
 	}
 
 	start := time.Now()
@@ -330,12 +334,6 @@ type nopReadCloser struct{}
 func (nopReadCloser) Read([]byte) (int, error) { return 0, errors.New("unexpected read") }
 
 func (nopReadCloser) Close() error { return nil }
-
-func closedWait(err error) <-chan error {
-	ch := make(chan error, 1)
-	ch <- err
-	return ch
-}
 
 type unixSocketDialer struct{}
 
