@@ -2,10 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
+	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
 
 type msgCommandSendJSON struct {
@@ -217,6 +220,154 @@ func TestMsgCommandDefaultsToActorPane(t *testing.T) {
 	if !strings.Contains(read.output, "actor body") {
 		t.Fatalf("actor-default read output = %q, want body", read.output)
 	}
+}
+
+func TestMsgCommandSendForwardsToRemotePaneMailbox(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	mirrorPane := h.attachMirror(t)
+	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
+
+	sent := runTestCommand(t, h.localSrv, h.localSess, "msg", "send",
+		"--from", "local",
+		"--to", mirrorPane.Meta.Name,
+		"--subject", "Remote review",
+		"--body", "hello remote",
+		"--format", "json")
+	if sent.cmdErr != "" {
+		t.Fatalf("msg send remote error: %s", sent.cmdErr)
+	}
+
+	inbox := runTestCommand(t, h.remoteSrv, h.remoteSess, "msg", "inbox", h.remotePane.Meta.Name, "--unread", "--format", "json")
+	if inbox.cmdErr != "" {
+		t.Fatalf("remote inbox error: %s", inbox.cmdErr)
+	}
+	remoteInbox := parseMsgCommandInboxJSON(t, inbox.output)
+	if len(remoteInbox) != 1 || remoteInbox[0].Subject != "Remote review" || remoteInbox[0].BodySize != len("hello remote") {
+		t.Fatalf("remote inbox = %#v, want forwarded message", remoteInbox)
+	}
+
+	read := runTestCommand(t, h.remoteSrv, h.remoteSess, "msg", "read", remoteInbox[0].ID, "--for", h.remotePane.Meta.Name)
+	if read.cmdErr != "" {
+		t.Fatalf("remote read error: %s", read.cmdErr)
+	}
+	if read.output != "hello remote\n" {
+		t.Fatalf("remote read output = %q, want forwarded body", read.output)
+	}
+}
+
+func TestMsgCommandReplyForwardsInferredRemoteRecipient(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	mirrorPane := h.attachMirror(t)
+	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
+
+	root := runTestCommand(t, h.localSrv, h.localSess, "msg", "send",
+		"--from", mirrorPane.Meta.Name,
+		"--to", "local",
+		"--subject", "Question",
+		"--body", "from remote",
+		"--format", "json")
+	if root.cmdErr != "" {
+		t.Fatalf("seed remote-sender message error: %s", root.cmdErr)
+	}
+	rootJSON := parseMsgCommandSendJSON(t, root.output)
+
+	reply := runTestCommand(t, h.localSrv, h.localSess, "msg", "reply",
+		rootJSON.ID,
+		"--from", "local",
+		"--body", "answer for remote",
+		"--format", "json")
+	if reply.cmdErr != "" {
+		t.Fatalf("msg reply remote error: %s", reply.cmdErr)
+	}
+
+	inbox := runTestCommand(t, h.remoteSrv, h.remoteSess, "msg", "inbox", h.remotePane.Meta.Name, "--unread", "--format", "json")
+	if inbox.cmdErr != "" {
+		t.Fatalf("remote inbox error: %s", inbox.cmdErr)
+	}
+	remoteInbox := parseMsgCommandInboxJSON(t, inbox.output)
+	if len(remoteInbox) != 1 || remoteInbox[0].Subject != "Question" || remoteInbox[0].BodySize != len("answer for remote") {
+		t.Fatalf("remote reply inbox = %#v, want inferred reply", remoteInbox)
+	}
+}
+
+func TestMsgCommandSendRemoteUnreachableFailsLoudly(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	mirrorPane := h.attachMirror(t)
+	h.waitMirrorState(t, mirrorPane.ID, mirrorpkg.StateConnected)
+	h.dialer.fail.Store(true)
+
+	sent := runTestCommand(t, h.localSrv, h.localSess, "msg", "send",
+		"--from", "local",
+		"--to", mirrorPane.Meta.Name,
+		"--subject", "Remote review",
+		"--body", "hello remote")
+	if sent.cmdErr == "" || !strings.Contains(sent.cmdErr, "remote server unavailable") {
+		t.Fatalf("remote unreachable error = %q, want dial failure", sent.cmdErr)
+	}
+}
+
+func TestMsgCommandSendUnknownRemoteRecipientFailsLoudly(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	staleMirror := attachMailboxMirrorForTest(t, h, "stale-mirror", "missing-remote")
+
+	sent := runTestCommand(t, h.localSrv, h.localSess, "msg", "send",
+		"--from", "local",
+		"--to", staleMirror.Meta.Name,
+		"--subject", "Remote review",
+		"--body", "hello remote")
+	if sent.cmdErr == "" || !strings.Contains(sent.cmdErr, "missing-remote") {
+		t.Fatalf("unknown remote recipient error = %q, want missing remote pane", sent.cmdErr)
+	}
+}
+
+func attachMailboxMirrorForTest(t *testing.T, h *mirrorIntegrationHarness, localName, remoteName string) *mux.Pane {
+	t.Helper()
+
+	ref := checkpoint.RemoteRef{
+		Host:     mirrorRemoteHostName,
+		Session:  h.remoteSess.Name,
+		PaneName: remoteName,
+	}
+	pane, err := enqueueSessionQueryOnState(h.localSess.context(), h.localSess, func(sess *Session) (*mux.Pane, error) {
+		w := sess.activeWindow()
+		if w == nil || w.ActivePane == nil {
+			return nil, errors.New("missing local active pane")
+		}
+		pane, err := sess.prepareMirrorPane(mux.PaneMeta{Name: localName}, ref, w.Width, mux.PaneContentHeight(w.Height))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.SplitPaneWithOptions(w.ActivePane.ID, mux.SplitHorizontal, pane, mux.SplitOptions{}); err != nil {
+			sess.removePane(pane.ID)
+			sess.closePaneAsync(pane)
+			return nil, err
+		}
+		if err := sess.trackMirrorPane(pane, ref); err != nil {
+			return nil, err
+		}
+		sess.broadcastLayoutNow()
+		return pane, nil
+	})
+	if err != nil {
+		t.Fatalf("attach mailbox mirror: %v", err)
+	}
+	return pane
 }
 
 func TestMsgCommandDrainStatusReadAckContract(t *testing.T) {
