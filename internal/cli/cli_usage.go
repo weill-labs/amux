@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	sendKeysUsage  = "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage  = "usage: amux send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--submit] [--hex] <keys>..."
 	mouseUsage     = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	captureUsage   = "usage: amux capture [--client] [pane] [--history <pane>] [--ansi] [--colors]"
 	logUsage       = "usage: amux log <clients|panes>"
@@ -208,7 +208,7 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
+  amux [-s session] send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--submit] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] mouse [--client <id>] [--timeout <duration>] ...
                                        Simulate mouse input through an attached client

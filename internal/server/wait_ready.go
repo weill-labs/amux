@@ -42,6 +42,7 @@ type sendKeysOptions struct {
 	requestedClientID string
 	waitTimeout       time.Duration
 	delayFinal        time.Duration
+	submit            bool
 	hexMode           bool
 	keys              []string
 }
@@ -146,6 +147,9 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 				return sendKeysOptions{}, fmt.Errorf("invalid delay-final: %s", args[i])
 			}
 			opts.delayFinal = delay
+			i++
+		case "--submit":
+			opts.submit = true
 			i++
 		case "--hex":
 			opts.hexMode = true

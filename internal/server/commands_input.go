@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	inputcmd "github.com/weill-labs/amux/internal/server/commands/input"
@@ -23,7 +24,7 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--submit] [--hex] <keys>..."
 	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
@@ -67,6 +68,36 @@ func totalEncodedKeyBytes(chunks []encodedKeyChunk) int {
 		total += len(chunk.data)
 	}
 	return total
+}
+
+func encodeSubmitChunks(hexMode bool, keys []string) ([]encodedKeyChunk, error) {
+	body, err := encodeSubmitBody(hexMode, keys)
+	if err != nil {
+		return nil, err
+	}
+	paste := make([]byte, 0, len(ansi.BracketedPasteStart)+len(body)+len(ansi.BracketedPasteEnd))
+	paste = append(paste, ansi.BracketedPasteStart...)
+	paste = append(paste, body...)
+	paste = append(paste, ansi.BracketedPasteEnd...)
+	return []encodedKeyChunk{
+		{data: paste},
+		{data: []byte{'\r'}, paceBefore: true},
+	}, nil
+}
+
+func encodeSubmitBody(hexMode bool, keys []string) ([]byte, error) {
+	if !hexMode {
+		return []byte(strings.Join(keys, "")), nil
+	}
+	chunks, err := keyscmd.EncodeChunks(true, keys)
+	if err != nil {
+		return nil, err
+	}
+	var body []byte
+	for _, chunk := range chunks {
+		body = append(body, chunk.Data...)
+	}
+	return body, nil
 }
 
 // Shell prompts can consume injected text and carriage-return submit keys in one
@@ -159,21 +190,26 @@ func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 	return opts, nil
 }
 
-func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (string, int, error) {
+func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (string, int, bool, error) {
 	target, optionArgs, err := parseSendKeysTarget(args)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	opts, err := parseSendKeysArgs(optionArgs)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	if len(opts.keys) == 0 {
-		return "", 0, errors.New(sendKeysUsage)
+		return "", 0, false, errors.New(sendKeysUsage)
 	}
-	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
+	var chunks []encodedKeyChunk
+	if opts.submit {
+		chunks, err = encodeSubmitChunks(opts.hexMode, opts.keys)
+	} else {
+		chunks, err = encodeKeyChunks(opts.hexMode, opts.keys)
+	}
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	applyFinalDelay(chunks, opts.delayFinal)
 	var pane resolvedPaneRef
@@ -183,31 +219,31 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 		pane, err = ctx.Sess.queryResolvedPaneForActorContext(ctx.context(), actorPaneID, target.paneRef)
 	}
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	disableAutomaticEnterPacingForIdlePane(chunks, pane.pane)
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
 		if err := waitForPaneReady(ctx.context(), ctx.Sess, pane.paneName, pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, nil); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 	case sendKeysWaitInputIdle:
 		uiWait, err := querySendKeysClient(ctx.context(), ctx.Sess, opts.requestedClientID, proto.UIEventInputIdle)
 		if err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, uiWait); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 	default:
 		if err := enqueueSendKeysInput(ctx.context(), ctx.Sess, pane, chunks, opts, nil); err != nil {
-			return "", 0, err
+			return "", 0, false, err
 		}
 	}
-	return pane.paneName, totalEncodedKeyBytes(chunks), nil
+	return pane.paneName, totalEncodedKeyBytes(chunks), opts.submit, nil
 }
 
 func cmdSendKeys(ctx *CommandContext) {
