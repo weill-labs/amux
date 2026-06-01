@@ -359,16 +359,8 @@ func encodePaneHistoryPayloadFresh(msg *Message) ([]byte, error) {
 			continue
 		}
 
-		runs := paneHistoryCellRuns(line.Cells)
-		writePaneHistoryUvarint(&payload, uint64(len(runs)))
-		for _, run := range runs {
-			writePaneHistoryUvarint(&payload, uint64(run.count))
-			writePaneHistoryString(&payload, run.cell.Char)
-			if run.cell.Width < 0 {
-				return nil, fmt.Errorf("negative cell width: %d", run.cell.Width)
-			}
-			writePaneHistoryUvarint(&payload, uint64(run.cell.Width))
-			writePaneHistoryUvarint(&payload, uint64(styleIndex[paneHistoryComparableStyle(run.cell.Style)]))
+		if err := writePaneHistoryCellRuns(&payload, line.Cells, styleIndex); err != nil {
+			return nil, err
 		}
 	}
 
@@ -578,6 +570,62 @@ func paneHistoryCellRuns(cells []Cell) []paneHistoryCellRun {
 	}
 	runs = append(runs, current)
 	return runs
+}
+
+func writePaneHistoryCellRuns(dst *bytes.Buffer, cells []Cell, styleIndex map[paneHistoryStyleKey]int) error {
+	writePaneHistoryUvarint(dst, uint64(paneHistoryCellRunCount(cells)))
+	if len(cells) == 0 {
+		return nil
+	}
+
+	current := cells[0]
+	currentStyleKey := paneHistoryComparableStyle(current.Style)
+	count := 1
+	for _, cell := range cells[1:] {
+		cellStyleKey := paneHistoryComparableStyle(cell.Style)
+		if cell.Char == current.Char && cell.Width == current.Width && cellStyleKey == currentStyleKey {
+			count++
+			continue
+		}
+		if err := writePaneHistoryCellRun(dst, count, current, currentStyleKey, styleIndex); err != nil {
+			return err
+		}
+		current = cell
+		currentStyleKey = cellStyleKey
+		count = 1
+	}
+	return writePaneHistoryCellRun(dst, count, current, currentStyleKey, styleIndex)
+}
+
+func paneHistoryCellRunCount(cells []Cell) int {
+	if len(cells) == 0 {
+		return 0
+	}
+
+	runCount := 1
+	current := cells[0]
+	currentStyleKey := paneHistoryComparableStyle(current.Style)
+	for _, cell := range cells[1:] {
+		cellStyleKey := paneHistoryComparableStyle(cell.Style)
+		if cell.Char == current.Char && cell.Width == current.Width && cellStyleKey == currentStyleKey {
+			continue
+		}
+		runCount++
+		current = cell
+		currentStyleKey = cellStyleKey
+	}
+	return runCount
+}
+
+func writePaneHistoryCellRun(dst *bytes.Buffer, count int, cell Cell, styleKey paneHistoryStyleKey, styleIndex map[paneHistoryStyleKey]int) error {
+	writePaneHistoryUvarint(dst, uint64(count))
+	writePaneHistoryString(dst, cell.Char)
+	if cell.Width < 0 {
+		return fmt.Errorf("negative cell width: %d", cell.Width)
+	}
+	writePaneHistoryUvarint(dst, uint64(cell.Width))
+	writePaneHistoryUvarint(dst, uint64(styleIndex[styleKey]))
+	return nil
 }
 
 func paneHistoryCellsTextEqual(text string, cells []Cell) bool {

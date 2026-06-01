@@ -277,6 +277,9 @@ func TestPaneHistoryCodecHelpers(t *testing.T) {
 		if len(runs) != 2 {
 			t.Fatalf("run count = %d, want 2", len(runs))
 		}
+		if got := paneHistoryCellRunCount(line.Cells); got != 2 {
+			t.Fatalf("paneHistoryCellRunCount() = %d, want 2", got)
+		}
 		if runs[0].count != 2 || runs[0].cell.Char != "x" {
 			t.Fatalf("first run = %+v, want x repeated twice", runs[0])
 		}
@@ -306,6 +309,9 @@ func TestPaneHistoryCodecHelpers(t *testing.T) {
 		}
 		if got := paneHistoryCellRuns(nil); got != nil {
 			t.Fatalf("paneHistoryCellRuns(nil) = %#v, want nil", got)
+		}
+		if got := paneHistoryCellRunCount(nil); got != 0 {
+			t.Fatalf("paneHistoryCellRunCount(nil) = %d, want 0", got)
 		}
 	})
 }
