@@ -466,10 +466,24 @@ func TestMsgTypeAttachPaneRejectsOtherPaneInputWithoutClosing(t *testing.T) {
 	default:
 	}
 	h.pane2.FeedOutput([]byte("still-live"))
-	msg := readAttachPaneMsgWithTimeout(t, conn)
+	msg := readAttachPanePaneOutputWithTimeout(t, conn, h.pane2.ID)
 	if msg.Type != MsgTypePaneOutput || msg.PaneID != h.pane2.ID || string(msg.PaneData) != "still-live" {
 		t.Fatalf("message after nonfatal reject = %+v, want pane 2 output", msg)
 	}
+}
+
+func readAttachPanePaneOutputWithTimeout(t *testing.T, conn net.Conn, paneID uint32) *Message {
+	t.Helper()
+
+	for i := 0; i < 10; i++ {
+		msg := readAttachPaneMsgWithTimeout(t, conn)
+		if msg.Type == MsgTypePaneMetaUpdate && msg.PaneID == paneID {
+			continue
+		}
+		return msg
+	}
+	t.Fatalf("timed out waiting for pane %d output after scoped meta updates", paneID)
+	return nil
 }
 
 func TestMsgTypeAttachPanePaneExitSendsExitAndCloses(t *testing.T) {
