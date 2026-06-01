@@ -15,6 +15,24 @@ type msgCLISendJSON struct {
 	ID string `json:"id"`
 }
 
+type msgCLIPaneAddress struct {
+	ID   uint32 `json:"id"`
+	Name string `json:"name"`
+}
+
+type msgCLIInboxJSON []struct {
+	ID     string            `json:"id"`
+	From   msgCLIPaneAddress `json:"from"`
+	Sender msgCLIPaneAddress `json:"sender"`
+}
+
+type msgCLIReadJSON struct {
+	ID     string            `json:"id"`
+	From   msgCLIPaneAddress `json:"from"`
+	Sender msgCLIPaneAddress `json:"sender"`
+	Body   string            `json:"body"`
+}
+
 type msgCLIDrainStatusJSON struct {
 	Unread             int      `json:"unread"`
 	Unacked            int      `json:"unacked"`
@@ -65,6 +83,26 @@ func parseMsgCLISendID(t *testing.T, raw string) string {
 	return out.ID
 }
 
+func parseMsgCLIInbox(t *testing.T, raw string) msgCLIInboxJSON {
+	t.Helper()
+
+	var out msgCLIInboxJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(msg inbox output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
+func parseMsgCLIRead(t *testing.T, raw string) msgCLIReadJSON {
+	t.Helper()
+
+	var out msgCLIReadJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(msg read output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
 func parseMsgCLIDrainStatus(t *testing.T, raw string) msgCLIDrainStatusJSON {
 	t.Helper()
 
@@ -93,9 +131,17 @@ func TestMsgCLISendReadsStdinAndBodyFile(t *testing.T) {
 
 	stdinOut := runHarnessCLIWithInput(t, h, "stdin body\nsecond line\n", "msg", "send", "--from", "pane-1", "--to", "pane-2", "--subject", "stdin", "--format", "json")
 	stdinID := parseMsgCLISendID(t, stdinOut)
+	stdinInbox := parseMsgCLIInbox(t, h.runCmd("msg", "inbox", "pane-2", "--format", "json"))
+	if len(stdinInbox) != 1 || stdinInbox[0].From.ID != 1 || stdinInbox[0].From.Name != "pane-1" || stdinInbox[0].Sender.ID != 1 || stdinInbox[0].Sender.Name != "pane-1" {
+		t.Fatalf("stdin inbox sender = %#v, want from/sender pane-1 id 1", stdinInbox)
+	}
+	stdinPeek := parseMsgCLIRead(t, h.runCmd("msg", "read", stdinID, "--for", "pane-2", "--peek", "--format", "json"))
+	if stdinPeek.Body != "stdin body\nsecond line\n" || stdinPeek.From.ID != 1 || stdinPeek.From.Name != "pane-1" || stdinPeek.Sender.ID != 1 || stdinPeek.Sender.Name != "pane-1" {
+		t.Fatalf("stdin read JSON = %#v, want body and from/sender pane-1 id 1", stdinPeek)
+	}
 	stdinRead := h.runCmd("msg", "read", stdinID, "--for", "pane-2")
-	if !strings.Contains(stdinRead, "stdin body\nsecond line") {
-		t.Fatalf("stdin message read output = %q, want stdin body", stdinRead)
+	if stdinRead != "From: pane-1 (1)\n\nstdin body\nsecond line\n" {
+		t.Fatalf("stdin message read output = %q, want sender header and stdin body", stdinRead)
 	}
 
 	bodyPath := filepath.Join(t.TempDir(), "message.txt")
@@ -105,8 +151,8 @@ func TestMsgCLISendReadsStdinAndBodyFile(t *testing.T) {
 	fileOut := h.runCmd("msg", "send", "--from", "pane-1", "--to", "pane-2", "--subject", "file", "--body-file", bodyPath, "--format", "json")
 	fileID := parseMsgCLISendID(t, fileOut)
 	fileRead := h.runCmd("msg", "read", fileID, "--for", "pane-2")
-	if !strings.Contains(fileRead, "file body") {
-		t.Fatalf("body-file message read output = %q, want file body", fileRead)
+	if fileRead != "From: pane-1 (1)\n\nfile body\n" {
+		t.Fatalf("body-file message read output = %q, want sender header and file body", fileRead)
 	}
 }
 

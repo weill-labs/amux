@@ -24,15 +24,22 @@ type msgCommandSendJSON struct {
 	} `json:"recipients"`
 }
 
+type msgCommandPaneAddress struct {
+	ID   uint32 `json:"id"`
+	Name string `json:"name"`
+}
+
 type msgCommandInboxJSON []struct {
-	ID        string `json:"id"`
-	Subject   string `json:"subject"`
-	ReadAt    string `json:"read_at"`
-	AckedAt   string `json:"acked_at"`
-	AckStatus string `json:"ack_status"`
-	AckNote   string `json:"ack_note"`
-	BodySize  int    `json:"body_size"`
-	PartCount int    `json:"part_count"`
+	ID        string                `json:"id"`
+	From      msgCommandPaneAddress `json:"from"`
+	Sender    msgCommandPaneAddress `json:"sender"`
+	Subject   string                `json:"subject"`
+	ReadAt    string                `json:"read_at"`
+	AckedAt   string                `json:"acked_at"`
+	AckStatus string                `json:"ack_status"`
+	AckNote   string                `json:"ack_note"`
+	BodySize  int                   `json:"body_size"`
+	PartCount int                   `json:"part_count"`
 }
 
 type msgCommandDrainStatusJSON struct {
@@ -53,6 +60,8 @@ type msgCommandDrainStatusJSON struct {
 
 type msgCommandReadJSON struct {
 	ID       string                     `json:"id"`
+	From     msgCommandPaneAddress      `json:"from"`
+	Sender   msgCommandPaneAddress      `json:"sender"`
 	Body     string                     `json:"body"`
 	ReadAt   string                     `json:"read_at"`
 	Metadata map[string]json.RawMessage `json:"metadata"`
@@ -198,6 +207,9 @@ func TestMsgCommandSendInboxReadAck(t *testing.T) {
 	if unread[0].ID != firstMsg.ID || unread[0].BodySize != len("please review") || unread[0].PartCount != 1 {
 		t.Fatalf("first unread summary = %#v, want first message summary", unread[0])
 	}
+	if unread[0].From.ID != 1 || unread[0].From.Name != "pane-1" || unread[0].Sender.ID != 1 || unread[0].Sender.Name != "pane-1" {
+		t.Fatalf("first unread sender = from:%#v sender:%#v, want pane-1 id 1", unread[0].From, unread[0].Sender)
+	}
 
 	read := runTestCommand(t, srv, sess, "msg", "read", firstMsg.ID, "--for", "pane-2")
 	if read.cmdErr != "" {
@@ -305,8 +317,8 @@ func TestMsgCommandSendForwardsToRemotePaneMailbox(t *testing.T) {
 	if read.cmdErr != "" {
 		t.Fatalf("remote read error: %s", read.cmdErr)
 	}
-	if read.output != "hello remote\n" {
-		t.Fatalf("remote read output = %q, want forwarded body", read.output)
+	if read.output != "From: local (1)\n\nhello remote\n" {
+		t.Fatalf("remote read output = %q, want sender header and forwarded body", read.output)
 	}
 }
 
@@ -568,7 +580,7 @@ func TestMsgCommandReplyInfersRecipientAndThread(t *testing.T) {
 	if read.cmdErr != "" {
 		t.Fatalf("msg read reply error: %s", read.cmdErr)
 	}
-	if read.output != "reply body\n" {
+	if read.output != "From: pane-2 (2)\n\nreply body\n" {
 		t.Fatalf("reply body = %q, want reply body", read.output)
 	}
 }
@@ -925,7 +937,7 @@ func TestMsgCommandTextAndDetailedJSON(t *testing.T) {
 	if inboxText.cmdErr != "" {
 		t.Fatalf("msg inbox text error: %s", inboxText.cmdErr)
 	}
-	if !strings.Contains(inboxText.output, "msg-000001 from pane-1: Thread root (9 bytes)") {
+	if !strings.Contains(inboxText.output, "msg-000001 from pane-1 (1): Thread root (9 bytes)") {
 		t.Fatalf("msg inbox text output = %q, want summary", inboxText.output)
 	}
 
@@ -937,6 +949,9 @@ func TestMsgCommandTextAndDetailedJSON(t *testing.T) {
 	if peekJSON.Body != "root body" || peekJSON.ReadAt != "" {
 		t.Fatalf("peek JSON = %#v, want body without read_at", peekJSON)
 	}
+	if peekJSON.From.ID != 1 || peekJSON.From.Name != "pane-1" || peekJSON.Sender.ID != 1 || peekJSON.Sender.Name != "pane-1" {
+		t.Fatalf("peek JSON sender = from:%#v sender:%#v, want pane-1 id 1", peekJSON.From, peekJSON.Sender)
+	}
 	if got := string(peekJSON.Metadata["priority"]); got != `"high"` {
 		t.Fatalf("metadata priority = %s, want high", got)
 	}
@@ -945,8 +960,8 @@ func TestMsgCommandTextAndDetailedJSON(t *testing.T) {
 	if read.cmdErr != "" {
 		t.Fatalf("msg read text error: %s", read.cmdErr)
 	}
-	if read.output != "root body\n" {
-		t.Fatalf("msg read text output = %q, want body with trailing newline", read.output)
+	if read.output != "From: pane-1 (1)\n\nroot body\n" {
+		t.Fatalf("msg read text output = %q, want sender header and body with trailing newline", read.output)
 	}
 
 	ackText := runTestCommand(t, srv, sess, "msg", "ack", "msg-000001", "--for", "pane-2")
