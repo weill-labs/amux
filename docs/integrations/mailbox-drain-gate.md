@@ -135,6 +135,11 @@ relative path will not resolve):
 }
 ```
 
+Use your real home directory in the `command` path — `/Users/you` is macOS; on
+Linux it is `/home/<username>` (run `echo $HOME`). The hooks JSON is strict JSON
+and does not accept comments, so substitute the path rather than annotating it. A
+wrong path is silently skipped with no startup error.
+
 Claude Code merges global and project `Stop` hooks, so inside the amux repo both
 the global and the project recipe fire. The shared per-`AMUX_SESSION` +
 `AMUX_PANE` + socket marker dedupes them into a single nudge, so the redundancy
@@ -216,6 +221,10 @@ Then add a `Stop` hook with the **absolute** wrapper path to `~/.codex/hooks.jso
   }
 }
 ```
+
+As with the Claude Code recipe, use your real home directory in the `command`
+path — `/Users/you` is macOS; on Linux it is `/home/<username>` (run
+`echo $HOME`). A wrong path is silently skipped.
 
 Run `/hooks` in Codex once to review and trust the global hook before it fires.
 
