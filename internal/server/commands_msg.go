@@ -1439,8 +1439,12 @@ func joinPaneNames(addrs []mailbox.PaneAddress) string {
 	return strings.Join(names, ",")
 }
 
+func formatMsgPaneAddress(addr mailbox.PaneAddress) string {
+	return fmt.Sprintf("%s (%d)", addr.Name, addr.ID)
+}
+
 func formatMsgReadText(msg mailbox.Message, body string) string {
-	return fmt.Sprintf("From: %s (%d)\n\n%s", msg.Sender.Name, msg.Sender.ID, ensureMsgTrailingNewline(body))
+	return fmt.Sprintf("From: %s\n\n%s", formatMsgPaneAddress(msg.Sender), ensureMsgTrailingNewline(body))
 }
 
 func formatMsgInboxText(summaries []mailbox.DeliverySummary) string {
@@ -1449,7 +1453,7 @@ func formatMsgInboxText(summaries []mailbox.DeliverySummary) string {
 	}
 	var b strings.Builder
 	for _, summary := range summaries {
-		fmt.Fprintf(&b, "%s from %s (%d): %s (%d bytes)\n", summary.MessageID, summary.Sender.Name, summary.Sender.ID, summary.Subject, summary.BodySize)
+		fmt.Fprintf(&b, "%s from %s: %s (%d bytes)\n", summary.MessageID, formatMsgPaneAddress(summary.Sender), summary.Subject, summary.BodySize)
 	}
 	return b.String()
 }
