@@ -256,24 +256,12 @@ The shared logic:
 - only uses message IDs, sender names, body sizes, and quoted/truncated subjects
   in model-visible output.
 
-<<<<<<< HEAD
 The Claude rewake watcher also sources the shared library. Its model-visible
 output is stricter than the Stop drain output: it tells Claude to run
 `amux msg drain-status --format json`, then `amux msg read <id> --for <pane>` and
 `amux msg ack <id> --for <pane> --status seen` for the pending IDs from that
 JSON. It intentionally omits the IDs and summaries from the hook output.
 
-Run a local sanity check:
-
-```bash
-.claude/hooks/mailbox-drain.sh --self-test
-.claude/hooks/mailbox-rewake.sh --self-test
-.codex/hooks/amux-mailbox-drain.sh --self-test
-```
-
-The self-test validates local tools and that the installed `amux` binary knows
-the required mailbox commands; it does not require pending mail.
-=======
 Fail-open means a global install carries no risk: a session launched from a
 stripped-`PATH` context (cron, launchd) where `amux`, `jq`, `flock`, or `timeout`
 are not resolvable simply releases the stop — the gate is skipped, never wedged.
@@ -284,13 +272,13 @@ those tools on `PATH` (or prepend their directories in the wrapper before the
 Run a local sanity check (project or global wrapper, whichever you installed):
 
 ```bash
-.claude/hooks/mailbox-drain.sh --self-test          # project recipe
-.codex/hooks/amux-mailbox-drain.sh --self-test       # project recipe
+.claude/hooks/mailbox-drain.sh --self-test            # project recipe
+.claude/hooks/mailbox-rewake.sh --self-test           # project rewake watcher
+.codex/hooks/amux-mailbox-drain.sh --self-test        # project recipe
 ~/.claude/hooks/amux-mailbox-drain.sh --self-test     # global recipe
 ~/.codex/hooks/amux-mailbox-drain.sh --self-test      # global recipe
 ```
 
 The self-test validates local tools and that the installed `amux` binary knows
-`msg drain-status`; it does not require pending mail. Run it from a login shell
-so the wrapper sees your full `PATH`.
->>>>>>> 29c52ec (Document global install of mailbox drain hooks)
+the required mailbox commands; it does not require pending mail. Run it from a
+login shell so the wrapper sees your full `PATH`.
