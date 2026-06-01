@@ -306,7 +306,12 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 		if w.ActivePane == nil {
 			return createPaneSnapshot{}, fmt.Errorf("no active pane")
 		}
-		return createPaneSnapshotWithMirrorTarget(sess, w, w.ActivePane, createPaneSnapshot{
+		mirrorTargetPane := w.ActivePane
+		if windowRef != "" {
+			// Explicit --window forwarding only needs the remote window name.
+			mirrorTargetPane = nil
+		}
+		return createPaneSnapshotWithMirrorTarget(sess, w, mirrorTargetPane, createPaneSnapshot{
 			inheritPane:              w.ActivePane,
 			windowWidth:              w.Width,
 			windowHeight:             w.Height,
