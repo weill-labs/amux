@@ -70,6 +70,36 @@ func TestWindowMirrorCheckpointAndRestore(t *testing.T) {
 	}
 }
 
+func TestSnapshotLayoutMarksRemoteMirrorWindowsFromState(t *testing.T) {
+	t.Parallel()
+
+	localNameLooksRemote := mux.NewWindow(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 80, 23)
+	localNameLooksRemote.ID = 1
+	localNameLooksRemote.Name = "hetzner-1:main"
+
+	remoteMirror := mux.NewWindow(&mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "pane-2"}}, 80, 23)
+	remoteMirror.ID = 2
+	remoteMirror.Name = "logs"
+
+	sess := &Session{
+		Name:             "session",
+		Windows:          []*mux.Window{localNameLooksRemote, remoteMirror},
+		ActiveWindowID:   localNameLooksRemote.ID,
+		windowMirrorSigs: map[uint32]string{remoteMirror.ID: "mirror-signature"},
+	}
+
+	snap := sess.snapshotLayout(map[uint32]bool{})
+	if snap == nil || len(snap.Windows) != 2 {
+		t.Fatalf("snapshot windows = %+v, want 2 windows", snap)
+	}
+	if snap.Windows[0].RemoteMirror {
+		t.Fatalf("local window with remote-looking name was marked as a mirror: %+v", snap.Windows[0])
+	}
+	if !snap.Windows[1].RemoteMirror {
+		t.Fatalf("window with mirror state was not marked as a mirror: %+v", snap.Windows[1])
+	}
+}
+
 func TestApplyWindowReconcileRollsBackPaneTrackingFailure(t *testing.T) {
 	t.Parallel()
 
