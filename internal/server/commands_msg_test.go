@@ -574,7 +574,7 @@ func TestMsgCommandThreadReturnsTranscriptByTopicOrMessage(t *testing.T) {
 	}
 	replyJSON := parseMsgCommandSendJSON(t, reply.output)
 
-	other := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-1", "--to", "pane-2", "--topic", "other", "--body", "other body")
+	other := runTestCommand(t, srv, sess, "msg", "send", "--from", "pane-2", "--to", "pane-1", "--topic", "other", "--body", "other body")
 	if other.cmdErr != "" {
 		t.Fatalf("msg send other error: %s", other.cmdErr)
 	}

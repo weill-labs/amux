@@ -444,6 +444,70 @@ func (s *Store) Message(id MessageID) (Message, bool) {
 	return cloneMessage(msg), true
 }
 
+func (s *Store) Thread(ref string) ([]Message, error) {
+	if s == nil {
+		return nil, fmt.Errorf("mailbox store is nil")
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, fmt.Errorf("thread reference is required")
+	}
+	if msg := s.messages[MessageID(ref)]; msg != nil {
+		return s.messagesByThreadID(msg.ThreadID)
+	}
+	if messages := s.messagesByTopic(ref); len(messages) > 0 {
+		return messages, nil
+	}
+	return nil, fmt.Errorf("thread %q not found", ref)
+}
+
+func (s *Store) messagesByThreadID(threadID ThreadID) ([]Message, error) {
+	ids := append([]MessageID(nil), s.threads[threadID]...)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("thread %q not found", threadID)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+	return s.cloneMessagesByIDs(ids), nil
+}
+
+func (s *Store) messagesByTopic(topic string) []Message {
+	ids := make([]MessageID, 0)
+	for id, msg := range s.messages {
+		if messageHasTopic(msg, topic) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+	return s.cloneMessagesByIDs(ids)
+}
+
+func (s *Store) cloneMessagesByIDs(ids []MessageID) []Message {
+	out := make([]Message, 0, len(ids))
+	for _, id := range ids {
+		msg := s.messages[id]
+		if msg != nil {
+			out = append(out, cloneMessage(msg))
+		}
+	}
+	return out
+}
+
+func messageHasTopic(msg *Message, topic string) bool {
+	if msg == nil {
+		return false
+	}
+	for _, candidate := range msg.Topics {
+		if candidate == topic {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Store) ListUnread(recipientID uint32) ([]DeliverySummary, error) {
 	return s.List(recipientID, ListOptions{UnreadOnly: true})
 }

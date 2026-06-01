@@ -47,6 +47,8 @@ func msgHelpUsage(args []string) string {
 			return msgReadUsage
 		case "ack":
 			return msgAckUsage
+		case "thread":
+			return msgThreadUsage
 		}
 	}
 	return msgUsage

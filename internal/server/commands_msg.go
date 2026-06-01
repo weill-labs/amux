@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	msgUsage             = "usage: msg <send|reply|inbox|drain-status|read|ack> ..."
+	msgUsage             = "usage: msg <send|reply|inbox|drain-status|read|ack|thread> ..."
 	msgSendUsage         = "usage: msg send [--from pane] --to pane[,pane...] [--subject text] [--topic name] [--group name] [--metadata json] [--reply-to msg-id] --body text [--format json]"
 	msgReplyUsage        = "usage: msg reply <msg-id> [--from pane] [--to pane[,pane...]] [--subject text] [--topic name] [--group name] [--metadata json] [--ack status] [--ack-note text] --body text [--format json]"
 	msgDeliverUsage      = "usage: msg deliver <payload-json> [--format json]"
@@ -25,6 +25,7 @@ const (
 	msgDrainStatusUsage  = "usage: msg drain-status [pane] [--format json]"
 	msgReadUsage         = "usage: msg read <msg-id> [--for pane] [--peek] [--format json]"
 	msgAckUsage          = "usage: msg ack <msg-id> [--for pane] [--status ok|error|seen] [--note text] [--format json]"
+	msgThreadUsage       = "usage: msg thread <topic|msg-id> [--format json]"
 	msgDrainLatestLimit  = 5
 	msgSubjectBriefLimit = 120
 )
@@ -82,6 +83,11 @@ type msgReadOptions struct {
 	id     mailbox.MessageID
 	target string
 	peek   bool
+	format msgFormat
+}
+
+type msgThreadOptions struct {
+	ref    string
 	format msgFormat
 }
 
@@ -151,6 +157,21 @@ type msgReadOutput struct {
 	PartCount  int                        `json:"part_count"`
 	Delivery   mailbox.DeliveryState      `json:"delivery"`
 	Metadata   map[string]json.RawMessage `json:"metadata,omitempty"`
+}
+
+type msgThreadMessageOutput struct {
+	ID         mailbox.MessageID     `json:"id"`
+	Sender     mailbox.PaneAddress   `json:"sender"`
+	Recipients []mailbox.PaneAddress `json:"recipients"`
+	Subject    string                `json:"subject"`
+	Topics     []string              `json:"topics,omitempty"`
+	Groups     []string              `json:"groups,omitempty"`
+	ThreadID   mailbox.ThreadID      `json:"thread_id"`
+	InReplyTo  mailbox.MessageID     `json:"in_reply_to,omitempty"`
+	CreatedAt  string                `json:"created_at"`
+	Body       string                `json:"body"`
+	BodySize   int                   `json:"body_size"`
+	PartCount  int                   `json:"part_count"`
 }
 
 type msgAckOutput struct {
@@ -257,6 +278,16 @@ func cmdMsg(ctx *CommandContext) {
 		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 			output, err := runMsgRead(mctx, ctx.ActorPaneID, opts)
+			return commandMutationResult{output: output, err: err}
+		}))
+	case "thread":
+		opts, err := parseMsgThreadOptions(ctx.Args[1:])
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
+			output, err := runMsgThread(mctx, opts)
 			return commandMutationResult{output: output, err: err}
 		}))
 	case "ack":
@@ -542,6 +573,30 @@ func parseMsgReadOptions(args []string) (msgReadOptions, error) {
 		default:
 			return opts, errors.New(msgReadUsage)
 		}
+	}
+	return opts, nil
+}
+
+func parseMsgThreadOptions(args []string) (msgThreadOptions, error) {
+	opts := msgThreadOptions{format: msgFormatText}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			format, next, err := parseMsgFormatFlag(args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.format = format
+			i = next
+		default:
+			if strings.HasPrefix(args[i], "-") || opts.ref != "" {
+				return opts, errors.New(msgThreadUsage)
+			}
+			opts.ref = args[i]
+		}
+	}
+	if opts.ref == "" {
+		return opts, errors.New(msgThreadUsage)
 	}
 	return opts, nil
 }
@@ -873,6 +928,17 @@ func runMsgRead(mctx *MutationContext, actorPaneID uint32, opts msgReadOptions) 
 		return encodeMsgJSON(readOutputForMessage(msg, delivery, body))
 	}
 	return ensureMsgTrailingNewline(body), nil
+}
+
+func runMsgThread(mctx *MutationContext, opts msgThreadOptions) (string, error) {
+	messages, err := mctx.sess.ensureMailbox().Thread(opts.ref)
+	if err != nil {
+		return "", err
+	}
+	if opts.format == msgFormatJSON {
+		return encodeMsgJSON(threadOutput(messages))
+	}
+	return formatMsgThreadText(messages), nil
 }
 
 func runMsgAck(mctx *MutationContext, actorPaneID uint32, opts msgAckOptions) (string, error) {
@@ -1309,6 +1375,27 @@ func readOutputForMessage(msg mailbox.Message, delivery mailbox.DeliveryState, b
 	return out
 }
 
+func threadOutput(messages []mailbox.Message) []msgThreadMessageOutput {
+	out := make([]msgThreadMessageOutput, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, msgThreadMessageOutput{
+			ID:         msg.ID,
+			Sender:     msg.Sender,
+			Recipients: append([]mailbox.PaneAddress(nil), msg.Recipients...),
+			Subject:    msg.Subject,
+			Topics:     append([]string(nil), msg.Topics...),
+			Groups:     append([]string(nil), msg.Groups...),
+			ThreadID:   msg.ThreadID,
+			InReplyTo:  msg.InReplyTo,
+			CreatedAt:  msg.CreatedAt.Format(time.RFC3339Nano),
+			Body:       msgBodyText(msg),
+			BodySize:   messageOutputBodySize(msg),
+			PartCount:  len(msg.Parts),
+		})
+	}
+	return out
+}
+
 func encodeMsgJSON(v any) (string, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -1355,6 +1442,25 @@ func formatMsgInboxText(summaries []mailbox.DeliverySummary) string {
 	var b strings.Builder
 	for _, summary := range summaries {
 		fmt.Fprintf(&b, "%s from %s: %s (%d bytes)\n", summary.MessageID, summary.Sender.Name, summary.Subject, summary.BodySize)
+	}
+	return b.String()
+}
+
+func formatMsgThreadText(messages []mailbox.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, msg := range messages {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%s from %s at %s", msg.ID, msg.Sender.Name, msg.CreatedAt.Format(time.RFC3339Nano))
+		if msg.Subject != "" {
+			fmt.Fprintf(&b, ": %s", msg.Subject)
+		}
+		b.WriteByte('\n')
+		b.WriteString(ensureMsgTrailingNewline(msgBodyText(msg)))
 	}
 	return b.String()
 }
