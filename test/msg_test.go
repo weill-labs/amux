@@ -15,6 +15,14 @@ type msgCLISendJSON struct {
 	ID string `json:"id"`
 }
 
+type msgCLIDrainStatusJSON struct {
+	Unread             int      `json:"unread"`
+	Unacked            int      `json:"unacked"`
+	Pending            int      `json:"pending"`
+	PendingFingerprint string   `json:"pending_fingerprint"`
+	PendingIDs         []string `json:"pending_ids"`
+}
+
 func runHarnessCLIWithInput(t *testing.T, h *ServerHarness, input string, args ...string) string {
 	t.Helper()
 
@@ -47,6 +55,16 @@ func parseMsgCLISendID(t *testing.T, raw string) string {
 	return out.ID
 }
 
+func parseMsgCLIDrainStatus(t *testing.T, raw string) msgCLIDrainStatusJSON {
+	t.Helper()
+
+	var out msgCLIDrainStatusJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("json.Unmarshal(msg drain-status output): %v\nraw:\n%s", err, raw)
+	}
+	return out
+}
+
 func TestMsgCLISendReadsStdinAndBodyFile(t *testing.T) {
 	t.Parallel()
 
@@ -69,5 +87,42 @@ func TestMsgCLISendReadsStdinAndBodyFile(t *testing.T) {
 	fileRead := h.runCmd("msg", "read", fileID, "--for", "pane-2")
 	if !strings.Contains(fileRead, "file body") {
 		t.Fatalf("body-file message read output = %q, want file body", fileRead)
+	}
+}
+
+func TestMsgCLIDrainStatusReportsReadAckPendingState(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.runCmd("spawn", "--at", "pane-1")
+
+	firstID := parseMsgCLISendID(t, h.runCmd("msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "first", "--format", "json"))
+	secondID := parseMsgCLISendID(t, h.runCmd("msg", "send", "--from", "pane-1", "--to", "pane-2", "--body", "second", "--format", "json"))
+
+	if got := h.runCmd("msg", "drain-status", "pane-2"); got != "2\n" {
+		t.Fatalf("drain-status text = %q, want 2", got)
+	}
+	initial := parseMsgCLIDrainStatus(t, h.runCmd("msg", "drain-status", "pane-2", "--format", "json"))
+	if initial.Unread != 2 || initial.Unacked != 2 || initial.Pending != 2 || initial.PendingFingerprint == "" {
+		t.Fatalf("initial drain-status = %#v, want two unread/unacked pending messages", initial)
+	}
+
+	h.runCmd("msg", "read", firstID, "--for", "pane-2")
+	readOnly := parseMsgCLIDrainStatus(t, h.runCmd("msg", "drain-status", "pane-2", "--format", "json"))
+	if readOnly.Unread != 1 || readOnly.Unacked != 2 || readOnly.Pending != 2 {
+		t.Fatalf("read-only drain-status = %#v, want first message still pending for ack", readOnly)
+	}
+	if readOnly.PendingFingerprint == initial.PendingFingerprint {
+		t.Fatalf("pending fingerprint did not change after read: %q", readOnly.PendingFingerprint)
+	}
+
+	h.runCmd("msg", "ack", firstID, "--for", "pane-2", "--status", "ok")
+	h.runCmd("msg", "ack", secondID, "--for", "pane-2", "--status", "seen")
+	ackOnly := parseMsgCLIDrainStatus(t, h.runCmd("msg", "drain-status", "pane-2", "--format", "json"))
+	if ackOnly.Unread != 1 || ackOnly.Unacked != 0 || ackOnly.Pending != 1 {
+		t.Fatalf("ack-only drain-status = %#v, want second message pending for read", ackOnly)
+	}
+	if len(ackOnly.PendingIDs) != 1 || ackOnly.PendingIDs[0] != secondID {
+		t.Fatalf("ack-only pending ids = %v, want [%s]", ackOnly.PendingIDs, secondID)
 	}
 }

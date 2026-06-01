@@ -200,6 +200,134 @@ func TestStoreAckBeforeReadAndIdempotentRepeat(t *testing.T) {
 	}
 }
 
+func TestStoreDrainStatusCountsReadAndAckState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+
+	empty, err := store.DrainStatus(2, DrainOptions{LatestLimit: 5})
+	if err != nil {
+		t.Fatalf("DrainStatus empty: %v", err)
+	}
+	if empty.Unread != 0 || empty.Unacked != 0 || empty.Pending != 0 || empty.PendingFingerprint != "" || len(empty.PendingIDs) != 0 || len(empty.Latest) != 0 {
+		t.Fatalf("empty DrainStatus = %#v, want all zero fields", empty)
+	}
+
+	untouched := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Untouched",
+		Body:       []byte("untouched body"),
+	})
+	readOnly := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Read only",
+		Body:       []byte("read body"),
+	})
+	ackOnly := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Ack only",
+		Body:       []byte("ack body"),
+	})
+	done := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Done",
+		Body:       []byte("done body"),
+	})
+
+	now = now.Add(time.Minute)
+	if _, _, err := store.Read(readOnly.ID, 2, ReadOptions{}); err != nil {
+		t.Fatalf("Read(readOnly): %v", err)
+	}
+	if _, err := store.Ack(ackOnly.ID, 2, AckRequest{Status: "seen"}); err != nil {
+		t.Fatalf("Ack(ackOnly): %v", err)
+	}
+	if _, _, err := store.Read(done.ID, 2, ReadOptions{}); err != nil {
+		t.Fatalf("Read(done): %v", err)
+	}
+	if _, err := store.Ack(done.ID, 2, AckRequest{Status: "ok"}); err != nil {
+		t.Fatalf("Ack(done): %v", err)
+	}
+
+	status, err := store.DrainStatus(2, DrainOptions{LatestLimit: 2})
+	if err != nil {
+		t.Fatalf("DrainStatus: %v", err)
+	}
+	if status.Unread != 2 || status.Unacked != 2 || status.Pending != 3 {
+		t.Fatalf("DrainStatus counts = unread %d unacked %d pending %d, want 2/2/3", status.Unread, status.Unacked, status.Pending)
+	}
+	if status.PendingFingerprint == "" {
+		t.Fatalf("PendingFingerprint is empty for pending status: %#v", status)
+	}
+	wantIDs := []MessageID{untouched.ID, readOnly.ID, ackOnly.ID}
+	if fmt.Sprint(status.PendingIDs) != fmt.Sprint(wantIDs) {
+		t.Fatalf("PendingIDs = %v, want %v", status.PendingIDs, wantIDs)
+	}
+	if len(status.Latest) != 2 || status.Latest[0].MessageID != ackOnly.ID || status.Latest[1].MessageID != readOnly.ID {
+		t.Fatalf("Latest = %#v, want newest two pending summaries in reverse delivery order", status.Latest)
+	}
+}
+
+func TestStoreDrainStatusFingerprintTracksReadAckProgress(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	store := newTestStore(&now)
+	msg := mustSend(t, store, SendRequest{
+		Sender:     testAddress(1),
+		Recipients: []PaneAddress{testAddress(2)},
+		Subject:    "Progress",
+		Body:       []byte("body"),
+	})
+
+	untouched, err := store.DrainStatus(2, DrainOptions{})
+	if err != nil {
+		t.Fatalf("DrainStatus untouched: %v", err)
+	}
+	if untouched.PendingFingerprint == "" {
+		t.Fatal("untouched fingerprint is empty")
+	}
+
+	now = now.Add(time.Minute)
+	if _, _, err := store.Read(msg.ID, 2, ReadOptions{}); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	readOnly, err := store.DrainStatus(2, DrainOptions{})
+	if err != nil {
+		t.Fatalf("DrainStatus read-only: %v", err)
+	}
+	if readOnly.Pending != 1 || readOnly.Unread != 0 || readOnly.Unacked != 1 {
+		t.Fatalf("read-only status = %#v, want one unacked pending delivery", readOnly)
+	}
+	if readOnly.PendingFingerprint == untouched.PendingFingerprint {
+		t.Fatalf("fingerprint did not change after read: %q", readOnly.PendingFingerprint)
+	}
+
+	again, err := store.DrainStatus(2, DrainOptions{})
+	if err != nil {
+		t.Fatalf("DrainStatus again: %v", err)
+	}
+	if again.PendingFingerprint != readOnly.PendingFingerprint {
+		t.Fatalf("stable read-only fingerprint = %q, want %q", again.PendingFingerprint, readOnly.PendingFingerprint)
+	}
+
+	now = now.Add(time.Minute)
+	if _, err := store.Ack(msg.ID, 2, AckRequest{Status: "ok"}); err != nil {
+		t.Fatalf("Ack: %v", err)
+	}
+	done, err := store.DrainStatus(2, DrainOptions{})
+	if err != nil {
+		t.Fatalf("DrainStatus done: %v", err)
+	}
+	if done.Pending != 0 || done.PendingFingerprint != "" || len(done.PendingIDs) != 0 {
+		t.Fatalf("done status = %#v, want empty pending state", done)
+	}
+}
+
 func TestStoreMultiRecipientDeliveryTracksPerRecipientState(t *testing.T) {
 	t.Parallel()
 
