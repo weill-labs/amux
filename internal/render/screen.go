@@ -67,7 +67,9 @@ type OOBWrite struct {
 type ScreenGrid struct {
 	Width, Height int
 	Cells         []ScreenCell // Cells[y*Width + x]
-	Debug         bool         // when true, OOB Set() calls are recorded for inspection in tests
+	rows          [][]ScreenCell
+	ownedRows     []bool
+	Debug         bool // when true, OOB Set() calls are recorded for inspection in tests
 	oobWrites     []OOBWrite
 }
 
@@ -85,13 +87,44 @@ func (g *ScreenGrid) Clone() *ScreenGrid {
 	if g == nil {
 		return nil
 	}
+	cells := make([]ScreenCell, g.Width*g.Height)
+	for y := 0; y < g.Height; y++ {
+		copy(cells[y*g.Width:(y+1)*g.Width], g.rowForRead(y))
+	}
 	dup := &ScreenGrid{
 		Width:  g.Width,
 		Height: g.Height,
 		Debug:  g.Debug,
-		Cells:  make([]ScreenCell, len(g.Cells)),
+		Cells:  cells,
 	}
-	copy(dup.Cells, g.Cells)
+	return dup
+}
+
+func (g *ScreenGrid) cloneDirtyRows(dirtyRows []bool) *ScreenGrid {
+	if g == nil {
+		return nil
+	}
+	if len(dirtyRows) != g.Height {
+		return g.Clone()
+	}
+	dup := &ScreenGrid{
+		Width:     g.Width,
+		Height:    g.Height,
+		Debug:     g.Debug,
+		rows:      make([][]ScreenCell, g.Height),
+		ownedRows: make([]bool, g.Height),
+	}
+	for y := 0; y < g.Height; y++ {
+		src := g.rowForRead(y)
+		if !dirtyRows[y] {
+			dup.rows[y] = src
+			continue
+		}
+		row := make([]ScreenCell, g.Width)
+		copy(row, src)
+		dup.rows[y] = row
+		dup.ownedRows[y] = true
+	}
 	return dup
 }
 
@@ -119,7 +152,7 @@ func (g *ScreenGrid) setBlank(x, y int) {
 
 func (g *ScreenGrid) cellForWrite(x, y int) *ScreenCell {
 	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
-		return &g.Cells[y*g.Width+x]
+		return &g.rowForWrite(y)[x]
 	}
 	return nil
 }
@@ -127,9 +160,40 @@ func (g *ScreenGrid) cellForWrite(x, y int) *ScreenCell {
 // Get reads the cell at (x, y). Out-of-bounds returns a space cell.
 func (g *ScreenGrid) Get(x, y int) ScreenCell {
 	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
-		return g.Cells[y*g.Width+x]
+		row := g.rowForRead(y)
+		if x < len(row) {
+			return row[x]
+		}
 	}
 	return ScreenCell{Char: " ", Width: 1}
+}
+
+func (g *ScreenGrid) rowForRead(y int) []ScreenCell {
+	if g == nil || y < 0 || y >= g.Height {
+		return nil
+	}
+	if g.rows != nil {
+		return g.rows[y]
+	}
+	start := y * g.Width
+	end := start + g.Width
+	if start < 0 || end > len(g.Cells) {
+		return nil
+	}
+	return g.Cells[start:end]
+}
+
+func (g *ScreenGrid) rowForWrite(y int) []ScreenCell {
+	if g.rows == nil {
+		return g.rowForRead(y)
+	}
+	if g.ownedRows != nil && !g.ownedRows[y] {
+		row := make([]ScreenCell, g.Width)
+		copy(row, g.rows[y])
+		g.rows[y] = row
+		g.ownedRows[y] = true
+	}
+	return g.rows[y]
 }
 
 // CellChange records a single cell that differs between two grids.
@@ -147,10 +211,11 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 	if prev == nil {
 		changes := make([]CellChange, 0, next.Width*next.Height)
 		for y := 0; y < next.Height; y++ {
+			nextRow := next.rowForRead(y)
 			for x := 0; x < next.Width; x++ {
 				changes = append(changes, CellChange{
 					X: x, Y: y,
-					Cell: next.Cells[y*next.Width+x],
+					Cell: screenCellFromRow(nextRow, x),
 				})
 			}
 		}
@@ -158,10 +223,14 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 	}
 	var changes []CellChange
 	for y := 0; y < next.Height; y++ {
+		prevRow := prev.rowForRead(y)
+		nextRow := next.rowForRead(y)
+		if sameScreenCellRow(prevRow, nextRow, next.Width) {
+			continue
+		}
 		firstChanged, lastChanged := -1, -1
 		for x := 0; x < next.Width; x++ {
-			idx := y*next.Width + x
-			if !next.Cells[idx].Equal(prev.Cells[idx]) {
+			if !screenCellFromRow(nextRow, x).Equal(screenCellFromRow(prevRow, x)) {
 				if firstChanged < 0 {
 					firstChanged = x
 				}
@@ -173,13 +242,26 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 		}
 		firstChanged, lastChanged = extendChangedStatusSpan(next, y, firstChanged, lastChanged)
 		for x := firstChanged; x <= lastChanged; x++ {
-			idx := y*next.Width + x
 			changes = append(changes, CellChange{
-				X: x, Y: y, Cell: next.Cells[idx],
+				X: x, Y: y, Cell: screenCellFromRow(nextRow, x),
 			})
 		}
 	}
 	return changes
+}
+
+func screenCellFromRow(row []ScreenCell, x int) ScreenCell {
+	if x >= 0 && x < len(row) {
+		return row[x]
+	}
+	return ScreenCell{Char: " ", Width: 1}
+}
+
+func sameScreenCellRow(a, b []ScreenCell, width int) bool {
+	if width == 0 {
+		return true
+	}
+	return len(a) >= width && len(b) >= width && &a[0] == &b[0]
 }
 
 // Pane-header rows are layout-coupled overlays. If a header update changes only
@@ -468,13 +550,10 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		return c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
 	}
 
-	// prevGrid may be published concurrently for display capture. Clone before
-	// applying dirty-pane updates so previously published frames stay immutable.
-	g := c.prevGrid.Clone()
-	g.Debug = c.debug
-
 	paneCount := 0
 	dirtyCells := make([]paneComposite, 0, len(dirtyPanes))
+	dirtyRows := make([]bool, c.height)
+	markDirtyRow(dirtyRows, c.height-1)
 	root.Walk(func(cell *mux.LayoutCell) {
 		pid := cell.CellPaneID()
 		if pid == 0 {
@@ -495,7 +574,14 @@ func (c *Compositor) buildGridWithOverlayDirty(
 			pressed:     overlay.IsPanePressed(pid),
 			copyOverlay: pd.CopyModeOverlay(),
 		})
+		markDirtyRows(dirtyRows, cell.Y, cell.Y+cell.H)
 	})
+
+	// prevGrid may be published concurrently for display capture. Copy only rows
+	// that this dirty frame can rewrite; clean rows stay shared and immutable.
+	g := c.prevGrid.cloneDirtyRows(dirtyRows)
+	g.Debug = c.debug
+
 	compositedPanes := len(dirtyCells)
 	c.composePanes(g, layoutHeight, dirtyCells)
 
@@ -519,6 +605,18 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	}
 
 	return g, compositedPanes
+}
+
+func markDirtyRow(rows []bool, y int) {
+	if y >= 0 && y < len(rows) {
+		rows[y] = true
+	}
+}
+
+func markDirtyRows(rows []bool, startY, endY int) {
+	for y := max(0, startY); y < min(len(rows), endY); y++ {
+		rows[y] = true
+	}
 }
 
 // buildPaneContentCells writes a pane row into the compositor grid using the
