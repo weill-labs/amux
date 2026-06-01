@@ -160,6 +160,15 @@ func TestParseSendKeysArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "submit body",
+			args: []string{"--submit", "first\nsecond"},
+			want: sendKeysOptions{
+				transport:   sendKeysViaPTY,
+				waitTimeout: 10 * time.Second,
+				keys:        []string{"first\nsecond"},
+			},
+		},
+		{
 			name: "literal args after first key",
 			args: []string{"task", "--wait", "ready"},
 			want: sendKeysOptions{
@@ -414,7 +423,7 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--submit] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }

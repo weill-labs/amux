@@ -1,11 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -35,8 +37,36 @@ func TestSendKeysCommandUsageIncludesReadyAndVia(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys (<pane>|--window <index|name>) [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--submit] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
+	}
+}
+
+func TestCmdSendKeysSubmitWrapsBodyAsBracketedPasteAndEnter(t *testing.T) {
+	t.Parallel()
+
+	writes := make(chan string, 2)
+	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	})
+	defer cleanup()
+
+	body := "first line\nsecond line"
+	paste := ansi.BracketedPasteStart + body + ansi.BracketedPasteEnd
+	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--submit", body)
+	if res.cmdErr != "" {
+		t.Fatalf("send-keys --submit cmdErr = %q", res.cmdErr)
+	}
+	if got, want := res.output, fmt.Sprintf("Submitted %d bytes to pane-1\n", len(paste)+1); got != want {
+		t.Fatalf("send-keys --submit output = %q, want %q", got, want)
+	}
+
+	if got := <-writes; got != paste {
+		t.Fatalf("first write = %q, want bracketed paste %q", got, paste)
+	}
+	if got := <-writes; got != "\r" {
+		t.Fatalf("second write = %q, want carriage return", got)
 	}
 }
 
