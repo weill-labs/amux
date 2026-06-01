@@ -584,8 +584,7 @@ func runRemoteDetachWindow(ctx *CommandContext) commandpkg.Result {
 		// Stop the layout subscription first, then soft-close each pane (which
 		// also detaches the per-pane mirror); closing the last pane removes the
 		// window.
-		mctx.sess.mirror.DetachWindow(w.ID)
-		delete(mctx.sess.windowMirrorSigs, w.ID)
+		detachWindowMirror(mctx, w)
 		for _, id := range paneIDs {
 			mctx.softClosePane(id)
 		}
