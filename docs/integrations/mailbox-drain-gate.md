@@ -27,6 +27,29 @@ The Stop drain gate and wake-from-park watcher are separate paths:
 - The Claude Code `asyncRewake` watcher parks in `amux wait msg`, then rechecks
   `amux msg drain-status --format json` after a fresh delivery. If pending
   read/ack work remains, it exits `2` so Claude wakes.
+- The server also sends a delivery-time prompt nudge to quiet panes tagged
+  `agent_profile=codex`. Set `mailbox_wake=prompt` to opt in another pane, or
+  `mailbox_wake=off` to suppress the nudge for a Codex pane. The nudge fires
+  only when the recipient's pending mailbox was empty before the new delivery,
+  so a burst of messages does not stack repeated prompts.
+
+## Bootstrap Pattern
+
+When the responder has no automatic wake path, arm the responder before the
+initiator sends the first message:
+
+```bash
+# Run from the responder pane, or pass the responder pane explicitly.
+amux wait msg "${AMUX_PANE:-pane-2}" --timeout 120s --format json
+amux msg drain-status --format json
+amux msg read <id>
+amux msg ack <id> --status seen
+```
+
+Then have the initiator send or reply. The important ordering is responder wait
+first, initiator send second. If the send happens before the wait is armed and
+there is no rewake/nudge integration, the delivery remains pending until the
+responder checks `amux msg drain-status` on its own.
 
 ## Core Command
 
@@ -235,6 +258,26 @@ Codex requires project-local hooks to be reviewed and trusted with `/hooks`
 before they run. Stop hooks expect JSON on stdout when they exit successfully;
 diagnostics from this recipe go to the bounded log instead.
 
+Codex does not currently run long-lived async rewake hooks, so the project
+`hooks.json` wires only the Stop drain gate. For parked Codex panes, amux uses
+the server-side delivery nudge described above when the pane has
+`agent_profile=codex` metadata. Orca sets that metadata on worker panes. For a
+manually started Codex pane, opt in with:
+
+```bash
+amux meta set pane-2 agent_profile=codex
+# or, without declaring an agent profile:
+amux meta set pane-2 mailbox_wake=prompt
+```
+
+The repo also ships `.codex/hooks/amux-mailbox-rewake.sh` as a reusable Codex
+companion for environments that can run a long-lived rewake command. It shares
+the Claude watcher logic, but emits Codex Stop-hook JSON:
+
+```json
+{"decision":"block","reason":"..."}
+```
+
 ### Global install (all sessions)
 
 Install under `~/.codex/` to run the gate in every Codex session. Use the same
@@ -256,6 +299,20 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 amux_mailbox_drain_main codex "$@"
 EOF
 chmod +x ~/.codex/hooks/amux-mailbox-drain.sh
+```
+
+If your Codex runner supports a long-lived rewake hook, install a sibling
+rewake wrapper:
+
+```bash
+cat > ~/.codex/hooks/amux-mailbox-rewake.sh <<'EOF'
+#!/usr/bin/env bash
+set -u
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HOOK_DIR/amux-mailbox-drain-lib.sh"
+amux_mailbox_rewake_main codex "$@"
+EOF
+chmod +x ~/.codex/hooks/amux-mailbox-rewake.sh
 ```
 
 As above, substitute `/path/to/amux` with your checkout and confirm the link
@@ -291,7 +348,8 @@ Run `/hooks` in Codex once to review and trust the global hook before it fires.
 
 ## Shared Hook Behavior
 
-Both wrappers source `docs/integrations/amux-mailbox-drain-lib.sh`.
+The drain and rewake wrappers source
+`docs/integrations/amux-mailbox-drain-lib.sh`.
 
 The shared logic:
 
@@ -307,9 +365,9 @@ The shared logic:
 - only uses message IDs, sender names, body sizes, and quoted/truncated subjects
   in model-visible output.
 
-The Claude rewake watcher also sources the shared library. Its model-visible
-output is stricter than the Stop drain output: it tells Claude to run
-`amux msg drain-status --format json`, then `amux msg read <id> --for <pane>` and
+The rewake watcher output is stricter than the Stop drain output: it tells the
+agent to run `amux msg drain-status --format json`, then
+`amux msg read <id> --for <pane>` and
 `amux msg ack <id> --for <pane> --status seen` for the pending IDs from that
 JSON. It intentionally omits the IDs and summaries from the hook output.
 
@@ -326,6 +384,7 @@ Run a local sanity check (project or global wrapper, whichever you installed):
 .claude/hooks/mailbox-drain.sh --self-test            # project recipe
 .claude/hooks/mailbox-rewake.sh --self-test           # project rewake watcher
 .codex/hooks/amux-mailbox-drain.sh --self-test        # project recipe
+.codex/hooks/amux-mailbox-rewake.sh --self-test       # project rewake wrapper
 ~/.claude/hooks/amux-mailbox-drain.sh --self-test     # global recipe
 ~/.codex/hooks/amux-mailbox-drain.sh --self-test      # global recipe
 ```
