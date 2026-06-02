@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"net"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,10 +25,8 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 
 	startDir := t.TempDir()
 	nextDir := t.TempDir()
+	startDirResolved := canonicalPathForTest(t, startDir)
 	nextDirResolved := canonicalPathForTest(t, nextDir)
-	markerFile := filepath.Join(t.TempDir(), "starts")
-	cwdFile := filepath.Join(t.TempDir(), "cwd")
-	shellPath := writeRespawnTestShell(t, markerFile, cwdFile)
 
 	meta := mux.PaneMeta{
 		Name:  "pane-1",
@@ -40,13 +37,8 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 		Dir:   startDir,
 	}
 
-	pane := func() *mux.Pane {
-		restoreShell := withShellForTest(t, shellPath)
-		defer restoreShell()
-		return mustCreatePaneWithMeta(t, sess, srv, meta, 80, 23)
-	}()
+	pane := mustCreatePaneWithMeta(t, sess, srv, meta, 80, 23)
 	pane.Start()
-	waitForMarkerCount(t, markerFile, 1)
 
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
 
@@ -73,6 +65,7 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	if oldPID == 0 {
 		t.Fatal("old process pid = 0, want live shell")
 	}
+	waitForProcessCwd(t, oldPID, startDirResolved)
 
 	res := runTestCommand(t, srv, sess, "respawn", "pane-1")
 	if res.cmdErr != "" {
@@ -112,8 +105,6 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	if got := mux.EmulatorContentLines(emu); len(got) != 22 || got[0] != "" {
 		t.Fatalf("broadcast respawn screen = %#v, want blank rows", got)
 	}
-	waitForMarkerCount(t, markerFile, 2)
-
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
 		pane        *mux.Pane
 		windowPane  *mux.Pane
@@ -204,7 +195,7 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 		t.Fatalf("respawned emulator size = %dx%d, want 80x22", state.emulatorCol, state.emulatorRow)
 	}
 
-	waitForFileString(t, cwdFile, nextDirResolved)
+	waitForProcessCwd(t, state.processPID, nextDirResolved)
 	waitForPaneClosed(t, pane)
 	waitForProcessExit(t, oldPID)
 }
@@ -329,65 +320,13 @@ func mustCreatePaneWithMeta(t *testing.T, sess *Session, srv *Server, meta mux.P
 	return pane
 }
 
-func writeRespawnTestShell(t *testing.T, markerFile, cwdFile string) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "respawn-test-shell.sh")
-	script := "#!/bin/sh\n" +
-		"/bin/pwd -P > " + strconv.Quote(cwdFile) + "\n" +
-		"printf x >> " + strconv.Quote(markerFile) + "\n" +
-		"while [ \"$1\" = \"-l\" ]; do\n\tshift\n" +
-		"done\n" +
-		"while IFS= read -r line; do\n\teval \"$line\"\n" +
-		"done\n"
-	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-		t.Fatalf("WriteFile(%q): %v", path, err)
-	}
-	return path
-}
-
-func withShellForTest(t *testing.T, shellPath string) func() {
-	t.Helper()
-
-	previous, hadPrevious := os.LookupEnv("SHELL")
-	if err := os.Setenv("SHELL", shellPath); err != nil {
-		t.Fatalf("Setenv(SHELL): %v", err)
-	}
-	return func() {
-		var err error
-		if hadPrevious {
-			err = os.Setenv("SHELL", previous)
-		} else {
-			err = os.Unsetenv("SHELL")
-		}
-		if err != nil {
-			t.Fatalf("restore SHELL: %v", err)
-		}
-	}
-}
-
-func waitForMarkerCount(t *testing.T, path string, want int) {
+func waitForProcessCwd(t *testing.T, pid int, want string) {
 	t.Helper()
 
 	waitUntilRespawn(t, respawnWaitTimeout, func() bool {
-		data, err := os.ReadFile(path)
-		return err == nil && len(bytes.TrimSpace(data)) >= want
-	})
-}
-
-func waitForFileString(t *testing.T, path, want string) {
-	t.Helper()
-
-	waitUntilRespawn(t, respawnWaitTimeout, func() bool {
-		data, err := os.ReadFile(path)
-		return err == nil && strings.TrimSpace(string(data)) == want
+		return mux.PaneCwd(pid) == want
 	}, func() string {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err.Error()
-		}
-		return strconv.Quote(strings.TrimSpace(string(data)))
+		return strconv.Quote(mux.PaneCwd(pid))
 	})
 }
 

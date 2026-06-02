@@ -1458,14 +1458,17 @@ func TestEnsureInitialWindowReturnsOrphanRecoveryError(t *testing.T) {
 }
 
 func TestEnsureInitialWindowReturnsPaneCreationError(t *testing.T) {
-	t.Setenv("SHELL", "/definitely/missing-shell")
+	t.Parallel()
 
 	sess := newSession("test-managed-startup-error")
+	sess.localPaneBuilder = func(localPaneBuildRequest) (*mux.Pane, error) {
+		return nil, errors.New("pane creation failed")
+	}
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
 	defer stopSessionBackgroundLoops(t, sess)
 
-	if err := srv.EnsureInitialWindow(80, 24); err == nil {
-		t.Fatal("EnsureInitialWindow error = nil, want pane creation error")
+	if err := srv.EnsureInitialWindow(80, 24); err == nil || err.Error() != "pane creation failed" {
+		t.Fatalf("EnsureInitialWindow error = %v, want pane creation failed", err)
 	}
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
