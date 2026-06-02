@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/remoteref"
 )
 
 func TestParseCreatePaneArgs(t *testing.T) {
@@ -69,7 +70,7 @@ func TestParseCreatePaneArgs(t *testing.T) {
 		{
 			name:    "spawn rejects --auto with --attach",
 			mode:    createPaneModeSpawn,
-			args:    []string{"--auto", "--attach", "hetzner-1:pane-1786"},
+			args:    []string{"--auto", "--attach", "amux://hetzner-1/main/pane/name/pane-1786"},
 			wantErr: "spawn --auto cannot be combined with --attach",
 		},
 	}
@@ -99,7 +100,7 @@ func TestParseCreatePaneArgs(t *testing.T) {
 func TestParseSpawnAttachArgs(t *testing.T) {
 	t.Parallel()
 
-	got, err := ParseSpawnArgs([]string{"--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"})
+	got, err := ParseSpawnArgs([]string{"--at", "pane-70", "--horizontal", "--attach", "amux://hetzner-1/main/pane/name/pane-1786"})
 	if err != nil {
 		t.Fatalf("ParseSpawnArgs: %v", err)
 	}
@@ -113,11 +114,20 @@ func TestParseSpawnAttachArgs(t *testing.T) {
 	}
 
 	ref := attach.Elem()
-	if gotHost := ref.FieldByName("Host").String(); gotHost != "hetzner-1" {
-		t.Fatalf("Attach.Host = %q, want hetzner-1", gotHost)
+	if gotRemote := ref.FieldByName("Remote").String(); gotRemote != "hetzner-1" {
+		t.Fatalf("Attach.Remote = %q, want hetzner-1", gotRemote)
 	}
-	if gotPane := ref.FieldByName("PaneName").String(); gotPane != "pane-1786" {
-		t.Fatalf("Attach.PaneName = %q, want pane-1786", gotPane)
+	if gotSession := ref.FieldByName("Session").String(); gotSession != "main" {
+		t.Fatalf("Attach.Session = %q, want main", gotSession)
+	}
+	if gotKind := remoteref.Kind(ref.FieldByName("Kind").String()); gotKind != remoteref.KindPane {
+		t.Fatalf("Attach.Kind = %q, want pane", gotKind)
+	}
+	if gotSelectorKind := remoteref.SelectorKind(ref.FieldByName("SelectorKind").String()); gotSelectorKind != remoteref.SelectorName {
+		t.Fatalf("Attach.SelectorKind = %q, want name", gotSelectorKind)
+	}
+	if gotSelector := ref.FieldByName("Selector").String(); gotSelector != "pane-1786" {
+		t.Fatalf("Attach.Selector = %q, want pane-1786", gotSelector)
 	}
 	if got.Meta.Host != "hetzner-1" {
 		t.Fatalf("Meta.Host = %q, want hetzner-1", got.Meta.Host)
@@ -131,9 +141,9 @@ func TestParseRemoteAttachRefRejectsInvalidRefs(t *testing.T) {
 		name  string
 		value string
 	}{
-		{name: "missing separator", value: "hetzner-1"},
-		{name: "missing host", value: ":pane-1786"},
-		{name: "missing pane", value: "hetzner-1:"},
+		{name: "legacy colon ref", value: "hetzner-1:pane-1786"},
+		{name: "wrong kind", value: "amux://hetzner-1/main/window/name/main"},
+		{name: "missing session", value: "amux://hetzner-1//pane/name/pane-1786"},
 	}
 
 	for _, tt := range tests {
@@ -142,7 +152,7 @@ func TestParseRemoteAttachRefRejectsInvalidRefs(t *testing.T) {
 			t.Parallel()
 
 			_, err := ParseRemoteAttachRef(tt.value)
-			if err == nil || err.Error() != "spawn --attach requires <host>:<pane-name>" {
+			if err == nil || err.Error() != "spawn --attach requires amux://REMOTE/SESSION/pane/(name|id)/SELECTOR" {
 				t.Fatalf("ParseRemoteAttachRef(%q) error = %v, want attach usage", tt.value, err)
 			}
 		})

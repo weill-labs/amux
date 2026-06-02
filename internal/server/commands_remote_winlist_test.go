@@ -30,9 +30,9 @@ func TestFormatRemoteWindows(t *testing.T) {
 		},
 	}
 
-	out := formatRemoteWindows(layout)
+	out := formatRemoteWindows(layout, "hetzner-1", "main")
 
-	for _, want := range []string{"INDEX", "NAME", "PANES", "amux", "orca", "200x50"} {
+	for _, want := range []string{"REF", "INDEX", "NAME", "PANES", "amux", "orca", "200x50", "amux://hetzner-1/main/window/index/1", "amux://hetzner-1/main/window/index/2"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
@@ -51,7 +51,7 @@ func TestFormatRemoteWindows(t *testing.T) {
 
 func TestFormatRemoteWindowsEmpty(t *testing.T) {
 	t.Parallel()
-	if got := formatRemoteWindows(&proto.LayoutSnapshot{}); !strings.Contains(got, "No windows") {
+	if got := formatRemoteWindows(&proto.LayoutSnapshot{}, "hetzner-1", "main"); !strings.Contains(got, "No windows") {
 		t.Fatalf("expected empty notice, got %q", got)
 	}
 }

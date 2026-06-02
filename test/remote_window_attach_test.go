@@ -1,6 +1,7 @@
 package test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,14 +18,14 @@ func TestRemoteCLIAttachWindow(t *testing.T) {
 
 	// remote windows lists the remote host's windows.
 	winsOut := pair.local.runCmd("remote", "windows", remoteCLITestHost)
-	for _, want := range []string{"NAME", "PANES", "INDEX"} {
+	for _, want := range []string{"REF", "NAME", "PANES", "INDEX", remoteWindowIndexRef(pair, 1)} {
 		if !strings.Contains(winsOut, want) {
 			t.Fatalf("remote windows missing %q:\n%s", want, winsOut)
 		}
 	}
 
 	// Attach the remote window by index -> a 2-pane local mirror window.
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	if !strings.Contains(attachOut, "as window") || !strings.Contains(attachOut, "2 panes") {
 		t.Fatalf("attach-window output = %q", attachOut)
 	}
@@ -53,7 +54,7 @@ func TestRemoteCLIAttachWindowDynamicResync(t *testing.T) {
 	pair := newRemoteCLIPair(t)
 	pair.remote.runCmd("spawn", "--name", "remote-side", "--vertical")
 
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	if !strings.Contains(attachOut, "2 panes") {
 		t.Fatalf("attach-window output = %q", attachOut)
 	}
@@ -84,7 +85,7 @@ func TestRemoteCLISpawnWindowForwardsToMirroredWindow(t *testing.T) {
 	pair := newRemoteCLIPair(t)
 	pair.remote.runCmd("rename", "pane-1", "remote-agent")
 
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	winName := windowNameFromAttach(attachOut)
 	if winName == "" {
 		t.Fatalf("could not parse window name from %q", attachOut)
@@ -110,7 +111,7 @@ func TestRemoteCLISpawnAtMirrorPaneForwardsToRemotePane(t *testing.T) {
 	pair := newRemoteCLIPair(t)
 	pair.remote.runCmd("rename", "pane-1", "remote-agent")
 
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	if !strings.Contains(attachOut, "1 panes") {
 		t.Fatalf("attach-window output = %q", attachOut)
 	}
@@ -139,7 +140,7 @@ func TestRemoteCLISpawnActiveMirrorWindowForwardsToRemotePane(t *testing.T) {
 	pair := newRemoteCLIPair(t)
 	pair.remote.runCmd("rename", "pane-1", "remote-agent")
 
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	if !strings.Contains(attachOut, "1 panes") {
 		t.Fatalf("attach-window output = %q", attachOut)
 	}
@@ -164,7 +165,7 @@ func TestRemoteCLISplitMirrorPaneForwardsToRemotePane(t *testing.T) {
 	pair := newRemoteCLIPair(t)
 	pair.remote.runCmd("rename", "pane-1", "remote-agent")
 
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	if !strings.Contains(attachOut, "1 panes") {
 		t.Fatalf("attach-window output = %q", attachOut)
 	}
@@ -195,7 +196,7 @@ func TestRemoteCLIDetachWindow(t *testing.T) {
 	pair := newRemoteCLIPair(t)
 	pair.remote.runCmd("spawn", "--name", "remote-side", "--vertical")
 
-	attachOut := pair.local.runCmd("remote", "attach-window", remoteCLITestHost+":1")
+	attachOut := pair.local.runCmd("remote", "attach-window", remoteWindowIndexRef(pair, 1))
 	winName := windowNameFromAttach(attachOut)
 	if winName == "" {
 		t.Fatalf("could not parse window name from %q", attachOut)
@@ -227,6 +228,10 @@ func windowNameFromAttach(out string) string {
 		return rest[:j]
 	}
 	return strings.TrimSpace(rest)
+}
+
+func remoteWindowIndexRef(pair remoteCLIPair, index int) string {
+	return "amux://" + remoteCLITestHost + "/" + pair.remote.session + "/window/index/" + strconv.Itoa(index)
 }
 
 func localMirrorNames(listOut, host string) []string {

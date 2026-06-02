@@ -68,18 +68,19 @@ func TestRemoteCLIPanesAttachDetachResizeAndLocalKill(t *testing.T) {
 	pair.remote.runCmd("spawn", "--name", "remote-side", "--vertical")
 
 	panesOut := pair.local.runCmd("remote", "panes", remoteCLITestHost)
-	for _, want := range []string{"PANE", "remote-agent", "remote-side"} {
+	for _, want := range []string{"REF", "PANE", "remote-agent", "remote-side"} {
 		if !strings.Contains(panesOut, want) {
 			t.Fatalf("remote panes missing %q:\n%s", want, panesOut)
 		}
 	}
+	remoteSideRef := remoteObjectRefFromList(t, panesOut, "remote-side")
 
-	attachOut := pair.local.runCmd("remote", "attach", remoteCLITestHost+":remote-side")
+	attachOut := pair.local.runCmd("remote", "attach", remoteSideRef)
 	if !strings.Contains(attachOut, "Attached "+remoteCLITestHost+":remote-side") {
 		t.Fatalf("remote attach output = %q", attachOut)
 	}
 	mirrorName := waitForLocalMirrorName(t, pair.local, remoteCLITestHost)
-	waitForFakeSSHCalls(t, pair.sshLog, 2)
+	waitForFakeSSHCalls(t, pair.sshLog, 3)
 
 	pair.remote.runCmd("send-keys", "remote-side", "printf REMOTE_CLI_ATTACH", "Enter")
 	pair.local.waitForTimeout(mirrorName, "REMOTE_CLI_ATTACH", "5s")
@@ -102,7 +103,7 @@ func TestRemoteCLIPanesAttachDetachResizeAndLocalKill(t *testing.T) {
 		t.Fatalf("remote detach removed remote pane:\n%s", remoteList)
 	}
 
-	attachOut = pair.local.runCmd("remote", "attach", remoteCLITestHost+":remote-side")
+	attachOut = pair.local.runCmd("remote", "attach", remoteSideRef)
 	if !strings.Contains(attachOut, "Attached "+remoteCLITestHost+":remote-side") {
 		t.Fatalf("second remote attach output = %q", attachOut)
 	}
@@ -115,7 +116,7 @@ func TestRemoteCLIPanesAttachDetachResizeAndLocalKill(t *testing.T) {
 		t.Fatalf("kill without --remote removed remote pane:\n%s", remoteList)
 	}
 
-	attachOut = pair.local.runCmd("remote", "attach", remoteCLITestHost+":remote-side")
+	attachOut = pair.local.runCmd("remote", "attach", remoteSideRef)
 	if !strings.Contains(attachOut, "Attached "+remoteCLITestHost+":remote-side") {
 		t.Fatalf("third remote attach output = %q", attachOut)
 	}
@@ -232,6 +233,23 @@ func localMirrorName(listOut, host string) string {
 			return fields[1]
 		}
 	}
+	return ""
+}
+
+func remoteObjectRefFromList(t *testing.T, listOut, rowText string) string {
+	t.Helper()
+	for _, line := range strings.Split(listOut, "\n") {
+		if !strings.Contains(line, rowText) {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if strings.HasPrefix(field, "amux://") {
+				return field
+			}
+		}
+		t.Fatalf("line containing %q has no canonical ref:\n%s", rowText, line)
+	}
+	t.Fatalf("no line containing %q in:\n%s", rowText, listOut)
 	return ""
 }
 

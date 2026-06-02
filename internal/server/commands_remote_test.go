@@ -546,6 +546,54 @@ func TestRemoteLayoutPaneEntriesLegacyLayout(t *testing.T) {
 	}
 }
 
+func TestFormatRemotePanesIncludesCanonicalRefs(t *testing.T) {
+	t.Parallel()
+
+	layout := &proto.LayoutSnapshot{
+		Windows: []proto.WindowSnapshot{
+			{
+				Name:         "build",
+				ActivePaneID: 3,
+				LeadPaneID:   2,
+				Root: proto.CellSnapshot{
+					Dir: int(mux.SplitVertical),
+					Children: []proto.CellSnapshot{
+						{IsLeaf: true, PaneID: 2},
+						{IsLeaf: true, PaneID: 3},
+					},
+				},
+				Panes: []proto.PaneSnapshot{
+					{ID: 3, Name: "right", Host: "remote"},
+					{ID: 2, Name: "left", Host: "remote"},
+				},
+			},
+		},
+	}
+
+	out := formatRemotePanes(layout, "hetzner-1", "main")
+	for _, want := range []string{
+		"REF",
+		"PANE",
+		"amux://hetzner-1/main/pane/id/2",
+		"amux://hetzner-1/main/pane/id/3",
+		"left",
+		"right",
+		"build",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("remote panes output missing %q:\n%s", want, out)
+		}
+	}
+	leftLine := lineContaining(t, out, "left")
+	if !strings.Contains(leftLine, "*") {
+		t.Fatalf("lead pane line missing marker: %q", leftLine)
+	}
+	rightLine := lineContaining(t, out, "right")
+	if !strings.Contains(rightLine, "*") {
+		t.Fatalf("active pane line missing marker: %q", rightLine)
+	}
+}
+
 func TestRemoteGeometryForPane(t *testing.T) {
 	t.Parallel()
 
