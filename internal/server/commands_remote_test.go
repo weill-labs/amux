@@ -12,6 +12,7 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/remoteref"
 	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
 
@@ -591,6 +592,124 @@ func TestFormatRemotePanesIncludesCanonicalRefs(t *testing.T) {
 	rightLine := lineContaining(t, out, "right")
 	if !strings.Contains(rightLine, "*") {
 		t.Fatalf("active pane line missing marker: %q", rightLine)
+	}
+}
+
+func TestFormatRemoteRefOrDash(t *testing.T) {
+	t.Parallel()
+
+	if got := formatRemoteRefOrDash(remoteref.Ref{}); got != "-" {
+		t.Fatalf("formatRemoteRefOrDash(invalid) = %q, want dash", got)
+	}
+}
+
+func TestResolveRemotePaneSnapshot(t *testing.T) {
+	t.Parallel()
+
+	layout := &proto.LayoutSnapshot{
+		Windows: []proto.WindowSnapshot{
+			{
+				Name:  "one",
+				Root:  leafCell(1, 80, 24),
+				Panes: []proto.PaneSnapshot{{ID: 1, Name: "agent"}},
+			},
+			{
+				Name:  "two",
+				Root:  leafCell(2, 80, 24),
+				Panes: []proto.PaneSnapshot{{ID: 2, Name: "worker"}},
+			},
+		},
+	}
+
+	pane, err := resolveRemotePaneSnapshot(layout, remotePaneRef(remoteref.SelectorName, "worker"))
+	if err != nil || pane.Name != "worker" {
+		t.Fatalf("resolve pane by name = %+v, %v; want worker", pane, err)
+	}
+	pane, err = resolveRemotePaneSnapshot(layout, remotePaneRef(remoteref.SelectorID, "1"))
+	if err != nil || pane.Name != "agent" {
+		t.Fatalf("resolve pane by id = %+v, %v; want agent", pane, err)
+	}
+	if _, err := resolveRemotePaneSnapshot(layout, remotePaneRef(remoteref.SelectorName, "missing")); err == nil || err.Error() != `pane name "missing" not found` {
+		t.Fatalf("resolve missing pane name error = %v, want not found", err)
+	}
+	if _, err := resolveRemotePaneSnapshot(layout, remotePaneRef(remoteref.SelectorID, "99")); err == nil || err.Error() != "pane id 99 not found" {
+		t.Fatalf("resolve missing pane id error = %v, want not found", err)
+	}
+	if _, err := resolveRemotePaneSnapshot(layout, remotePaneRef(remoteref.SelectorID, "abc")); err == nil || err.Error() != `pane id "abc" is invalid` {
+		t.Fatalf("resolve invalid pane id error = %v, want invalid", err)
+	}
+	if _, err := resolveRemotePaneSnapshot(layout, remotePaneRef(remoteref.SelectorIndex, "1")); err == nil || err.Error() != `pane refs do not support "index" selectors` {
+		t.Fatalf("resolve unsupported pane selector error = %v, want unsupported", err)
+	}
+
+	ambiguous := &proto.LayoutSnapshot{
+		Windows: []proto.WindowSnapshot{
+			{Root: leafCell(1, 80, 24), Panes: []proto.PaneSnapshot{{ID: 1, Name: "agent"}}},
+			{Root: leafCell(2, 80, 24), Panes: []proto.PaneSnapshot{{ID: 2, Name: "agent"}}},
+		},
+	}
+	if _, err := resolveRemotePaneSnapshot(ambiguous, remotePaneRef(remoteref.SelectorName, "agent")); err == nil || err.Error() != `pane name "agent" is ambiguous` {
+		t.Fatalf("resolve ambiguous pane error = %v, want ambiguous", err)
+	}
+}
+
+func TestResolveRemoteWindowSnapshot(t *testing.T) {
+	t.Parallel()
+
+	layout := &proto.LayoutSnapshot{
+		Windows: []proto.WindowSnapshot{
+			{ID: 10, Name: "main", Index: 1},
+			{ID: 20, Name: "logs", Index: 2},
+		},
+	}
+
+	window, err := resolveRemoteWindowSnapshot(layout, remoteWindowRef(remoteref.SelectorName, "logs"))
+	if err != nil || window.Name != "logs" {
+		t.Fatalf("resolve window by name = %+v, %v; want logs", window, err)
+	}
+	window, err = resolveRemoteWindowSnapshot(layout, remoteWindowRef(remoteref.SelectorIndex, "1"))
+	if err != nil || window.Name != "main" {
+		t.Fatalf("resolve window by index = %+v, %v; want main", window, err)
+	}
+	if _, err := resolveRemoteWindowSnapshot(nil, remoteWindowRef(remoteref.SelectorName, "logs")); err == nil || err.Error() != `window "logs" not found` {
+		t.Fatalf("resolve window with nil layout error = %v, want not found", err)
+	}
+	if _, err := resolveRemoteWindowSnapshot(layout, remoteWindowRef(remoteref.SelectorName, "missing")); err == nil || err.Error() != `window "missing" not found` {
+		t.Fatalf("resolve missing window error = %v, want not found", err)
+	}
+	if _, err := resolveRemoteWindowSnapshot(layout, remoteWindowRef(remoteref.SelectorIndex, "abc")); err == nil || err.Error() != `window index "abc" is invalid` {
+		t.Fatalf("resolve invalid window index error = %v, want invalid", err)
+	}
+	if _, err := resolveRemoteWindowSnapshot(layout, remoteWindowRef(remoteref.SelectorID, "1")); err == nil || err.Error() != `window refs do not support "id" selectors` {
+		t.Fatalf("resolve unsupported window selector error = %v, want unsupported", err)
+	}
+
+	ambiguous := &proto.LayoutSnapshot{Windows: []proto.WindowSnapshot{
+		{Name: "main", Index: 1},
+		{Name: "main", Index: 2},
+	}}
+	if _, err := resolveRemoteWindowSnapshot(ambiguous, remoteWindowRef(remoteref.SelectorName, "main")); err == nil || err.Error() != `window "main" is ambiguous` {
+		t.Fatalf("resolve ambiguous window error = %v, want ambiguous", err)
+	}
+}
+
+func remotePaneRef(selectorKind remoteref.SelectorKind, selector string) remoteref.Ref {
+	return remoteref.Ref{
+		Remote:       "hetzner-1",
+		Session:      "main",
+		Kind:         remoteref.KindPane,
+		SelectorKind: selectorKind,
+		Selector:     selector,
+	}
+}
+
+func remoteWindowRef(selectorKind remoteref.SelectorKind, selector string) remoteref.Ref {
+	return remoteref.Ref{
+		Remote:       "hetzner-1",
+		Session:      "main",
+		Kind:         remoteref.KindWindow,
+		SelectorKind: selectorKind,
+		Selector:     selector,
 	}
 }
 

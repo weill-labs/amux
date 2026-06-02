@@ -2557,8 +2557,23 @@ func TestRemoteChooserSourcePopulatesLeafPaneRows(t *testing.T) {
 
 	cr.HandleChooserInput([]byte("remote-side"))
 	cmd := cr.selectChooser()
-	if cmd.command != "remote" || !reflect.DeepEqual(cmd.args, []string{"attach", "hetzner-1:remote-side"}) {
-		t.Fatalf("remote chooser selection = %+v, want remote attach hetzner-1:remote-side", cmd)
+	if cmd.command != "remote" || !reflect.DeepEqual(cmd.args, []string{"attach", "amux://hetzner-1/test/pane/id/2"}) {
+		t.Fatalf("remote chooser selection = %+v, want canonical remote attach", cmd)
+	}
+}
+
+func TestRemoteChooserSourceRequiresCanonicalRefParts(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	remoteLayout := multiWindow80x23()
+	remoteLayout.SessionName = "  "
+	if cr.ShowRemoteChooser("hetzner-1", remoteLayout) {
+		t.Fatal("ShowRemoteChooser should reject layouts without a remote session")
+	}
+
+	if _, ok := remoteChooserPaneItem(proto.PaneSnapshot{ID: 0, Name: "pane-0"}, false, "hetzner-1", "test", "", render.UnicodeIconSet()); ok {
+		t.Fatal("remote chooser pane item should reject invalid canonical pane refs")
 	}
 }
 

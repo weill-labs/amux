@@ -786,10 +786,10 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 		},
 		{
 			name:     "spawn attach dispatches parsed command",
-			args:     []string{"spawn", "--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"},
+			args:     []string{"spawn", "--at", "pane-70", "--horizontal", "--attach", "amux://hetzner-1/main/pane/name/pane-1786"},
 			wantExit: 0,
 			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn", args: []string{"--at", "pane-70", "--horizontal", "--attach", "hetzner-1:pane-1786"}},
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn", args: []string{"--at", "pane-70", "--horizontal", "--attach", "amux://hetzner-1/main/pane/name/pane-1786"}},
 			},
 		},
 		{

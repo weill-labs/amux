@@ -2,9 +2,9 @@ package layout
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/remoteref"
 	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
 )
 
@@ -29,9 +29,10 @@ type createPaneArgs struct {
 }
 
 type RemoteAttachRef struct {
-	Host     string
-	PaneName string
+	remoteref.Ref
 }
+
+const remoteAttachUsage = "spawn --attach requires amux://REMOTE/SESSION/pane/(name|id)/SELECTOR"
 
 type SplitArgs struct {
 	PaneRef   string // explicit target pane to split (empty = use actor context)
@@ -155,13 +156,11 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 }
 
 func ParseRemoteAttachRef(value string) (RemoteAttachRef, error) {
-	host, paneName, ok := strings.Cut(value, ":")
-	host = strings.TrimSpace(host)
-	paneName = strings.TrimSpace(paneName)
-	if !ok || host == "" || paneName == "" {
-		return RemoteAttachRef{}, fmt.Errorf("spawn --attach requires <host>:<pane-name>")
+	ref, err := remoteref.Parse(value)
+	if err != nil || ref.Kind != remoteref.KindPane {
+		return RemoteAttachRef{}, fmt.Errorf(remoteAttachUsage)
 	}
-	return RemoteAttachRef{Host: host, PaneName: paneName}, nil
+	return RemoteAttachRef{Ref: ref}, nil
 }
 
 func (m createPaneMode) command() string {
@@ -205,7 +204,7 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 	}
 	host := mux.DefaultHost
 	if parsed.Attach != nil {
-		host = parsed.Attach.Host
+		host = parsed.Attach.Remote
 	}
 	return SpawnArgs{
 		PaneRef:   parsed.PaneRef,

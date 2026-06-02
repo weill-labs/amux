@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
+	"github.com/weill-labs/amux/internal/remoteref"
 	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 	listingcmd "github.com/weill-labs/amux/internal/server/commands/listing"
 	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
@@ -29,8 +29,8 @@ const (
 	remoteRmUsage           = "usage: remote rm <name>"
 	remotePanesUsage        = "usage: remote panes <name>"
 	remoteWindowsUsage      = "usage: remote windows <name>"
-	remoteAttachUsage       = "usage: remote attach (<name>|<name>:<pane-name>)"
-	remoteAttachWindowUsage = "usage: remote attach-window <name>:<window>"
+	remoteAttachUsage       = "usage: remote attach (<name>|amux://REMOTE/SESSION/pane/(name|id)/SELECTOR)"
+	remoteAttachWindowUsage = "usage: remote attach-window amux://REMOTE/SESSION/window/(name|index)/SELECTOR"
 	remoteDetachUsage       = "usage: remote detach <local-pane>"
 	remoteDetachWindowUsage = "usage: remote detach-window <local-window>"
 	remoteResizeUsage       = "usage: remote resize <local-pane>"
@@ -258,8 +258,7 @@ func runRemotePanes(ctx *CommandContext) commandpkg.Result {
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	home, _ := os.UserHomeDir()
-	return commandpkg.Result{Output: listingcmd.FormatPaneList(remoteLayoutPaneEntries(layout), home, true)}
+	return commandpkg.Result{Output: formatRemotePanes(layout, ctx.Args[1], remoteCommandSession(host))}
 }
 
 func runRemoteWindows(ctx *CommandContext) commandpkg.Result {
@@ -274,28 +273,72 @@ func runRemoteWindows(ctx *CommandContext) commandpkg.Result {
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	return commandpkg.Result{Output: formatRemoteWindows(layout)}
+	return commandpkg.Result{Output: formatRemoteWindows(layout, ctx.Args[1], remoteCommandSession(host))}
+}
+
+func formatRemotePanes(layout *proto.LayoutSnapshot, hostName, session string) string {
+	entries := remoteLayoutPaneEntries(layout)
+	if len(entries) == 0 {
+		return "No panes.\n"
+	}
+	b := strings.Builder{} // local accumulator (not a package-level var)
+	fmt.Fprintf(&b, "%-64s %-20s %-10s %-20s %-6s %s\n", "REF", "PANE", "ID", "WINDOW", "ACTIVE", "LEAD")
+	for _, entry := range entries {
+		refText := formatRemoteRefOrDash(remoteref.Ref{
+			Remote:       hostName,
+			Session:      session,
+			Kind:         remoteref.KindPane,
+			SelectorKind: remoteref.SelectorID,
+			Selector:     strconv.FormatUint(uint64(entry.PaneID), 10),
+		})
+		active := ""
+		if entry.Active {
+			active = "*"
+		}
+		lead := ""
+		if entry.Lead {
+			lead = "*"
+		}
+		fmt.Fprintf(&b, "%-64s %-20s %-10d %-20s %-6s %s\n",
+			refText, entry.Name, entry.PaneID, entry.WindowName, active, lead)
+	}
+	return b.String()
 }
 
 // formatRemoteWindows renders the `remote windows` table: one row per remote
 // window with its index, name, leaf-pane count, root dimensions, and an active
 // marker. Pure function so it is unit-testable without a live remote.
-func formatRemoteWindows(layout *proto.LayoutSnapshot) string {
+func formatRemoteWindows(layout *proto.LayoutSnapshot, hostName, session string) string {
 	if layout == nil || len(layout.Windows) == 0 {
 		return "No windows.\n"
 	}
 	b := strings.Builder{} // local accumulator (not a package-level var)
-	fmt.Fprintf(&b, "%-3s %-20s %-6s %-12s %s\n", "", "NAME", "PANES", "DIMENSIONS", "INDEX")
+	fmt.Fprintf(&b, "%-64s %-3s %-20s %-6s %-12s %s\n", "REF", "", "NAME", "PANES", "DIMENSIONS", "INDEX")
 	for _, w := range layout.Windows {
 		marker := " "
 		if layout.ActiveWindowID == w.ID {
 			marker = "*"
 		}
+		refText := formatRemoteRefOrDash(remoteref.Ref{
+			Remote:       hostName,
+			Session:      session,
+			Kind:         remoteref.KindWindow,
+			SelectorKind: remoteref.SelectorIndex,
+			Selector:     strconv.Itoa(w.Index),
+		})
 		paneCount := len(leafCellIDs(w.Root))
 		dims := fmt.Sprintf("%dx%d", w.Root.W, w.Root.H)
-		fmt.Fprintf(&b, "%-3s %-20s %-6d %-12s %d\n", marker, w.Name, paneCount, dims, w.Index)
+		fmt.Fprintf(&b, "%-64s %-3s %-20s %-6d %-12s %d\n", refText, marker, w.Name, paneCount, dims, w.Index)
 	}
 	return b.String()
+}
+
+func formatRemoteRefOrDash(ref remoteref.Ref) string {
+	refText, err := remoteref.Format(ref)
+	if err != nil {
+		return "-"
+	}
+	return refText
 }
 
 // remoteWindowLeaf pairs one remote leaf pane with the data needed to build a
@@ -387,21 +430,19 @@ func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
 		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
 	}
-	hostName, paneName, ok := strings.Cut(ctx.Args[1], ":")
-	if !ok {
+	if !strings.Contains(ctx.Args[1], "://") {
+		if strings.Contains(ctx.Args[1], ":") {
+			return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
+		}
 		return runRemoteAttachChooser(ctx, ctx.Args[1])
 	}
-	if hostName == "" || paneName == "" {
+	parsed, err := remoteref.Parse(ctx.Args[1])
+	if err != nil || parsed.Kind != remoteref.KindPane {
 		return commandpkg.Result{Err: errors.New(remoteAttachUsage)}
 	}
-	host, err := lookupRemoteHost(hostName)
+	ref, err := resolveRemotePaneRef(ctx.context(), parsed)
 	if err != nil {
 		return commandpkg.Result{Err: err}
-	}
-	ref := checkpoint.RemoteRef{
-		Host:     hostName,
-		Session:  remoteCommandSession(host),
-		PaneName: paneName,
 	}
 	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		w := mctx.activeWindow()
@@ -426,7 +467,7 @@ func runRemoteAttach(ctx *CommandContext) commandpkg.Result {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{
-			output:          fmt.Sprintf("Attached %s:%s as %s\n", hostName, paneName, pane.Meta.Name),
+			output:          fmt.Sprintf("Attached %s:%s as %s\n", ref.Host, ref.PaneName, pane.Meta.Name),
 			broadcastLayout: true,
 		}
 	}))
@@ -436,11 +477,11 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 	if len(ctx.Args) != 2 {
 		return commandpkg.Result{Err: errors.New(remoteAttachWindowUsage)}
 	}
-	hostName, windowRef, ok := strings.Cut(ctx.Args[1], ":")
-	if !ok || hostName == "" || windowRef == "" {
+	parsed, err := remoteref.Parse(ctx.Args[1])
+	if err != nil || parsed.Kind != remoteref.KindWindow {
 		return commandpkg.Result{Err: errors.New(remoteAttachWindowUsage)}
 	}
-	host, err := lookupRemoteHost(hostName)
+	host, err := lookupRemoteHostForRef(parsed)
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
@@ -448,7 +489,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	ws, err := remote.ResolveWindowFromLayout(layout, windowRef)
+	ws, err := resolveRemoteWindowSnapshot(layout, parsed)
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
@@ -456,7 +497,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	session := remoteCommandSession(host)
+	session := parsed.Session
 
 	return toCommandResult(ctx.Sess.enqueueCommandMutationContext(ctx.context(), func(mctx *MutationContext) commandMutationResult {
 		base := mctx.activeWindow()
@@ -473,7 +514,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 			}
 		}
 		for _, leaf := range leaves {
-			ref := checkpoint.RemoteRef{Host: hostName, Session: session, PaneName: leaf.name}
+			ref := checkpoint.RemoteRef{Host: parsed.Remote, Session: session, PaneName: leaf.name}
 			pane, err := mctx.prepareMirrorPane(mux.PaneMeta{}, ref, leaf.cols, leaf.rows)
 			if err != nil {
 				cleanup()
@@ -486,7 +527,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 
 		win := mux.RebuildWindowFromSnapshot(ws, base.Width, base.Height, paneMap)
 		win.ID = mctx.nextWindowID()
-		win.Name = uniqueLocalWindowName(mctx, hostName, ws.Name)
+		win.Name = uniqueLocalWindowName(mctx, parsed.Remote, ws.Name)
 		// Mirror panes are independent local proxies: clear remote-scoped lead and
 		// zoom IDs so they do not dangle (a lead pane would also block the
 		// dimension-matching resize).
@@ -513,7 +554,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 		}
 		mctx.sess.windowMirrorSigs[win.ID] = remoteWindowSignature(ws)
 		if err := trackRemoteWindowMirror(mctx.sess, win.ID, mirrorpkg.WindowRef{
-			Host:       hostName,
+			Host:       parsed.Remote,
 			Session:    session,
 			WindowName: ws.Name,
 		}, win.Width, win.Height); err != nil {
@@ -526,7 +567,7 @@ func runRemoteAttachWindow(ctx *CommandContext) commandpkg.Result {
 		}
 
 		return commandMutationResult{
-			output:          fmt.Sprintf("Attached %s:%s as window %s (%d panes)\n", hostName, ws.Name, win.Name, len(created)),
+			output:          fmt.Sprintf("Attached %s:%s as window %s (%d panes)\n", parsed.Remote, ws.Name, win.Name, len(created)),
 			broadcastLayout: true,
 		}
 	}))
@@ -837,6 +878,128 @@ func lookupRemoteHost(name string) (config.Host, error) {
 		return config.Host{}, fmt.Errorf("remote %q not found", name)
 	}
 	return host, nil
+}
+
+func lookupRemoteHostForRef(ref remoteref.Ref) (config.Host, error) {
+	host, err := lookupRemoteHost(ref.Remote)
+	if err != nil {
+		return config.Host{}, err
+	}
+	host.Session = ref.Session
+	return host, nil
+}
+
+func resolveRemotePaneRef(parent context.Context, ref remoteref.Ref) (checkpoint.RemoteRef, error) {
+	if ref.Kind != remoteref.KindPane {
+		return checkpoint.RemoteRef{}, fmt.Errorf("remote ref kind %q is not pane", ref.Kind)
+	}
+	host, err := lookupRemoteHostForRef(ref)
+	if err != nil {
+		return checkpoint.RemoteRef{}, err
+	}
+	layout, err := listRemotePanes(parent, host)
+	if err != nil {
+		return checkpoint.RemoteRef{}, err
+	}
+	pane, err := resolveRemotePaneSnapshot(layout, ref)
+	if err != nil {
+		return checkpoint.RemoteRef{}, err
+	}
+	return checkpoint.RemoteRef{Host: ref.Remote, Session: ref.Session, PaneName: pane.Name}, nil
+}
+
+func resolveRemotePaneSnapshot(layout *proto.LayoutSnapshot, ref remoteref.Ref) (proto.PaneSnapshot, error) {
+	switch ref.SelectorKind {
+	case remoteref.SelectorName:
+		var matches []proto.PaneSnapshot
+		for _, pane := range remoteLeafPaneSnapshots(layout) {
+			if pane.Name == ref.Selector {
+				matches = append(matches, pane)
+			}
+		}
+		switch len(matches) {
+		case 1:
+			return matches[0], nil
+		case 0:
+			return proto.PaneSnapshot{}, fmt.Errorf("pane name %q not found", ref.Selector)
+		default:
+			return proto.PaneSnapshot{}, fmt.Errorf("pane name %q is ambiguous", ref.Selector)
+		}
+	case remoteref.SelectorID:
+		id, err := strconv.ParseUint(ref.Selector, 10, 32)
+		if err != nil || id == 0 {
+			return proto.PaneSnapshot{}, fmt.Errorf("pane id %q is invalid", ref.Selector)
+		}
+		for _, pane := range remoteLeafPaneSnapshots(layout) {
+			if pane.ID == uint32(id) {
+				return pane, nil
+			}
+		}
+		return proto.PaneSnapshot{}, fmt.Errorf("pane id %d not found", id)
+	default:
+		return proto.PaneSnapshot{}, fmt.Errorf("pane refs do not support %q selectors", ref.SelectorKind)
+	}
+}
+
+func resolveRemoteWindowSnapshot(layout *proto.LayoutSnapshot, ref remoteref.Ref) (proto.WindowSnapshot, error) {
+	if layout == nil || len(layout.Windows) == 0 {
+		return proto.WindowSnapshot{}, fmt.Errorf("window %q not found", ref.Selector)
+	}
+	switch ref.SelectorKind {
+	case remoteref.SelectorName:
+		var matches []proto.WindowSnapshot
+		for _, w := range layout.Windows {
+			if w.Name == ref.Selector {
+				matches = append(matches, w)
+			}
+		}
+		switch len(matches) {
+		case 1:
+			return matches[0], nil
+		case 0:
+			return proto.WindowSnapshot{}, fmt.Errorf("window %q not found", ref.Selector)
+		default:
+			return proto.WindowSnapshot{}, fmt.Errorf("window %q is ambiguous", ref.Selector)
+		}
+	case remoteref.SelectorIndex:
+		index, err := strconv.Atoi(ref.Selector)
+		if err != nil || index <= 0 {
+			return proto.WindowSnapshot{}, fmt.Errorf("window index %q is invalid", ref.Selector)
+		}
+		for _, w := range layout.Windows {
+			if w.Index == index {
+				return w, nil
+			}
+		}
+		return proto.WindowSnapshot{}, fmt.Errorf("window index %d not found", index)
+	default:
+		return proto.WindowSnapshot{}, fmt.Errorf("window refs do not support %q selectors", ref.SelectorKind)
+	}
+}
+
+func remoteLeafPaneSnapshots(layout *proto.LayoutSnapshot) []proto.PaneSnapshot {
+	if layout == nil {
+		return nil
+	}
+	var out []proto.PaneSnapshot
+	if len(layout.Windows) > 0 {
+		for _, win := range layout.Windows {
+			panes := paneSnapshotsByID(win.Panes)
+			for _, id := range leafCellIDs(win.Root) {
+				if pane, ok := panes[id]; ok {
+					out = append(out, pane)
+				}
+			}
+		}
+		return out
+	}
+	panes := paneSnapshotsByID(layout.Panes)
+	for _, id := range leafCellIDs(layout.Root) {
+		if pane, ok := panes[id]; ok {
+			out = append(out, pane)
+		}
+	}
+	return out
 }
 
 func sortedRemoteHostNames(hosts map[string]config.Host) []string {

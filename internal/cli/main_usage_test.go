@@ -550,7 +550,7 @@ func TestMainSpawnUsageIncludesAttach(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("spawn --help exit code = %d, want 0\n%s", code, out)
 	}
-	if !strings.Contains(out, "--attach <host>:<pane-name>") {
+	if !strings.Contains(out, "--attach amux://REMOTE/SESSION/pane/(name|id)/SELECTOR") {
 		t.Fatalf("spawn usage output missing --attach:\n%s", out)
 	}
 }

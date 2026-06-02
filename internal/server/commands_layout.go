@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/remoteref"
 	"github.com/weill-labs/amux/internal/render"
 	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
@@ -64,7 +64,7 @@ type createPaneRequest struct {
 	task      string
 	color     string
 	dir       mux.SplitDir
-	attach    *checkpoint.RemoteRef
+	attach    *remoteref.Ref
 }
 
 type createPaneSnapshot struct {
@@ -233,11 +233,11 @@ func appendCreatePaneMetaArgs(args []string, req createPaneRequest) []string {
 }
 
 func runCreateMirrorPane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool, snapshot createPaneSnapshot) commandpkg.Result {
-	ref := *req.attach
-	// Validate the remote host up-front, mirroring `remote attach`. Without
-	// this, an unknown host would create a mirror pane that can never connect
-	// while the command reports success (silent failure).
-	if _, err := lookupRemoteHost(ref.Host); err != nil {
+	// Resolve the canonical selector up-front, mirroring `remote attach`.
+	// Without this, an unknown host or missing pane would create a mirror pane
+	// that can never connect while the command reports success.
+	ref, err := resolveRemotePaneRef(ctx.context(), *req.attach)
+	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
 	meta := mux.PaneMeta{
@@ -595,12 +595,10 @@ func createPaneRequestFromSplitArgs(args layoutcmd.SplitArgs) createPaneRequest 
 }
 
 func createPaneRequestFromSpawnArgs(args layoutcmd.SpawnArgs) createPaneRequest {
-	var attach *checkpoint.RemoteRef
+	var attach *remoteref.Ref
 	if args.Attach != nil {
-		attach = &checkpoint.RemoteRef{
-			Host:     args.Attach.Host,
-			PaneName: args.Attach.PaneName,
-		}
+		ref := args.Attach.Ref
+		attach = &ref
 	}
 	return createPaneRequest{
 		paneRef:   args.PaneRef,

@@ -19,7 +19,8 @@ func TestSpawnAttachCreatesMirrorAndForwardsInput(t *testing.T) {
 	local, remote := newServerHarnessPairWithLocalRemote(t, remoteHost, "PATH="+fakeSSHDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	remote.runCmd("rename", "pane-1", "pane-1786")
-	out := local.runCmd("spawn", "--at", "pane-1", "--horizontal", "--attach", remoteHost+":pane-1786", "--name", "mirror-agent")
+	remoteRef := fmt.Sprintf("amux://%s/%s/pane/name/pane-1786", remoteHost, remote.session)
+	out := local.runCmd("spawn", "--at", "pane-1", "--horizontal", "--attach", remoteRef, "--name", "mirror-agent")
 	if !strings.Contains(out, "Spawned mirror-agent") {
 		t.Fatalf("spawn --attach output = %q, want spawned mirror-agent", out)
 	}
@@ -55,7 +56,7 @@ func TestSpawnAttachUnknownHostFails(t *testing.T) {
 	// connection is attempted.
 	local, _ := newServerHarnessPairWithLocalRemote(t, "hetzner-1")
 
-	out := local.runCmd("spawn", "--at", "pane-1", "--horizontal", "--attach", "nonexistent:pane-1786", "--name", "mirror-agent")
+	out := local.runCmd("spawn", "--at", "pane-1", "--horizontal", "--attach", "amux://nonexistent/default/pane/name/pane-1786", "--name", "mirror-agent")
 	if !strings.Contains(out, `remote "nonexistent" not found`) {
 		t.Fatalf("spawn --attach unknown host output = %q, want a not-found error", out)
 	}

@@ -430,13 +430,20 @@ stream the remote PTY output and forward input back.
 | `amux remote list` | List registered remotes and health |
 | `amux remote rm <name>` | Remove a remote |
 | `amux remote status` | Show active mirrors per host |
-| `amux remote panes <name>` | List a remote host's panes |
-| `amux remote windows <name>` | List a remote host's windows |
-| `amux remote attach <name>:<pane>` | Mirror a single remote pane locally |
-| `amux remote attach-window <name>:<window>` | Mirror a whole remote window into a new local window |
+| `amux remote panes <name>` | List a remote host's panes with canonical `REF` values |
+| `amux remote windows <name>` | List a remote host's windows with canonical `REF` values |
+| `amux remote attach amux://REMOTE/SESSION/pane/(name\|id)/SELECTOR` | Mirror a single remote pane locally |
+| `amux remote attach-window amux://REMOTE/SESSION/window/(name\|index)/SELECTOR` | Mirror a whole remote window into a new local window |
 | `amux remote detach <local-pane>` | Stop mirroring a pane |
 | `amux remote detach-window <local-window>` | Tear down a mirrored window |
 | `amux remote resize <local-pane>` | Resize the remote pane to match the local mirror |
+
+Remote object refs are canonical URIs. `REMOTE` is the configured remote alias,
+`SESSION` is explicit, `KIND` is `pane` or `window`, and selectors are exact:
+`name` or `id` for panes, `name` or `index` for windows. Session names and
+selectors are percent-encoded URI path segments, for example
+`amux://hetzner-1/main/pane/name/pane-1786` or
+`amux://hetzner-1/main/window/index/2`.
 
 A window mirror reconstructs the remote window's split layout, tracks structural
 changes live (panes added/removed/re-split), and pushes the local window's size

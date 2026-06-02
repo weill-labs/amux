@@ -10,6 +10,7 @@ import (
 	"github.com/weill-labs/amux/internal/bubblesutil"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/remoteref"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -549,14 +550,18 @@ func (s remoteChooserSource) title() string {
 }
 
 func (s remoteChooserSource) buildItems(_ chooserMode, icons render.IconSet) []chooserItem {
-	if s.layout == nil {
+	if s.layout == nil || strings.TrimSpace(s.layout.SessionName) == "" {
 		return nil
 	}
+	session := s.layout.SessionName
 	if len(s.layout.Windows) == 0 {
 		panes := chooserLeafPanes(s.layout.Root, s.layout.Panes)
 		items := make([]chooserItem, 0, len(panes))
 		for _, ps := range panes {
-			items = append(items, remoteChooserPaneItem(ps, ps.ID == s.layout.ActivePaneID, s.host, "", icons))
+			item, ok := remoteChooserPaneItem(ps, ps.ID == s.layout.ActivePaneID, s.host, session, "", icons)
+			if ok {
+				items = append(items, item)
+			}
 		}
 		return items
 	}
@@ -569,7 +574,10 @@ func (s remoteChooserSource) buildItems(_ chooserMode, icons render.IconSet) []c
 		}
 		items = append(items, remoteChooserWindowHeaderItem(ws, panes))
 		for _, ps := range panes {
-			items = append(items, remoteChooserPaneItem(ps, ps.ID == ws.ActivePaneID, s.host, ws.Name, icons))
+			item, ok := remoteChooserPaneItem(ps, ps.ID == ws.ActivePaneID, s.host, session, ws.Name, icons)
+			if ok {
+				items = append(items, item)
+			}
 		}
 	}
 	return items
@@ -592,14 +600,24 @@ func remoteChooserWindowHeaderItem(ws proto.WindowSnapshot, panes []proto.PaneSn
 	}
 }
 
-func remoteChooserPaneItem(ps proto.PaneSnapshot, active bool, host, windowName string, icons render.IconSet) chooserItem {
-	item := chooserPaneItemWithCommand(ps, active, icons, "remote", []string{"attach", host + ":" + ps.Name})
+func remoteChooserPaneItem(ps proto.PaneSnapshot, active bool, host, session, windowName string, icons render.IconSet) (chooserItem, bool) {
+	ref, err := remoteref.Format(remoteref.Ref{
+		Remote:       host,
+		Session:      session,
+		Kind:         remoteref.KindPane,
+		SelectorKind: remoteref.SelectorID,
+		Selector:     strconv.FormatUint(uint64(ps.ID), 10),
+	})
+	if err != nil {
+		return chooserItem{}, false
+	}
+	item := chooserPaneItemWithCommand(ps, active, icons, "remote", []string{"attach", ref})
 	filterTerms := append(chooserPaneFilterTerms(ps), host, windowName)
 	item.filterValue = strings.ToLower(strings.Join(filterTerms, " "))
 	if item.desc == "" {
 		item.desc = windowName
 	}
-	return item
+	return item, true
 }
 
 func chooserLeafPanes(root proto.CellSnapshot, panes []proto.PaneSnapshot) []proto.PaneSnapshot {
