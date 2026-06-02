@@ -16,12 +16,24 @@ const serverSplitCountChildEnv = "AMUX_SERVER_SPLIT_COUNT_CHILD"
 func TestMain(m *testing.M) {
 	flag.Parse()
 
+	if os.Getenv(sessionLockHelperModeEnv) != "" {
+		os.Exit(m.Run())
+	}
+
 	count := currentTestCount()
 	if count > 1 && os.Getenv(serverSplitCountChildEnv) != "1" {
 		os.Exit(runServerTestCountInChildren(count))
 	}
 
-	os.Exit(m.Run())
+	cleanup, err := testenv.IsolateSocketDirForTestProcess("internal-server")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "isolating socket dir: %v\n", err)
+		os.Exit(1)
+	}
+
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func currentTestCount() int {

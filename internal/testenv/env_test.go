@@ -96,8 +96,8 @@ func TestIsolateSocketDirForTestProcessCreatesPrivateDir(t *testing.T) {
 	if socketDir == "" || socketDir == "/tmp/leaked-amux-socket-dir" {
 		t.Fatalf("%s = %q, want private override", proto.SocketDirEnv, socketDir)
 	}
-	if !strings.Contains(filepath.Base(socketDir), "client-pkg-") {
-		t.Fatalf("socket dir base = %q, want sanitized prefix", filepath.Base(socketDir))
+	if !strings.HasPrefix(filepath.Base(socketDir), "client-") {
+		t.Fatalf("socket dir base = %q, want shortened sanitized prefix", filepath.Base(socketDir))
 	}
 	if info, err := os.Stat(socketDir); err != nil || !info.IsDir() {
 		t.Fatalf("socket dir stat = (%v, %v), want existing dir", info, err)

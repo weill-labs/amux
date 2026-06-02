@@ -2,9 +2,12 @@ package testenv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 var blockedEnvKeys = []string{
@@ -49,6 +52,26 @@ func NewCommandContext(ctx context.Context, name string, args ...string) *exec.C
 	return cmd
 }
 
+func IsolateSocketDirForTestProcess(prefix string) (func(), error) {
+	socketDir, err := os.MkdirTemp(shortSocketTempRoot(), sanitizeSocketDirPrefix(prefix)+"-")
+	if err != nil {
+		return nil, fmt.Errorf("creating isolated socket dir: %w", err)
+	}
+	if err := os.Setenv(proto.SocketDirEnv, socketDir); err != nil {
+		_ = os.RemoveAll(socketDir)
+		return nil, fmt.Errorf("setting %s: %w", proto.SocketDirEnv, err)
+	}
+
+	return func() { _ = os.RemoveAll(socketDir) }, nil
+}
+
+func shortSocketTempRoot() string {
+	if info, err := os.Stat("/tmp"); err == nil && info.IsDir() {
+		return "/tmp"
+	}
+	return os.TempDir()
+}
+
 func RemoveEnvKey(env []string, key string) []string {
 	prefix := key + "="
 	filtered := make([]string, 0, len(env))
@@ -59,4 +82,28 @@ func RemoveEnvKey(env []string, key string) []string {
 		filtered = append(filtered, entry)
 	}
 	return filtered
+}
+
+func sanitizeSocketDirPrefix(prefix string) string {
+	prefix = strings.NewReplacer("/", "-", "\\", "-").Replace(prefix)
+	prefix = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		default:
+			return '-'
+		}
+	}, prefix)
+	prefix = strings.Trim(prefix, "-")
+	if prefix == "" || prefix == "." {
+		return "amux-test"
+	}
+	if len(prefix) > 6 {
+		return prefix[:6]
+	}
+	return prefix
 }
