@@ -1,10 +1,13 @@
 package testenv
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestHermeticAmuxEnvScrubsAmuxAndTerminalVars(t *testing.T) {
@@ -69,6 +72,40 @@ func TestRemoveEnvKeyDoesNotMutateInput(t *testing.T) {
 	}
 	if !slices.Equal(input, []string{"A=1", "DROP=old", "B=2"}) {
 		t.Fatalf("input mutated to %v", input)
+	}
+}
+
+func TestIsolateSocketDirForTestProcessCreatesPrivateDir(t *testing.T) {
+	old, hadOld := os.LookupEnv(proto.SocketDirEnv)
+	t.Cleanup(func() {
+		if hadOld {
+			_ = os.Setenv(proto.SocketDirEnv, old)
+			return
+		}
+		_ = os.Unsetenv(proto.SocketDirEnv)
+	})
+	if err := os.Setenv(proto.SocketDirEnv, "/tmp/leaked-amux-socket-dir"); err != nil {
+		t.Fatalf("Setenv(%s): %v", proto.SocketDirEnv, err)
+	}
+
+	cleanup, err := IsolateSocketDirForTestProcess("client/pkg")
+	if err != nil {
+		t.Fatalf("IsolateSocketDirForTestProcess(): %v", err)
+	}
+	socketDir := os.Getenv(proto.SocketDirEnv)
+	if socketDir == "" || socketDir == "/tmp/leaked-amux-socket-dir" {
+		t.Fatalf("%s = %q, want private override", proto.SocketDirEnv, socketDir)
+	}
+	if !strings.Contains(filepath.Base(socketDir), "client-pkg-") {
+		t.Fatalf("socket dir base = %q, want sanitized prefix", filepath.Base(socketDir))
+	}
+	if info, err := os.Stat(socketDir); err != nil || !info.IsDir() {
+		t.Fatalf("socket dir stat = (%v, %v), want existing dir", info, err)
+	}
+
+	cleanup()
+	if _, err := os.Stat(socketDir); !os.IsNotExist(err) {
+		t.Fatalf("socket dir after cleanup stat err = %v, want not exist", err)
 	}
 }
 
