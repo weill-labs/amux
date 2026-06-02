@@ -21,6 +21,15 @@ func TestHasOtherActiveTestRunIgnoresCurrentProcessLock(t *testing.T) {
 	}
 }
 
+func TestTestSocketDirUsesEnvOverride(t *testing.T) {
+	socketDir := t.TempDir()
+	t.Setenv("AMUX_SOCKET_DIR", socketDir)
+
+	if got := testSocketDir(); got != socketDir {
+		t.Fatalf("testSocketDir() = %q, want env override %q", got, socketDir)
+	}
+}
+
 func TestHasOtherActiveTestRunDetectsLiveOtherProcess(t *testing.T) {
 	t.Parallel()
 

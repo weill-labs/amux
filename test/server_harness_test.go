@@ -1700,8 +1700,8 @@ func TestSummarizeDiagnosticCaptureJSONIncludesPaneState(t *testing.T) {
 }
 
 func TestCommandWithContextSetsProcessGroupKillAndWaitDelay(t *testing.T) {
-	t.Parallel()
-
+	socketDir := t.TempDir()
+	t.Setenv(proto.SocketDirEnv, socketDir)
 	h := &ServerHarness{
 		session: "t-config",
 		home:    t.TempDir(),
@@ -1720,6 +1720,32 @@ func TestCommandWithContextSetsProcessGroupKillAndWaitDelay(t *testing.T) {
 	if cmd.Cancel == nil {
 		t.Fatal("commandWithContext should override Cancel to kill the subprocess process group")
 	}
+	if got, ok := lookupTestEnv(cmd.Env, proto.SocketDirEnv); !ok || got != socketDir {
+		t.Fatalf("commandWithContext %s = %q, %t; want %q, true", proto.SocketDirEnv, got, ok, socketDir)
+	}
+}
+
+func TestServerHarnessWaitForFuncKeepsPollingWhenLayoutIsQuiet(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	readyAt := time.Now().Add(750 * time.Millisecond)
+
+	if !h.waitForFunc(func(string) bool {
+		return time.Now().After(readyAt)
+	}, 2*time.Second) {
+		t.Fatal("waitForFunc returned before predicate became true")
+	}
+}
+
+func lookupTestEnv(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix), true
+		}
+	}
+	return "", false
 }
 
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit("v") }
