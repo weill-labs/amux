@@ -1202,10 +1202,11 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.writeInput(t, []byte{0x01, 'M'})
 	h.output.waitContains(t, "No binding")
 
-	h.writeInput(t, []byte{0x01, '[', 'q'})
+	h.writeInput(t, []byte{0x01, '['})
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventCopyModeShown
 	})
+	h.writeInput(t, []byte{'q'})
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventCopyModeHidden
 	})
