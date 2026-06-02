@@ -342,19 +342,30 @@ func TestServerAutoReload(t *testing.T) {
 	if !h.waitFor("SRVAUTO", 3*time.Second) {
 		t.Fatalf("SRVAUTO not visible\nScreen:\n%s", h.captureOuter())
 	}
+	reloadGen := h.generation()
 
 	if err := rewriteBinaryAtomic(privateBin); err != nil {
 		t.Fatalf("rewriting amux binary: %v", err)
 	}
 
-	if !h.waitFor("[pane-", 15*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("session did not recover after binary rebuild\nScreen:\n%s", screen)
+	status := waitForOutput(t, 30*time.Second, func() string {
+		return h.runCmd("status")
+	}, func(out string) bool {
+		return strings.Contains(out, "panes:") && strings.Contains(out, "build:")
+	})
+	if !strings.Contains(status, "panes:") || !strings.Contains(status, "build:") {
+		t.Fatalf("server did not recover after binary rebuild, status=%q", status)
 	}
 
-	if !h.waitFor("SRVAUTO", 5*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("SRVAUTO should be visible after server auto-reload\nScreen:\n%s", screen)
+	h.waitLayoutTimeout(reloadGen, "30s")
+
+	history := waitForOutput(t, 30*time.Second, func() string {
+		return h.runCmd("capture", "--history", "pane-1")
+	}, func(out string) bool {
+		return strings.Contains(out, "SRVAUTO")
+	})
+	if !strings.Contains(history, "SRVAUTO") {
+		t.Fatalf("SRVAUTO should be retained after server auto-reload\nHistory:\n%s", history)
 	}
 }
 

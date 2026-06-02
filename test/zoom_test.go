@@ -473,6 +473,7 @@ import sys
 import time
 
 log_file = %q
+resize_requested = False
 
 sys.stdout.write('\033[?1049h')
 sys.stdout.flush()
@@ -481,7 +482,7 @@ def record(marker):
     with open(log_file, "a", encoding="utf-8") as fh:
         fh.write(marker + "\n")
 
-def draw(*_args):
+def draw():
     size = os.get_terminal_size()
     size_marker = f"SIZE {size.columns}x{size.lines}"
     bottom_marker = f"BOTTOM {size.columns}x{size.lines}"
@@ -490,7 +491,11 @@ def draw(*_args):
     sys.stdout.write(f'\033[{size.lines};1H{bottom_marker}')
     sys.stdout.flush()
 
-signal.signal(signal.SIGWINCH, draw)
+def on_resize(*_args):
+    global resize_requested
+    resize_requested = True
+
+signal.signal(signal.SIGWINCH, on_resize)
 size = os.get_terminal_size()
 ready = f"READY {size.columns}x{size.lines}"
 record(ready)
@@ -498,7 +503,10 @@ sys.stdout.write(ready)
 sys.stdout.flush()
 
 while True:
-    time.sleep(60)
+    if resize_requested:
+        resize_requested = False
+        draw()
+    time.sleep(0.05)
 `, logPath)
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		t.Fatalf("write one-shot zoom script: %v", err)

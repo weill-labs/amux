@@ -306,7 +306,7 @@ func TestCapturePaneHistoryRewrapsNarrowLiveHistoryAndContent(t *testing.T) {
 	// Use a short relative command so the shell prompt plus echoed command
 	// does not wrap exactly at pane width in CI and become ambiguous to
 	// capture --history --rewrap.
-	h.sendKeys("pane-1", "./"+scriptName, "Enter")
+	h.sendKeys("pane-1", "bash ./"+scriptName, "Enter")
 	h.waitForPaneContent("pane-1", "SECOND visible", 5*time.Second)
 
 	raw := h.runCmd("capture", "--history", "pane-1")

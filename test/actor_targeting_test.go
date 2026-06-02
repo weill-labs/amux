@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -40,9 +41,13 @@ func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T)
 
 	h.runShellCommandWithSettle("3", nestedAmuxCommand(amuxBin, h.session, "capture", "--history", "shared")+" | grep WINDOW_TWO && echo CAPTURE_OK", "CAPTURE_OK", "25ms")
 
-	h.sendKeys("3", nestedAmuxCommand(amuxBin, h.session, "wait", "content", "shared", "WINDOW_TWO", "--timeout", "30s")+" && echo WAIT_OK", "Enter")
-	h.waitForTimeout("3", "WAIT_OK", "30s")
-	h.waitIdleWithSettle("3", "25ms", "10s")
+	ctx, cancel := context.WithTimeout(context.Background(), runCmdTimeout)
+	defer cancel()
+	cmd := h.commandWithContext(ctx, "wait", "content", "shared", "WINDOW_TWO", "--timeout", "30s")
+	cmd.Env = upsertEnv(cmd.Env, "AMUX_PANE", "3")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("actor-pane wait content output = %q, err=%v", out, err)
+	}
 
 	if got := h.captureJSON().Window.Index; got != 1 {
 		t.Fatalf("active window index = %d, want 1 after actor-targeted commands", got)
