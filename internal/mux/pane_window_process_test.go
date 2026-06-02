@@ -198,7 +198,7 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 	return newProcessTestPane(t, 123, "pane-123", cmd)
 }
 
-func newBashPromptSelfForkTestPane(t *testing.T, markerFile string) *Pane {
+func newBashPromptSelfForkTestPane(t *testing.T, markerFile, nestedReadyFile string) *Pane {
 	t.Helper()
 
 	bashPath, err := exec.LookPath("bash")
@@ -207,11 +207,12 @@ func newBashPromptSelfForkTestPane(t *testing.T, markerFile string) *Pane {
 	}
 
 	firstPromptFile := markerFile + ".first"
-	promptCommand := `if [[ ! -e "$FIRST_PROMPT_FILE" ]]; then : >"$FIRST_PROMPT_FILE"; printf started >"$MARKER_FILE"; else printf started >"$MARKER_FILE"; PROMPT_COMMAND= PS1= bash --noprofile --norc -ic 'PROMPT_COMMAND= PS1= bash --noprofile --norc -ic "read -rt 5 _"; :'; fi`
+	promptCommand := `if [[ ! -e "$FIRST_PROMPT_FILE" ]]; then : >"$FIRST_PROMPT_FILE"; printf started >"$MARKER_FILE"; else printf started >"$MARKER_FILE"; PROMPT_COMMAND= PS1= bash --noprofile --norc -ic 'PROMPT_COMMAND= PS1= bash --noprofile --norc -ic "printf ready > \"$NESTED_READY_FILE\"; read -rt 30 _"; :'; fi`
 	cmd := exec.Command(bashPath, "--noprofile", "--norc", "-i")
 	cmd.Env = append(os.Environ(),
 		"MARKER_FILE="+markerFile,
 		"FIRST_PROMPT_FILE="+firstPromptFile,
+		"NESTED_READY_FILE="+nestedReadyFile,
 		"PROMPT_COMMAND="+promptCommand,
 		"PS1=prompt> ",
 		"HISTFILE=/dev/null",
@@ -1192,8 +1193,9 @@ func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
 	// a live PTY-backed process tree.
 	dir := t.TempDir()
 	markerFile := filepath.Join(dir, "prompt-marker")
+	nestedReadyFile := filepath.Join(dir, "nested-ready")
 	readyFile := filepath.Join(dir, "ready")
-	pane := newBashPromptSelfForkTestPane(t, markerFile)
+	pane := newBashPromptSelfForkTestPane(t, markerFile, nestedReadyFile)
 
 	cmd := "printf READY > " + strconv.Quote(readyFile) + "\n"
 	if _, err := pane.Write([]byte(cmd)); err != nil {
@@ -1207,6 +1209,10 @@ func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
 		_, err := os.Stat(markerFile)
 		return err == nil
 	})
+	waitUntil(t, 10*time.Second, func() bool {
+		data, err := os.ReadFile(nestedReadyFile)
+		return err == nil && string(data) == "ready"
+	})
 
 	shellPID := pane.ProcessPid()
 	shellName := processName(shellPID)
@@ -1214,7 +1220,7 @@ func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
 		t.Fatal("processName(shell) = empty, want bash")
 	}
 
-	waitUntil(t, 5*time.Second, func() bool {
+	waitUntil(t, 10*time.Second, func() bool {
 		children := childPIDs(shellPID)
 		if len(children) != 1 || processName(children[0]) != shellName {
 			return false

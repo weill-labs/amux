@@ -250,11 +250,7 @@ func TestCmdTypeKeysWaitsForInputIdle(t *testing.T) {
 		t.Fatalf("type-keys message = %#v", typeKeysMsg)
 	}
 
-	select {
-	case <-done:
-		t.Fatal("type-keys returned before fresh input-idle")
-	case <-time.After(20 * time.Millisecond):
-	}
+	waitForUIWaitSubscription(t, sess, "client-1", proto.UIEventInputIdle, done)
 
 	sess.enqueueUIEvent(uiClient, proto.UIEventInputBusy)
 	sess.enqueueUIEvent(uiClient, proto.UIEventInputIdle)
@@ -333,11 +329,7 @@ func TestCmdSendKeysWaitsForInputIdle(t *testing.T) {
 	default:
 	}
 
-	select {
-	case <-done:
-		t.Fatal("send-keys returned before fresh input-idle")
-	case <-time.After(20 * time.Millisecond):
-	}
+	waitForUIWaitSubscription(t, sess, "client-1", proto.UIEventInputIdle, done)
 
 	sess.enqueueUIEvent(uiClient, proto.UIEventInputBusy)
 	sess.enqueueUIEvent(uiClient, proto.UIEventInputIdle)
@@ -351,6 +343,35 @@ func TestCmdSendKeysWaitsForInputIdle(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("send-keys wait command did not return")
+	}
+}
+
+func waitForUIWaitSubscription(t *testing.T, sess *Session, clientID, eventName string, done <-chan struct{}) {
+	t.Helper()
+
+	deadline := time.After(time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		subscribed := mustSessionQuery(t, sess, func(sess *Session) bool {
+			for _, sub := range sess.eventSubs {
+				if sub.Filter.ClientID == clientID && len(sub.Filter.Types) == 1 && sub.Filter.Types[0] == eventName {
+					return true
+				}
+			}
+			return false
+		})
+		if subscribed {
+			return
+		}
+
+		select {
+		case <-done:
+			t.Fatalf("command returned before subscribing to %s on %s", eventName, clientID)
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s subscription on %s", eventName, clientID)
+		case <-ticker.C:
+		}
 	}
 }
 
