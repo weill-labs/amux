@@ -2,6 +2,7 @@ package server
 
 import (
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestHandleAttachFlushesQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	pane.FeedOutput([]byte("\r\nline-4\r\nline-5"))
 	waitForSignal(t, outputCh, "queued pane output")
 
-	want := pane.CaptureSnapshot()
+	want := waitForPaneSnapshotContent(t, pane, "line-5")
 
 	release()
 	drainAttachMessages(t, peerConn, replay, 1)
@@ -88,8 +89,8 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("snapshotAttachTestLayout: %v", err)
 	}
-	wantPane1 := pane1.CaptureSnapshot()
-	wantPane2 := pane2.CaptureSnapshot()
+	wantPane1 := waitForPaneSnapshotContent(t, pane1, "split-pane-1")
+	wantPane2 := waitForPaneSnapshotContent(t, pane2, "split-pane-2")
 
 	release()
 	drainAttachMessages(t, peerConn, replay, 2)
@@ -401,6 +402,24 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
 	case <-time.After(time.Second):
 		t.Fatalf("timeout waiting for %s", label)
 	}
+}
+
+func waitForPaneSnapshotContent(t *testing.T, pane *mux.Pane, substr string) proto.CaptureSnapshot {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	var snap proto.CaptureSnapshot
+	for time.Now().Before(deadline) {
+		snap = pane.CaptureSnapshot()
+		lines := append(append([]string(nil), snap.History...), snap.Content...)
+		if strings.Contains(strings.Join(lines, "\n"), substr) {
+			return snap
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	t.Fatalf("timeout waiting for pane %d snapshot to contain %q; content=%q history=%q", pane.ID, substr, snap.Content, snap.History)
+	return proto.CaptureSnapshot{}
 }
 
 func newAttachTestPane(sess *Session, id uint32, name string, cols, rows int) *mux.Pane {

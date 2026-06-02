@@ -21,7 +21,7 @@ import (
 // tokenKeyGap is a small pacing gap before injected submit/control keys.
 // Some interactive TUIs only react correctly when Enter or Ctrl-key input
 // arrives on a later input tick rather than in the same burst as preceding text.
-const tokenKeyGap = 50 * time.Millisecond
+const tokenKeyGap = 150 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."

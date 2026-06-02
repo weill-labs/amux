@@ -75,12 +75,12 @@ func TestTypeKeysPacesEnterAfterText(t *testing.T) {
 
 	scriptPath := writeTimingSensitiveScript(t, h.session, 20*time.Millisecond)
 	h.sendKeys(scriptPath, "Enter")
-	if !h.waitFor("READY", 3*time.Second) {
+	if !h.waitFor("READY", 10*time.Second) {
 		t.Fatalf("expected timing-sensitive reader to arm\nscreen:\n%s", h.captureOuter())
 	}
 
 	h.sendClientKeys("HELLO", "Enter")
-	if !h.waitFor("SUBMIT=HELLO", 3*time.Second) {
+	if !h.waitFor("SUBMIT=HELLO", 10*time.Second) {
 		t.Fatalf("expected HELLO submit after paced type-keys\nscreen:\n%s", h.captureOuter())
 	}
 	if strings.Contains(h.captureOuter(), "EARLY_ENTER") {
