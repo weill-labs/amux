@@ -116,6 +116,78 @@ func TestCmdSendKeysSubmitReportsInvalidHexWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestCmdSendKeysRemoteTargetForwardsWithoutMirror(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	beforePanes := mustSessionQuery(t, h.localSess, func(sess *Session) int {
+		return len(sess.Panes)
+	})
+
+	res := runTestCommand(t, h.localSrv, h.localSess, "send-keys", "remote:remote-agent", "remote-input")
+	if res.cmdErr != "" {
+		t.Fatalf("remote send-keys cmdErr = %q", res.cmdErr)
+	}
+	if got, want := res.output, "Sent 12 bytes to remote:remote-agent\n"; got != want {
+		t.Fatalf("remote send-keys output = %q, want %q", got, want)
+	}
+
+	select {
+	case got := <-h.remoteWrites:
+		if string(got) != "remote-input" {
+			t.Fatalf("remote input = %q, want remote-input", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("remote input did not reach remote pane")
+	}
+
+	afterPanes := mustSessionQuery(t, h.localSess, func(sess *Session) int {
+		return len(sess.Panes)
+	})
+	if afterPanes != beforePanes {
+		t.Fatalf("local pane count changed from %d to %d; remote send should not create a mirror", beforePanes, afterPanes)
+	}
+}
+
+func TestCmdSendKeysRemoteTargetUnreachableFailsLoudly(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+	h.dialer.fail.Store(true)
+
+	res := runTestCommand(t, h.localSrv, h.localSess, "send-keys", "remote:remote-agent", "x")
+	if res.cmdErr == "" || !strings.Contains(res.cmdErr, "remote server unavailable") {
+		t.Fatalf("remote send-keys unreachable cmdErr = %q, want dial failure", res.cmdErr)
+	}
+
+	select {
+	case got := <-h.remoteWrites:
+		t.Fatalf("remote send-keys wrote despite dial failure: %q", got)
+	default:
+	}
+}
+
+func TestCmdSendKeysUnknownRemotePaneFailsLoudly(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	res := runTestCommand(t, h.localSrv, h.localSess, "send-keys", "remote:missing-agent", "x")
+	if res.cmdErr == "" || !strings.Contains(res.cmdErr, `pane name "missing-agent" not found`) {
+		t.Fatalf("remote send-keys missing pane cmdErr = %q, want missing remote pane", res.cmdErr)
+	}
+
+	select {
+	case got := <-h.remoteWrites:
+		t.Fatalf("remote send-keys wrote despite missing remote pane: %q", got)
+	default:
+	}
+}
+
 func TestCmdSendKeysCommandWaitReadyWaitsForReady(t *testing.T) {
 	t.Parallel()
 
