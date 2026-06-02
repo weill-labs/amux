@@ -35,14 +35,11 @@ func TestRemoteCLIAttachWindow(t *testing.T) {
 	if len(mirrors) != 2 {
 		t.Fatalf("expected 2 local mirror panes, got %d: %v", len(mirrors), mirrors)
 	}
+	remoteSideMirror := localMirrorNameForRemotePane(t, pair.local, remoteCLITestHost, "remote-side")
 
 	// Output from the remote pane streams into the activated mirror window.
 	pair.remote.runCmd("send-keys", "remote-side", "printf REMOTE_WIN_ATTACH", "Enter")
-	if !pair.local.waitForFunc(func(s string) bool {
-		return strings.Contains(s, "REMOTE_WIN_ATTACH")
-	}, 5*time.Second) {
-		t.Fatalf("mirrored output not observed in window capture")
-	}
+	pair.local.waitForTimeout(remoteSideMirror, "REMOTE_WIN_ATTACH", "5s")
 }
 
 // TestRemoteCLIAttachWindowDynamicResync verifies the local mirror window tracks
@@ -243,4 +240,16 @@ func localMirrorNames(listOut, host string) []string {
 		}
 	}
 	return names
+}
+
+func localMirrorNameForRemotePane(t *testing.T, h *ServerHarness, host, remotePane string) string {
+	t.Helper()
+	capture := h.captureJSON()
+	for _, pane := range capture.Panes {
+		if pane.Mirror != nil && pane.Mirror.Host == host && pane.Mirror.PaneName == remotePane {
+			return pane.Name
+		}
+	}
+	t.Fatalf("no local mirror for %s:%s in capture: %+v", host, remotePane, capture.Panes)
+	return ""
 }
