@@ -106,6 +106,27 @@ amux_mailbox_rewake_self_test() {
     printf 'amux mailbox rewake hook self-test passed\n'
 }
 
+amux_mailbox_wake_opt_in_main() {
+    local err
+
+    if [ "${AMUX_MAILBOX_WAKE_OPT_IN_DISABLE:-}" = "1" ] ||
+        [ -z "${AMUX_PANE:-}" ]; then
+        return 0
+    fi
+    if ! command -v amux >/dev/null 2>&1; then
+        amux_mailbox_drain_log "amux not found; cannot opt into mailbox wake"
+        return 0
+    fi
+
+    err="$(mktemp "${TMPDIR:-/tmp}/amux-mailbox-wake-opt-in.XXXXXX")" || return 0
+    if ! amux meta set "$AMUX_PANE" mailbox_wake=prompt >/dev/null 2>"$err"; then
+        amux_mailbox_drain_log "mailbox wake opt-in failed: $(tr '\n' ' ' <"$err")"
+        rm -f "$err"
+        return 0
+    fi
+    rm -f "$err"
+}
+
 amux_mailbox_drain_read_status_json() {
     local json pending
 

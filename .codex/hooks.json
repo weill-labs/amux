@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/amux-mailbox-wake-opt-in.sh\"",
+            "timeout": 10,
+            "statusMessage": "Enabling amux mailbox wake"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

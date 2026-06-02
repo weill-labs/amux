@@ -97,7 +97,7 @@ func mailboxPaneWakeEnabled(kv map[string]string) bool {
 	case "1", "true", "on", "prompt", "nudge":
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(kv["agent_profile"]), "codex")
+	return false
 }
 
 func mailboxWakeInputChunks() []encodedKeyChunk {

@@ -28,10 +28,10 @@ The Stop drain gate and wake-from-park watcher are separate paths:
   `amux msg drain-status --format json` after a fresh delivery. If pending
   read/ack work remains, it exits `2` so Claude wakes.
 - The server also sends a delivery-time prompt nudge to quiet panes tagged
-  `agent_profile=codex`. Set `mailbox_wake=prompt` to opt in another pane, or
-  `mailbox_wake=off` to suppress the nudge for a Codex pane. The nudge fires
-  only when the recipient's pending mailbox was empty before the new delivery,
-  so a burst of messages does not stack repeated prompts.
+  `mailbox_wake=prompt`. Agent startup hooks set that metadata themselves; it
+  does not depend on Orca metadata. The nudge fires only when the recipient's
+  pending mailbox was empty before the new delivery, so a burst of messages does
+  not stack repeated prompts.
 
 ## Bootstrap Pattern
 
@@ -122,6 +122,17 @@ The repo dogfoods the Claude Code recipe through `.claude/settings.json`:
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/mailbox-wake-opt-in.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
@@ -142,6 +153,10 @@ The repo dogfoods the Claude Code recipe through `.claude/settings.json`:
   }
 }
 ```
+
+`.claude/hooks/mailbox-wake-opt-in.sh` marks the current amux pane with
+`mailbox_wake=prompt` during `SessionStart`. That makes delivery-time nudges use
+the server-side `msg send` wake path.
 
 On block, `.claude/hooks/mailbox-drain.sh` writes the reason to stderr and exits
 `2`, which asks Claude Code to continue instead of stopping.
@@ -232,6 +247,18 @@ The repo ships a Codex project-local example in `.codex/hooks.json`:
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/amux-mailbox-wake-opt-in.sh\"",
+            "timeout": 10,
+            "statusMessage": "Enabling amux mailbox wake"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -248,6 +275,11 @@ The repo ships a Codex project-local example in `.codex/hooks.json`:
 }
 ```
 
+`.codex/hooks/amux-mailbox-wake-opt-in.sh` marks the current amux pane with
+`mailbox_wake=prompt` during `SessionStart`. This is the earliest project-local
+Codex hook path available in current Codex; the actual delivery nudge still
+comes from the server-side `msg send` path.
+
 On block, `.codex/hooks/amux-mailbox-drain.sh` prints valid JSON on stdout:
 
 ```json
@@ -260,13 +292,14 @@ diagnostics from this recipe go to the bounded log instead.
 
 Codex does not currently run long-lived async rewake hooks, so the project
 `hooks.json` wires only the Stop drain gate. For parked Codex panes, amux uses
-the server-side delivery nudge described above when the pane has
-`agent_profile=codex` metadata. Orca sets that metadata on worker panes. For a
-manually started Codex pane, opt in with:
+the server-side delivery nudge described above when the pane has opted in with
+`mailbox_wake=prompt`. If project hooks are not trusted yet, or if the running
+Codex version/environment does not fire `SessionStart` before the first user
+prompt, a mailbox message sent before that first user prompt can remain pending
+without an immediate prompt nudge. The Stop drain gate still catches pending
+mail at the end of a turn. For a manually started Codex pane, opt in with:
 
 ```bash
-amux meta set pane-2 agent_profile=codex
-# or, without declaring an agent profile:
 amux meta set pane-2 mailbox_wake=prompt
 ```
 
@@ -299,6 +332,15 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 amux_mailbox_drain_main codex "$@"
 EOF
 chmod +x ~/.codex/hooks/amux-mailbox-drain.sh
+
+cat > ~/.codex/hooks/amux-mailbox-wake-opt-in.sh <<'EOF'
+#!/usr/bin/env bash
+set -u
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HOOK_DIR/amux-mailbox-drain-lib.sh"
+amux_mailbox_wake_opt_in_main "$@"
+EOF
+chmod +x ~/.codex/hooks/amux-mailbox-wake-opt-in.sh
 ```
 
 If your Codex runner supports a long-lived rewake hook, install a sibling
@@ -319,11 +361,24 @@ As above, substitute `/path/to/amux` with your checkout and confirm the link
 resolves with `readlink ~/.codex/hooks/amux-mailbox-drain-lib.sh` — a dangling
 symlink makes the wrapper exit `127` rather than fail open.
 
-Then add a `Stop` hook with the **absolute** wrapper path to `~/.codex/hooks.json`:
+Then add `SessionStart` and `Stop` hooks with **absolute** wrapper paths to
+`~/.codex/hooks.json`:
 
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/you/.codex/hooks/amux-mailbox-wake-opt-in.sh",
+            "timeout": 10,
+            "statusMessage": "Enabling amux mailbox wake"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -383,6 +438,8 @@ Run a local sanity check (project or global wrapper, whichever you installed):
 ```bash
 .claude/hooks/mailbox-drain.sh --self-test            # project recipe
 .claude/hooks/mailbox-rewake.sh --self-test           # project rewake watcher
+.claude/hooks/mailbox-wake-opt-in.sh                  # project wake opt-in
+.codex/hooks/amux-mailbox-wake-opt-in.sh              # project wake opt-in
 .codex/hooks/amux-mailbox-drain.sh --self-test        # project recipe
 .codex/hooks/amux-mailbox-rewake.sh --self-test       # project rewake wrapper
 ~/.claude/hooks/amux-mailbox-drain.sh --self-test     # global recipe
