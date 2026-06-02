@@ -118,10 +118,10 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(binPath, inner, launchDir, envVars), "Enter")
 
-	// Wait for the inner amux client to render (status bar appears in outer
-	// pane). Once the client has rendered, the inner server is guaranteed to
-	// be accepting connections — no polling loop needed.
+	// Wait for the inner amux client to render, then verify the client's
+	// own display capture is live before tests start sending input through it.
 	outer.waitForTimeout("pane-1", "[pane-", "30s")
+	h.waitForClientDisplayCaptureReady(10 * time.Second)
 
 	return h
 }

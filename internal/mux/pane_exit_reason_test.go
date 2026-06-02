@@ -2,8 +2,7 @@ package mux
 
 import (
 	"errors"
-	"fmt"
-	"os/exec"
+	"syscall"
 	"testing"
 )
 
@@ -16,8 +15,10 @@ func TestFormatExitReason(t *testing.T) {
 		want string
 	}{
 		{name: "nil error", err: nil, want: "exit 0"},
-		{name: "exit code 1", err: exitError(t, 1), want: "exit 1"},
-		{name: "exit code 130", err: exitError(t, 130), want: "exit 130"},
+		{name: "exit code 1", err: fakeExitStatusError{code: 1}, want: "exit 1"},
+		{name: "exit code 130", err: fakeExitStatusError{code: 130}, want: "exit 130"},
+		{name: "signal", err: fakeExitStatusError{code: -1, status: syscall.WaitStatus(syscall.SIGTERM)}, want: "signal: terminated"},
+		{name: "plain error", err: errors.New("wait failed"), want: "wait failed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -30,18 +31,19 @@ func TestFormatExitReason(t *testing.T) {
 	}
 }
 
-// exitError produces a real ExitError by running a subprocess that exits with
-// the given code.
-func exitError(t *testing.T, code int) *exec.ExitError {
-	t.Helper()
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code))
-	err := cmd.Run()
-	if err == nil {
-		t.Fatalf("expected exit %d, got nil error", code)
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("expected *exec.ExitError, got %T", err)
-	}
-	return exitErr
+type fakeExitStatusError struct {
+	code   int
+	status syscall.WaitStatus
+}
+
+func (e fakeExitStatusError) Error() string {
+	return "exit status"
+}
+
+func (e fakeExitStatusError) ExitCode() int {
+	return e.code
+}
+
+func (e fakeExitStatusError) Sys() any {
+	return e.status
 }

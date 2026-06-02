@@ -28,6 +28,7 @@ type ptyClientHarness struct {
 	waitErr  error
 	updateCh chan struct{}
 	exited   chan struct{}
+	readDone chan struct{}
 }
 
 func newPTYClientHarness(tb testing.TB, server *ServerHarness, envVars ...string) *ptyClientHarness {
@@ -85,6 +86,7 @@ func newPTYClientHarnessForSession(tb testing.TB, session, home, coverDir string
 		ptmx:     ptmx,
 		updateCh: make(chan struct{}, 1),
 		exited:   make(chan struct{}),
+		readDone: make(chan struct{}),
 	}
 
 	go h.readLoop()
@@ -127,6 +129,7 @@ func (h *ptyClientHarness) cleanup() {
 }
 
 func (h *ptyClientHarness) readLoop() {
+	defer close(h.readDone)
 	buf := make([]byte, 4096)
 	for {
 		n, err := h.ptmx.Read(buf)
@@ -187,7 +190,7 @@ func (h *ptyClientHarness) waitForOutput(substr string, timeout time.Duration) b
 		}
 		select {
 		case <-h.updateCh:
-		case <-h.exited:
+		case <-h.readDone:
 			return bytes.Contains(h.outputBytes(), []byte(substr))
 		case <-time.After(wait):
 		}
@@ -211,7 +214,7 @@ func (h *ptyClientHarness) waitForScreenText(substr string, timeout time.Duratio
 		}
 		select {
 		case <-h.updateCh:
-		case <-h.exited:
+		case <-h.readDone:
 			return strings.Contains(h.screen(80, 24), substr)
 		case <-time.After(wait):
 		}

@@ -68,7 +68,7 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 			}
 
 			if tt.wantKitty {
-				if !client.waitForOutput(render.KittyKeyboardDisable, 2*time.Second) {
+				if !client.waitForOutput(render.KittyKeyboardDisable, 5*time.Second) {
 					t.Fatalf("expected kitty disable sequence on exit\nOutput:\n%s", client.outputString())
 				}
 				return

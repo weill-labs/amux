@@ -643,12 +643,18 @@ func (p *Pane) waitLoop(cmd *exec.Cmd, proc *os.Process, exitDone, waitLoopDone 
 	}
 }
 
+type exitStatusError interface {
+	error
+	ExitCode() int
+	Sys() any
+}
+
 // formatExitReason turns a Wait() error into a human-readable exit reason.
 func formatExitReason(err error) string {
 	if err == nil {
 		return "exit 0"
 	}
-	var exitErr *exec.ExitError
+	var exitErr exitStatusError
 	if errors.As(err, &exitErr) {
 		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 			if status.Signaled() {

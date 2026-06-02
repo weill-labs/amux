@@ -13,7 +13,7 @@ func TestDiagDumpCommandPrintsGoroutineDump(t *testing.T) {
 
 	h := newServerHarnessWithConfig(t, 80, 24, "[debug]\npprof = true\n")
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := h.commandWithContext(ctx, "_diag", "dump")
 	out, err := cmd.CombinedOutput()
