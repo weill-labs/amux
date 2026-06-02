@@ -613,6 +613,7 @@ for i in $(seq -w 1 24); do echo "MEXIT-$i"; done
 func TestMouseScrollWheelTargetsInactivePaneWithoutFocusChange(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
+	h.waitForClientDisplayCaptureReady(10 * time.Second)
 	h.splitV()
 	h.assertActive("pane-2")
 
