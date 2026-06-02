@@ -81,8 +81,11 @@ func remoteCommandTransport(ctx *CommandContext, ref checkpoint.RemoteRef) (conf
 		ok     bool
 	)
 	if ctx != nil && ctx.Sess != nil && ctx.Sess.mirror != nil {
-		host, ok = ctx.Sess.mirror.Host(ref.Host)
-		dialer = ctx.Sess.mirror.Dialer()
+		if mirrorHost, found := ctx.Sess.mirror.Host(ref.Host); found {
+			host = mirrorHost
+			dialer = ctx.Sess.mirror.Dialer()
+			ok = true
+		}
 	}
 	if !ok {
 		var err error

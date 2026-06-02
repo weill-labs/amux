@@ -1172,7 +1172,8 @@ func forwardRemoteMailboxDeliveries(ctx *CommandContext, sender mailbox.PaneAddr
 		hostNames = append(hostNames, hostName)
 	}
 	sort.Strings(hostNames)
-	for _, hostName := range hostNames {
+	succeededHosts := make([]string, 0, len(hostNames))
+	for i, hostName := range hostNames {
 		hostRecipients := recipients[hostName]
 		if len(hostRecipients) == 0 {
 			continue
@@ -1182,14 +1183,31 @@ func forwardRemoteMailboxDeliveries(ctx *CommandContext, sender mailbox.PaneAddr
 		payload.Recipients = remoteMailboxRecipientRefs(hostRecipients)
 		output, err := forwardRemoteMailboxDelivery(ctx, hostRecipients[0].ref, payload, format)
 		if err != nil {
-			return nil, err
+			return nil, remoteMailboxDeliveryProgressError(succeededHosts, hostName, hostNames[i+1:], err)
 		}
 		if output == "" {
 			output = fmt.Sprintf("Sent mailbox message to %s\n", hostName)
 		}
 		outputs = append(outputs, output)
+		succeededHosts = append(succeededHosts, hostName)
 	}
 	return outputs, nil
+}
+
+func remoteMailboxDeliveryProgressError(succeededHosts []string, failedHost string, notAttemptedHosts []string, err error) error {
+	return fmt.Errorf("forward remote mailbox deliveries failed for %s (succeeded: %s; not attempted: %s): %w",
+		failedHost,
+		remoteMailboxHostList(succeededHosts),
+		remoteMailboxHostList(notAttemptedHosts),
+		err,
+	)
+}
+
+func remoteMailboxHostList(hosts []string) string {
+	if len(hosts) == 0 {
+		return "none"
+	}
+	return strings.Join(hosts, ",")
 }
 
 func remoteMailboxRecipientRefs(recipients []msgRemoteRecipient) []string {
