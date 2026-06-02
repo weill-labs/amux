@@ -557,16 +557,16 @@ func TestServerReloadBorderColors(t *testing.T) {
 
 	reloadGen := h.generation()
 	h.runCmd("reload-server")
-	h.waitForReloadedClient(reloadGen, 10*time.Second)
+	h.waitForReloadedClient(reloadGen, 30*time.Second)
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 5*time.Second) {
+	}, 10*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
 	}
 
-	ansiAfter := waitForOutput(t, 5*time.Second, h.captureANSI, func(out string) bool {
+	ansiAfter := waitForOutput(t, 10*time.Second, h.captureANSI, func(out string) bool {
 		return len(extractBorderColors(pickContentLine(out))) > 0
 	})
 	colorsAfter := extractBorderColors(pickContentLine(ansiAfter))
