@@ -109,6 +109,39 @@ func TestRemoteCommandTransportUsesMirrorHostAndSessionFallback(t *testing.T) {
 	}
 }
 
+func TestRemoteCommandTransportConfigFallbackDoesNotReuseMirrorDialer(t *testing.T) {
+	configPath := t.TempDir() + "/config.toml"
+	t.Setenv("AMUX_CONFIG", configPath)
+	if err := config.Save(configPath, &config.Config{
+		Remote: config.RemoteConfig{Hosts: map[string]config.Host{
+			"fallback": {SSH: "fallback.example", SocketPath: "/tmp/amux-fallback", Session: "fallback-session"},
+		}},
+	}); err != nil {
+		t.Fatalf("saving config: %v", err)
+	}
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	sess.mirror.Configure(mirrorpkg.Config{
+		Hosts: map[string]config.Host{
+			"mirror": {SSH: "ignored", SocketPath: "/tmp/amux-mirror"},
+		},
+		Dialer: staticDialer{},
+	})
+
+	host, gotDialer, err := remoteCommandTransport(&CommandContext{Sess: sess}, checkpoint.RemoteRef{Host: "fallback"})
+	if err != nil {
+		t.Fatalf("remoteCommandTransport() error = %v", err)
+	}
+	if host.Session != "fallback-session" || host.SocketPath != "/tmp/amux-fallback" {
+		t.Fatalf("remoteCommandTransport() host = %+v, want config fallback host", host)
+	}
+	if gotDialer != nil {
+		t.Fatalf("remoteCommandTransport() dialer = %T, want nil SSH fallback dialer", gotDialer)
+	}
+}
+
 func TestRemoteCommandTransportRequiresHost(t *testing.T) {
 	t.Parallel()
 

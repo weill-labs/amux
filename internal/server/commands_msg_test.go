@@ -9,6 +9,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
 	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
@@ -380,6 +381,56 @@ func TestMsgCommandSendRemoteUnreachableFailsLoudly(t *testing.T) {
 		"--body", "hello remote")
 	if sent.cmdErr == "" || !strings.Contains(sent.cmdErr, "remote server unavailable") {
 		t.Fatalf("remote unreachable error = %q, want dial failure", sent.cmdErr)
+	}
+}
+
+func TestForwardRemoteMailboxDeliveriesReportsPartialHostProgress(t *testing.T) {
+	t.Setenv("AMUX_CONFIG", t.TempDir()+"/config.toml")
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	h.localSess.mirror.Configure(mirrorpkg.Config{
+		Hosts: map[string]config.Host{
+			"a-good": {SSH: "ignored", Session: h.remoteSess.Name, SocketPath: "/tmp/amux-mirror-test"},
+		},
+		Dialer:      h.dialer,
+		RetryPolicy: mirrorRetryPolicyForTest(),
+	})
+
+	recipients := map[string][]msgRemoteRecipient{
+		"a-good": {{
+			ref: checkpoint.RemoteRef{Host: "a-good", Session: h.remoteSess.Name, PaneName: h.remotePane.Meta.Name},
+		}},
+		"b-bad": {{
+			ref: checkpoint.RemoteRef{Host: "b-bad", PaneName: h.remotePane.Meta.Name},
+		}},
+		"c-later": {{
+			ref: checkpoint.RemoteRef{Host: "c-later", PaneName: h.remotePane.Meta.Name},
+		}},
+	}
+	_, err := forwardRemoteMailboxDeliveries(&CommandContext{Sess: h.localSess},
+		mailbox.PaneAddress{ID: 1, Name: "local"},
+		recipients,
+		msgRemoteDeliverPayload{Subject: "Partial", Body: []byte("body")},
+		msgFormatText,
+	)
+	if err == nil {
+		t.Fatal("forwardRemoteMailboxDeliveries() error = nil, want partial delivery error")
+	}
+	for _, want := range []string{"failed for b-bad", "succeeded: a-good", "not attempted: c-later"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("forwardRemoteMailboxDeliveries() error = %q, want %q", err, want)
+		}
+	}
+
+	inbox := runTestCommand(t, h.remoteSrv, h.remoteSess, "msg", "inbox", h.remotePane.Meta.Name, "--unread", "--format", "json")
+	if inbox.cmdErr != "" {
+		t.Fatalf("remote inbox error: %s", inbox.cmdErr)
+	}
+	remoteInbox := parseMsgCommandInboxJSON(t, inbox.output)
+	if len(remoteInbox) != 1 || remoteInbox[0].Subject != "Partial" {
+		t.Fatalf("remote inbox = %#v, want earlier host delivery to commit", remoteInbox)
 	}
 }
 
