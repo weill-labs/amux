@@ -745,6 +745,7 @@ func TestEventsThrottleNonOutputPassthrough(t *testing.T) {
 func TestEventsCLIConnectError(t *testing.T) {
 	t.Parallel()
 	cmd := newHermeticAmuxCommand(t, "-s", "nonexistent-session-xyz", "events")
+	cmd.Env = upsertEnv(cmd.Env, "AMUX_SOCKET_DIR", testSocketDir())
 	if gocoverDir != "" {
 		cmd.Env = upsertEnv(cmd.Env, "GOCOVERDIR", gocoverDir)
 	}

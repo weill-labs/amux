@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // amuxBin is the path to the built amux binary, set in TestMain.
@@ -111,9 +113,11 @@ func privateAmuxBin(tb testing.TB) string {
 
 func TestMain(m *testing.M) {
 	_ = os.Unsetenv("AMUX_SESSION")
+	_ = os.Unsetenv(proto.SocketDirEnv)
 	_ = os.Unsetenv("TMUX")
 
-	socketDir := testSocketDir()
+	baseSocketDir := defaultTestSocketDir()
+	socketDir := baseSocketDir
 	lockPath, err := writeTestRunLock(socketDir, os.Getpid())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "creating test-run lock: %v\n", err)
@@ -126,6 +130,20 @@ func TestMain(m *testing.M) {
 	cleanupStaleTestSessions()
 	cleanupStaleTestTempDirs()
 
+	runSocketDir, err := os.MkdirTemp(baseSocketDir, "test-run-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "creating run socket dir: %v\n", err)
+		removeTestRunLock()
+		os.Exit(1)
+	}
+	if err := os.Setenv(proto.SocketDirEnv, runSocketDir); err != nil {
+		fmt.Fprintf(os.Stderr, "setting %s: %v\n", proto.SocketDirEnv, err)
+		_ = os.RemoveAll(runSocketDir)
+		removeTestRunLock()
+		os.Exit(1)
+	}
+	removeRunSocketDir := func() { _ = os.RemoveAll(runSocketDir) }
+
 	// Use GOCOVERDIR if explicitly set (e.g. by CI). When set, the amux
 	// binary is built with -cover and writes coverage data on exit.
 	// When not set, build without -cover for faster tests and no metadata races.
@@ -135,6 +153,7 @@ func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "amux-test-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
+		removeRunSocketDir()
 		removeTestRunLock()
 		os.Exit(1)
 	}
@@ -144,6 +163,7 @@ func TestMain(m *testing.M) {
 	if err := buildAmux(amuxBin); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		_ = os.RemoveAll(tmp)
+		removeRunSocketDir()
 		removeTestRunLock()
 		os.Exit(1)
 	}
@@ -166,6 +186,9 @@ func TestMain(m *testing.M) {
 	}
 
 	_ = os.RemoveAll(tmp)
+	cleanupStaleTestSessions()
+	removeRunSocketDir()
+	_ = os.Unsetenv(proto.SocketDirEnv)
 	removeTestRunLock()
 	os.Exit(code)
 }
@@ -207,8 +230,15 @@ func newTestHome(tb testing.TB) string {
 	return home
 }
 
-func testSocketDir() string {
+func defaultTestSocketDir() string {
 	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+}
+
+func testSocketDir() string {
+	if dir := os.Getenv(proto.SocketDirEnv); dir != "" {
+		return dir
+	}
+	return defaultTestSocketDir()
 }
 
 // cleanupStaleTestTempDirs removes amux test build directories left behind

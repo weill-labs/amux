@@ -374,22 +374,18 @@ func (h *AmuxHarness) waitUIAfter(event string, afterGen uint64, timeout time.Du
 // a simple substring match. Prefer waitLayout for layout changes.
 func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) bool {
 	h.tb.Helper()
-	deadline := time.Now().Add(timeout)
-	gen := h.generation()
-	for time.Now().Before(deadline) {
-		if fn(h.capture()) {
-			return true
-		}
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
-			return fn(h.capture())
-		}
-		gen = h.generation()
-	}
-	return false
+	_, ok := waitForValueWithLayout(
+		func() (string, bool) {
+			capture := h.capture()
+			return capture, fn(capture)
+		},
+		h.generation,
+		func(afterGen uint64, waitFor time.Duration) bool {
+			return h.waitLayoutOrTimeout(afterGen, waitFor.String())
+		},
+		timeout,
+	)
+	return ok
 }
 
 // waitForOuterFunc polls the outer emulator capture until fn returns true or timeout.

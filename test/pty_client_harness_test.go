@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -61,6 +62,7 @@ func newPTYClientHarnessForSession(tb testing.TB, session, home, coverDir string
 		env = removeEnv(env, key)
 	}
 	env = upsertEnv(env, "HOME", home)
+	env = upsertEnv(env, proto.SocketDirEnv, testSocketDir())
 	// PTY integration tests exercise attach/render/input behavior, not terminal
 	// profile probing or outer-session inheritance. Use a scrubbed terminal
 	// environment so the compiled client behaves like the direct RunSession

@@ -90,6 +90,7 @@ func startEventsCLI(t *testing.T, h *ServerHarness, env []string, args ...string
 	cmd := newHermeticAmuxCommand(t, cmdArgs...)
 
 	envVars := upsertEnv(cmd.Env, "HOME", h.home)
+	envVars = upsertEnv(envVars, "AMUX_SOCKET_DIR", testSocketDir())
 	if h.coverDir != "" {
 		envVars = upsertEnv(envVars, "GOCOVERDIR", h.coverDir)
 	}

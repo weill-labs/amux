@@ -57,9 +57,10 @@ type ServerHarness struct {
 }
 
 var harnessBlockedEnvKeys = map[string]struct{}{
-	"AMUX_PANE":    {},
-	"AMUX_SESSION": {},
-	"TMUX":         {},
+	proto.SocketDirEnv: {},
+	"AMUX_PANE":        {},
+	"AMUX_SESSION":     {},
+	"TMUX":             {},
 }
 
 const harnessCommandWaitDelay = 250 * time.Millisecond
@@ -184,6 +185,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	}
 	env = upsertEnv(env, "HOME", home)
 	env = upsertEnv(env, "AMUX_LOG_DIR", logDir)
+	env = upsertEnv(env, proto.SocketDirEnv, testSocketDir())
 	env = upsertEnv(env, "AMUX_COLOR_PROFILE", "TrueColor")
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
 	if exitUnattached {
@@ -506,6 +508,7 @@ func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) 
 	}
 	env = upsertEnv(env, "HOME", h.home)
 	env = upsertEnv(env, "AMUX_LOG_DIR", testLogDir(h.home))
+	env = upsertEnv(env, proto.SocketDirEnv, testSocketDir())
 	if h.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}
@@ -1380,22 +1383,18 @@ func (h *ServerHarness) waitForFunc(fn func(string) bool, timeout time.Duration)
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for plain capture predicate (timeout %v)", timeout))
 	defer restore()
-	deadline := time.Now().Add(timeout)
-	gen := h.generation()
-	for time.Now().Before(deadline) {
-		if fn(h.capture()) {
-			return true
-		}
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
-			return fn(h.capture())
-		}
-		gen = h.generation()
-	}
-	return false
+	_, ok := waitForValueWithLayout(
+		func() (string, bool) {
+			capture := h.capture()
+			return capture, fn(capture)
+		},
+		h.generation,
+		func(afterGen uint64, waitFor time.Duration) bool {
+			return h.waitLayoutOrTimeout(afterGen, waitFor.String())
+		},
+		timeout,
+	)
+	return ok
 }
 
 // waitForCaptureJSON polls JSON capture until fn returns true or timeout.
