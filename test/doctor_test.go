@@ -84,7 +84,8 @@ func TestDoctorFailsWhenServerSocketIsWedged(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := newHermeticAmuxCommandContext(t, ctx, "-s", session, "doctor")
-	cmd.Env = append(cmd.Env, "AMUX_DIAL_TIMEOUT=20ms", "AMUX_SOCKET_DIR="+testSocketDir())
+	cmd.Env = applyTestSocketDirEnv(cmd.Env)
+	cmd.Env = append(cmd.Env, "AMUX_DIAL_TIMEOUT=20ms")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("doctor against wedged socket exited 0, want failure\n%s", out)

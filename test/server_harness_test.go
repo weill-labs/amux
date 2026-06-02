@@ -185,7 +185,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	}
 	env = upsertEnv(env, "HOME", home)
 	env = upsertEnv(env, "AMUX_LOG_DIR", logDir)
-	env = upsertEnv(env, proto.SocketDirEnv, testSocketDir())
+	env = applyTestSocketDirEnv(env)
 	env = upsertEnv(env, "AMUX_COLOR_PROFILE", "TrueColor")
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
 	if exitUnattached {
@@ -508,7 +508,7 @@ func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) 
 	}
 	env = upsertEnv(env, "HOME", h.home)
 	env = upsertEnv(env, "AMUX_LOG_DIR", testLogDir(h.home))
-	env = upsertEnv(env, proto.SocketDirEnv, testSocketDir())
+	env = applyTestSocketDirEnv(env)
 	if h.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}

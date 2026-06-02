@@ -241,6 +241,10 @@ func testSocketDir() string {
 	return defaultTestSocketDir()
 }
 
+func applyTestSocketDirEnv(env []string) []string {
+	return upsertEnv(env, proto.SocketDirEnv, testSocketDir())
+}
+
 // cleanupStaleTestTempDirs removes amux test build directories left behind
 // when previous test binaries exited before reaching their normal cleanup.
 func cleanupStaleTestTempDirs() {

@@ -503,7 +503,7 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	logDir := testLogDir(home)
 	env := upsertEnv(cmd.Env, "HOME", home)
 	env = upsertEnv(env, "AMUX_LOG_DIR", logDir)
-	env = upsertEnv(env, "AMUX_SOCKET_DIR", testSocketDir())
+	env = applyTestSocketDirEnv(env)
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1", "AMUX_DISABLE_META_REFRESH=1")
 	env = applyHarnessShellEnv(t, env)
 

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -257,9 +258,15 @@ func assertHarnessEnvScrubbed(t *testing.T, label string, h *ServerHarness) {
 		t.Fatalf("%s server harness command is nil", label)
 	}
 	for key := range harnessBlockedEnvKeys {
+		if key == proto.SocketDirEnv {
+			continue
+		}
 		if value, ok := harnessEnvValue(h.cmd.Env, key); ok {
 			t.Fatalf("%s server env leaked %s=%q", label, key, value)
 		}
+	}
+	if got, ok := harnessEnvValue(h.cmd.Env, proto.SocketDirEnv); !ok || filepath.Clean(got) != filepath.Clean(testSocketDir()) {
+		t.Fatalf("%s server %s = %q, want %q", label, proto.SocketDirEnv, got, testSocketDir())
 	}
 	if got, ok := harnessEnvValue(h.cmd.Env, "HOME"); !ok || filepath.Clean(got) != filepath.Clean(h.home) {
 		t.Fatalf("%s server HOME = %q, want %q", label, got, h.home)

@@ -41,7 +41,7 @@ func runDuplicateServerProbe(t *testing.T, h *AmuxHarness) string {
 	cmd := exec.CommandContext(ctx, h.innerBin, "_server", h.inner)
 	env := removeEnv(os.Environ(), "AMUX_SESSION")
 	env = removeEnv(env, "TMUX")
-	env = upsertEnv(env, proto.SocketDirEnv, testSocketDir())
+	env = applyTestSocketDirEnv(env)
 	env = append(env,
 		"HOME="+h.outer.home,
 		"AMUX_NO_WATCH=1",
