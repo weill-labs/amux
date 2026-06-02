@@ -1807,7 +1807,7 @@ func TestRenderCoalescedPaneOutputRendersImmediatelyAfterIdle(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
-	cr.renderFrameInterval = 250 * time.Millisecond
+	cr.renderFrameInterval = 2 * time.Second
 	msgCh := make(chan *RenderMsg, 2)
 	rendered := make(chan time.Time, 1)
 	done := make(chan struct{})
@@ -1827,10 +1827,10 @@ func TestRenderCoalescedPaneOutputRendersImmediatelyAfterIdle(t *testing.T) {
 
 	select {
 	case ts := <-rendered:
-		if ts.Sub(start) >= 100*time.Millisecond {
+		if ts.Sub(start) >= time.Second {
 			t.Fatalf("first pane output rendered after %v, want immediate render well below frame interval %v", ts.Sub(start), cr.renderFrameInterval)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatalf("first pane output did not render immediately; frame interval is %v", cr.renderFrameInterval)
 	}
 

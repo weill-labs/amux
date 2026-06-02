@@ -509,49 +509,40 @@ func TestAttachBootstrapHelpers(t *testing.T) {
 func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() {
-		_ = serverConn.Close()
-		_ = clientConn.Close()
-	})
-
 	cr := NewClientRenderer(80, 24)
 	layout := multiWindow80x23Zoomed(1, 2)
 
 	const zoomedLine = "LAB352-01234567890123456789012345678901234567890123456789012345"
 	const hiddenLine = "hidden-window-pane"
 
-	go func() {
-		_ = writeProtoMessages(
-			serverConn,
-			&proto.Message{
-				Type:    proto.MsgTypePaneHistory,
-				PaneID:  2,
-				History: []string{"older-zoomed-line"},
-			},
-			&proto.Message{
-				Type:   proto.MsgTypeLayout,
-				Layout: layout,
-			},
-			&proto.Message{
-				Type:     proto.MsgTypePaneOutput,
-				PaneID:   1,
-				PaneData: []byte("\033[2J\033[Hpeer-pane"),
-			},
-			&proto.Message{
-				Type:     proto.MsgTypePaneOutput,
-				PaneID:   2,
-				PaneData: []byte("\033[2J\033[H" + zoomedLine),
-			},
-			&proto.Message{
-				Type:     proto.MsgTypePaneOutput,
-				PaneID:   3,
-				PaneData: []byte("\033[2J\033[H" + hiddenLine),
-			},
-		)
-	}()
+	reader := &scriptedAttachReader{messages: []*proto.Message{
+		{
+			Type:    proto.MsgTypePaneHistory,
+			PaneID:  2,
+			History: []string{"older-zoomed-line"},
+		},
+		{
+			Type:   proto.MsgTypeLayout,
+			Layout: layout,
+		},
+		{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   1,
+			PaneData: []byte("\033[2J\033[Hpeer-pane"),
+		},
+		{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   2,
+			PaneData: []byte("\033[2J\033[H" + zoomedLine),
+		},
+		{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   3,
+			PaneData: []byte("\033[2J\033[H" + hiddenLine),
+		},
+	}}
 
-	if err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), cr); err != nil {
+	if err := readAttachBootstrapFromSource(reader, cr); err != nil {
 		t.Fatalf("readAttachBootstrap: %v", err)
 	}
 
@@ -577,6 +568,30 @@ func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	if len(history) != 1 || history[0].Text != "older-zoomed-line" {
 		t.Fatalf("pane-2 bootstrap history = %q, want %q", history, []string{"older-zoomed-line"})
 	}
+}
+
+type scriptedAttachReader struct {
+	messages []*proto.Message
+}
+
+func (r *scriptedAttachReader) ReadMsg() (*proto.Message, error) {
+	if len(r.messages) == 0 {
+		return nil, io.EOF
+	}
+	msg := r.messages[0]
+	r.messages = r.messages[1:]
+	return msg, nil
+}
+
+func (r *scriptedAttachReader) ReadMsgWithTimeout(time.Duration) (*proto.Message, bool, error) {
+	if len(r.messages) == 0 {
+		return nil, true, nil
+	}
+	msg, err := r.ReadMsg()
+	if err != nil {
+		return nil, false, err
+	}
+	return msg, false, nil
 }
 
 func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn(t *testing.T) {
