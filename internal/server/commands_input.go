@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -267,7 +268,7 @@ func (ctx inputCommandContext) sendRemoteKeys(addr remotePaneAddress, optionArgs
 		return "", 0, false, err
 	}
 	remoteArgs := make([]string, 0, 1+len(optionArgs))
-	remoteArgs = append(remoteArgs, addr.pane)
+	remoteArgs = append(remoteArgs, strconv.FormatUint(uint64(target.paneID), 10))
 	remoteArgs = append(remoteArgs, optionArgs...)
 	if _, err := runRemoteOneShotCommandForTarget(ctx.CommandContext, target, "send-keys", remoteArgs); err != nil {
 		return "", 0, false, fmt.Errorf("forward send-keys to %s:%s: %w", addr.host, addr.pane, err)
