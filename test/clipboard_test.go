@@ -297,6 +297,7 @@ finally:
 	}
 
 	pasteHarness.waitFor("pane-1", fmt.Sprintf("__BYTES=%d__", expectedBytes))
+	pasteHarness.waitFor("pane-1", "__SHA="+expectedDigest+"__")
 	paneOut := pasteHarness.runCmd("capture", "pane-1")
 	flatPaneOut := strings.ReplaceAll(paneOut, "\n", "")
 	if !strings.Contains(flatPaneOut, fmt.Sprintf("__BYTES=%d__", expectedBytes)) {
