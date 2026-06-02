@@ -435,7 +435,7 @@ func attachMailboxMirrorForTest(t *testing.T, h *mirrorIntegrationHarness, local
 	return pane
 }
 
-func TestMsgCommandSendWakesIdleCodexRecipient(t *testing.T) {
+func TestMsgCommandSendWakesExplicitMailboxPromptRecipient(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -450,7 +450,7 @@ func TestMsgCommandSendWakesIdleCodexRecipient(t *testing.T) {
 		Name:  "pane-2",
 		Host:  mux.DefaultHost,
 		Color: config.AccentColor(1),
-		KV:    map[string]string{"agent_profile": "codex"},
+		KV:    map[string]string{"mailbox_wake": "prompt"},
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		writes <- string(data)
 		return len(data), nil
@@ -483,7 +483,7 @@ func TestMsgCommandSendWakesIdleCodexRecipient(t *testing.T) {
 	}
 }
 
-func TestMsgCommandSendSkipsMailboxWakeWhenPaneIsBusyOrNotCodex(t *testing.T) {
+func TestMsgCommandSendSkipsMailboxWakeWhenPaneIsBusyOrNotOptedIn(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -492,6 +492,7 @@ func TestMsgCommandSendSkipsMailboxWakeWhenPaneIsBusyOrNotCodex(t *testing.T) {
 		idle bool
 	}{
 		{name: "non codex", meta: nil, idle: true},
+		{name: "codex profile without wake opt in", meta: map[string]string{"agent_profile": "codex"}, idle: true},
 		{name: "busy codex", meta: map[string]string{"agent_profile": "codex"}, idle: false},
 		{name: "disabled codex", meta: map[string]string{"agent_profile": "codex", "mailbox_wake": "off"}, idle: true},
 	}

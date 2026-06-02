@@ -6,6 +6,34 @@ import (
 	"github.com/weill-labs/amux/internal/mailbox"
 )
 
+func TestMailboxPaneWakeEnabledRequiresExplicitOptIn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		kv   map[string]string
+		want bool
+	}{
+		{name: "empty metadata", kv: nil, want: false},
+		{name: "codex profile alone", kv: map[string]string{"agent_profile": "codex"}, want: false},
+		{name: "prompt opt in", kv: map[string]string{"mailbox_wake": "prompt"}, want: true},
+		{name: "on opt in", kv: map[string]string{"mailbox_wake": "on"}, want: true},
+		{name: "disabled beats codex profile", kv: map[string]string{"agent_profile": "codex", "mailbox_wake": "off"}, want: false},
+		{name: "unknown value", kv: map[string]string{"mailbox_wake": "maybe"}, want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := mailboxPaneWakeEnabled(tt.kv); got != tt.want {
+				t.Fatalf("mailboxPaneWakeEnabled(%v) = %t, want %t", tt.kv, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMailboxPendingCountsSkipsInvalidRecipients(t *testing.T) {
 	t.Parallel()
 

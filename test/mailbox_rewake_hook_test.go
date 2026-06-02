@@ -188,6 +188,64 @@ func TestCodexMailboxRewakeHookEmitsBlockJSON(t *testing.T) {
 	}
 }
 
+func TestMailboxWakeOptInHooksSetPaneMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{name: "claude", script: ".claude/hooks/mailbox-wake-opt-in.sh"},
+		{name: "codex", script: ".codex/hooks/amux-mailbox-wake-opt-in.sh"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			logPath := filepath.Join(tempDir, "amux.log")
+			writeMailboxWakeOptInFakeAmux(t, tempDir)
+
+			out, exitCode := runBashScriptWithInput(t, tt.script, "", mailboxWakeOptInHookEnv(tempDir,
+				"FAKE_AMUX_LOG="+logPath,
+			))
+			if exitCode != 0 {
+				t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+			}
+			if strings.TrimSpace(out) != "" {
+				t.Fatalf("output = %q, want none", out)
+			}
+			if got := readTrimmedFile(t, logPath); got != "meta set pane-2 mailbox_wake=prompt" {
+				t.Fatalf("amux log = %q, want wake opt-in metadata set", got)
+			}
+		})
+	}
+}
+
+func TestMailboxWakeOptInHookExitsCleanlyWithoutPane(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "amux.log")
+	writeMailboxWakeOptInFakeAmux(t, tempDir)
+
+	out, exitCode := runBashScriptWithInput(t, ".claude/hooks/mailbox-wake-opt-in.sh", "", mailboxWakeOptInHookEnv(tempDir,
+		"AMUX_PANE=",
+		"FAKE_AMUX_LOG="+logPath,
+	))
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("output = %q, want none", out)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("hook without pane should not call amux; got log %q", readTrimmedFile(t, logPath))
+	}
+}
+
 func TestClaudeSettingsWiresMailboxRewakeAsyncHook(t *testing.T) {
 	t.Parallel()
 
@@ -199,8 +257,8 @@ func TestClaudeSettingsWiresMailboxRewakeAsyncHook(t *testing.T) {
 		Hooks map[string][]struct {
 			Matcher string `json:"matcher"`
 			Hooks   []struct {
-				Type         string `json:"type"`
-				Command      string `json:"command"`
+				Type        string `json:"type"`
+				Command     string `json:"command"`
 				AsyncRewake bool   `json:"asyncRewake"`
 			} `json:"hooks"`
 		} `json:"hooks"`
@@ -222,6 +280,84 @@ func TestClaudeSettingsWiresMailboxRewakeAsyncHook(t *testing.T) {
 		}
 	}
 	t.Fatal("missing .claude/hooks/mailbox-rewake.sh asyncRewake Stop hook")
+}
+
+func TestClaudeSettingsWiresMailboxWakeSessionStartHook(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(repoPath(t, ".claude/settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	for _, group := range settings.Hooks["SessionStart"] {
+		for _, hook := range group.Hooks {
+			if hook.Command == ".claude/hooks/mailbox-wake-opt-in.sh" {
+				if hook.Type != "command" {
+					t.Fatalf("mailbox wake hook type = %q, want command", hook.Type)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("missing .claude/hooks/mailbox-wake-opt-in.sh SessionStart hook")
+}
+
+func TestCodexSettingsWiresMailboxWakeSessionStartHook(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile(repoPath(t, ".codex/hooks.json"))
+	if err != nil {
+		t.Fatalf("read hooks: %v", err)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("unmarshal hooks: %v", err)
+	}
+	for _, group := range settings.Hooks["SessionStart"] {
+		for _, hook := range group.Hooks {
+			if strings.Contains(hook.Command, ".codex/hooks/amux-mailbox-wake-opt-in.sh") {
+				if hook.Type != "command" {
+					t.Fatalf("mailbox wake hook type = %q, want command", hook.Type)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("missing .codex/hooks/amux-mailbox-wake-opt-in.sh SessionStart hook")
+}
+
+func TestMailboxDrainGateDocumentsCodexWakeOptInStartupLimit(t *testing.T) {
+	t.Parallel()
+
+	doc := readRepoFile(t, "docs/integrations/mailbox-drain-gate.md")
+	for _, want := range []string{
+		"mailbox_wake=prompt",
+		"SessionStart",
+		"first user prompt",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("mailbox drain gate docs missing %q", want)
+		}
+	}
 }
 
 func mailboxRewakeHookEnv(t *testing.T, tempDir string, extra ...string) []string {
@@ -249,6 +385,47 @@ func mailboxRewakeHookEnv(t *testing.T, tempDir string, extra ...string) []strin
 		"AMUX_MAILBOX_REWAKE_WAIT_TIMEOUT=1s",
 	)
 	return append(env, extra...)
+}
+
+func mailboxWakeOptInHookEnv(tempDir string, extra ...string) []string {
+	env := append([]string{}, hermeticMainEnv()...)
+	env = upsertIssueMetaEnv(env, "PATH", tempDir+string(os.PathListSeparator)+issueMetaEnvValue(env, "PATH"))
+	env = upsertIssueMetaEnv(env, "HOME", filepath.Join(tempDir, "home"))
+	env = append(env,
+		"AMUX_SESSION=wake-opt-in-test",
+		"AMUX_PANE=pane-2",
+	)
+	return append(env, extra...)
+}
+
+func writeMailboxWakeOptInFakeAmux(t *testing.T, dir string) {
+	t.Helper()
+
+	writeRewakeExecutable(t, filepath.Join(dir, "amux"), `#!/bin/sh
+if [ -n "${FAKE_AMUX_LOG:-}" ]; then
+    first=1
+    for arg in "$@"; do
+        if [ "$first" = "1" ]; then
+            printf '%s' "$arg" >>"$FAKE_AMUX_LOG"
+            first=0
+        else
+            printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
+        fi
+    done
+    printf '\n' >>"$FAKE_AMUX_LOG"
+fi
+
+if [ "$1" = "meta" ] && [ "$2" = "set" ]; then
+    exit 0
+fi
+
+printf 'unexpected amux args:' >&2
+for arg in "$@"; do
+    printf ' %s' "$arg" >&2
+done
+printf '\n' >&2
+exit 1
+`)
 }
 
 func writeMailboxRewakeFakeCommands(t *testing.T, dir string, statuses []string) {
