@@ -469,9 +469,17 @@ func TestListClientsShowsDisplayPanesState(t *testing.T) {
 
 	h := newServerHarness(t)
 	h.client.sendUIEvent(proto.UIEventDisplayPanesShown)
+	out := h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--client", "client-1", "--timeout", "3s")
+	if !strings.Contains(out, proto.UIEventDisplayPanesShown) {
+		t.Fatalf("wait-ui display-panes-shown output = %q", out)
+	}
 	h.client.sendUIEvent(proto.UIEventChooseWindowShown)
+	out = h.runCmd("wait", "ui", proto.UIEventChooseWindowShown, "--client", "client-1", "--timeout", "3s")
+	if !strings.Contains(out, proto.UIEventChooseWindowShown) {
+		t.Fatalf("wait-ui choose-window-shown output = %q", out)
+	}
 
-	out := h.runCmd("list-clients")
+	out = h.runCmd("list-clients")
 	if !strings.Contains(out, "CLIENT") || !strings.Contains(out, "OWNER") || !strings.Contains(out, "SIZE") || !strings.Contains(out, "DISPLAY_PANES") || !strings.Contains(out, "CHOOSER") || !strings.Contains(out, "CAPABILITIES") {
 		t.Fatalf("unexpected list-clients header: %s", out)
 	}
