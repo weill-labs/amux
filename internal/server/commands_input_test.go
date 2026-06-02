@@ -188,6 +188,24 @@ func TestCmdSendKeysUnknownRemotePaneFailsLoudly(t *testing.T) {
 	}
 }
 
+func TestCmdSendKeysRemoteTargetRejectsClientTransport(t *testing.T) {
+	t.Parallel()
+
+	h := newMirrorIntegrationHarness(t)
+	defer h.cleanup()
+
+	res := runTestCommand(t, h.localSrv, h.localSess, "send-keys", "remote:remote-agent", "--via", "client", "x")
+	if res.cmdErr != "send-keys: remote targets support only --via pty" {
+		t.Fatalf("remote send-keys --via client cmdErr = %q", res.cmdErr)
+	}
+
+	select {
+	case got := <-h.remoteWrites:
+		t.Fatalf("remote send-keys wrote despite unsupported transport: %q", got)
+	default:
+	}
+}
+
 func TestCmdSendKeysCommandWaitReadyWaitsForReady(t *testing.T) {
 	t.Parallel()
 

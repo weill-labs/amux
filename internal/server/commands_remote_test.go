@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +14,109 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
+
+type staticDialer struct{}
+
+func (staticDialer) Dial(context.Context, config.Host) (net.Conn, error) {
+	return nil, errors.New("unused")
+}
+
+func TestParseRemotePaneAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     string
+		want    remotePaneAddress
+		wantOK  bool
+		wantErr string
+	}{
+		{
+			name: "local ref",
+			raw:  "pane-1",
+		},
+		{
+			name:   "remote ref",
+			raw:    "remote:pane-1",
+			want:   remotePaneAddress{host: "remote", pane: "pane-1"},
+			wantOK: true,
+		},
+		{
+			name:    "missing host",
+			raw:     ":pane-1",
+			wantOK:  true,
+			wantErr: "remote pane target must be <host>:<pane>",
+		},
+		{
+			name:    "missing pane",
+			raw:     "remote:",
+			wantOK:  true,
+			wantErr: "remote pane target must be <host>:<pane>",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok, err := parseRemotePaneAddress(tt.raw)
+			if ok != tt.wantOK {
+				t.Fatalf("parseRemotePaneAddress(%q) ok = %v, want %v", tt.raw, ok, tt.wantOK)
+			}
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseRemotePaneAddress(%q) error = %v, want %q", tt.raw, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseRemotePaneAddress(%q) error = %v", tt.raw, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseRemotePaneAddress(%q) = %+v, want %+v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoteCommandTransportUsesMirrorHostAndSessionFallback(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	dialer := staticDialer{}
+	sess.mirror.Configure(mirrorpkg.Config{
+		Hosts: map[string]config.Host{
+			"remote": {SSH: "ignored", SocketPath: "/tmp/amux-test"},
+		},
+		Dialer: dialer,
+	})
+
+	host, gotDialer, err := remoteCommandTransport(&CommandContext{Sess: sess}, checkpoint.RemoteRef{
+		Host:    "remote",
+		Session: "remote-session",
+	})
+	if err != nil {
+		t.Fatalf("remoteCommandTransport() error = %v", err)
+	}
+	if host.Session != "remote-session" {
+		t.Fatalf("remoteCommandTransport() session = %q, want remote-session", host.Session)
+	}
+	if _, ok := gotDialer.(staticDialer); !ok {
+		t.Fatalf("remoteCommandTransport() dialer = %T, want staticDialer", gotDialer)
+	}
+}
+
+func TestRemoteCommandTransportRequiresHost(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := remoteCommandTransport(nil, checkpoint.RemoteRef{})
+	if err == nil || err.Error() != "remote host is required" {
+		t.Fatalf("remoteCommandTransport() error = %v, want remote host is required", err)
+	}
+}
 
 func TestParseRemoteAddArgs(t *testing.T) {
 	t.Parallel()

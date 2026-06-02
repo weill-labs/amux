@@ -10,10 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
-	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mailbox"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/remote"
 )
 
 const (
@@ -1203,7 +1201,7 @@ func remoteMailboxRecipientRefs(recipients []msgRemoteRecipient) []string {
 }
 
 func forwardRemoteMailboxDelivery(ctx *CommandContext, ref checkpoint.RemoteRef, payload msgRemoteDeliverPayload, format msgFormat) (string, error) {
-	host, dialer, err := mailboxRemoteTransport(ctx, ref)
+	target, err := remotePaneCommandTargetForRef(ctx, ref)
 	if err != nil {
 		return "", err
 	}
@@ -1215,40 +1213,11 @@ func forwardRemoteMailboxDelivery(ctx *CommandContext, ref checkpoint.RemoteRef,
 	if format == msgFormatJSON {
 		args = append(args, "--format", "json")
 	}
-	msg, err := runRemoteOneShotCommandWithDialer(ctx.context(), host, dialer, "msg", args)
+	msg, err := runRemoteOneShotCommandForTarget(ctx, target, "msg", args)
 	if err != nil {
 		return "", fmt.Errorf("forward mailbox message to %s: %w", ref.Host, err)
 	}
 	return msg.CmdOutput, nil
-}
-
-func mailboxRemoteTransport(ctx *CommandContext, ref checkpoint.RemoteRef) (config.Host, remote.Dialer, error) {
-	if ref.Host == "" {
-		return config.Host{}, nil, fmt.Errorf("remote host is required")
-	}
-	var (
-		host   config.Host
-		dialer remote.Dialer
-		ok     bool
-	)
-	if ctx != nil && ctx.Sess != nil && ctx.Sess.mirror != nil {
-		host, ok = ctx.Sess.mirror.Host(ref.Host)
-		dialer = ctx.Sess.mirror.Dialer()
-	}
-	if !ok {
-		var err error
-		host, err = lookupRemoteHost(ref.Host)
-		if err != nil {
-			return config.Host{}, nil, err
-		}
-	}
-	if strings.TrimSpace(host.Session) == "" {
-		host.Session = ref.Session
-	}
-	if strings.TrimSpace(host.Session) == "" {
-		host.Session = DefaultSessionName
-	}
-	return host, dialer, nil
 }
 
 func firstRemoteMailboxOutput(outputs []string) (string, error) {

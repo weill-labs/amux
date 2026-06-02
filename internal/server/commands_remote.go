@@ -885,14 +885,7 @@ func remoteCommandSession(host config.Host) string {
 }
 
 func listRemotePanes(parent context.Context, host config.Host) (*proto.LayoutSnapshot, error) {
-	ctx, cancel := context.WithTimeout(parent, remoteCommandTimeout)
-	defer cancel()
-	conn, err := remote.SSHDialer{}.Dial(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	return remote.ListPanes(ctx, conn, remoteCommandSession(host))
+	return listRemotePanesWithDialer(parent, host, nil)
 }
 
 func runRemoteOneShotCommand(parent context.Context, host config.Host, name string, args []string) (*proto.Message, error) {

@@ -133,8 +133,9 @@ type inputCommandContext struct {
 }
 
 type sendKeysTarget struct {
-	paneRef   string
-	windowRef string
+	paneRef    string
+	windowRef  string
+	remoteAddr remotePaneAddress
 }
 
 func parseSendKeysTarget(args []string) (sendKeysTarget, []string, error) {
@@ -146,6 +147,12 @@ func parseSendKeysTarget(args []string) (sendKeysTarget, []string, error) {
 			return sendKeysTarget{}, nil, errors.New(sendKeysUsage)
 		}
 		return sendKeysTarget{windowRef: args[1]}, args[2:], nil
+	}
+	if addr, ok, err := parseRemotePaneAddress(args[0]); ok || err != nil {
+		if err != nil {
+			return sendKeysTarget{}, nil, err
+		}
+		return sendKeysTarget{remoteAddr: addr}, args[1:], nil
 	}
 	return sendKeysTarget{paneRef: args[0]}, args[1:], nil
 }
@@ -214,6 +221,9 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 		return "", 0, false, err
 	}
 	applyFinalDelay(chunks, opts.delayFinal)
+	if target.remoteAddr.host != "" {
+		return ctx.sendRemoteKeys(target.remoteAddr, optionArgs, chunks, opts)
+	}
 	var pane resolvedPaneRef
 	if target.windowRef != "" {
 		pane, err = ctx.Sess.queryActivePaneForWindowContext(ctx.context(), target.windowRef)
@@ -246,6 +256,23 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 		}
 	}
 	return pane.paneName, totalEncodedKeyBytes(chunks), opts.submit, nil
+}
+
+func (ctx inputCommandContext) sendRemoteKeys(addr remotePaneAddress, optionArgs []string, chunks []encodedKeyChunk, opts sendKeysOptions) (string, int, bool, error) {
+	if opts.transport == sendKeysViaClient || opts.requestedClientID != "" {
+		return "", 0, false, fmt.Errorf("send-keys: remote targets support only --via pty")
+	}
+	target, err := resolveRemotePaneCommandTarget(ctx.CommandContext, addr)
+	if err != nil {
+		return "", 0, false, err
+	}
+	remoteArgs := make([]string, 0, 1+len(optionArgs))
+	remoteArgs = append(remoteArgs, addr.pane)
+	remoteArgs = append(remoteArgs, optionArgs...)
+	if _, err := runRemoteOneShotCommandForTarget(ctx.CommandContext, target, "send-keys", remoteArgs); err != nil {
+		return "", 0, false, fmt.Errorf("forward send-keys to %s:%s: %w", addr.host, addr.pane, err)
+	}
+	return fmt.Sprintf("%s:%s", addr.host, addr.pane), totalEncodedKeyBytes(chunks), opts.submit, nil
 }
 
 func cmdSendKeys(ctx *CommandContext) {
