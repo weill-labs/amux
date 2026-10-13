@@ -122,6 +122,25 @@ func (s *Session) lastWindow() bool {
 	return false
 }
 
+// resolveWindowName resolves a protocol window name without interpreting numeric
+// names as indexes or accepting prefixes. Duplicate names are ambiguous.
+func (s *Session) resolveWindowName(name string) (*mux.Window, error) {
+	match := (*mux.Window)(nil)
+	for _, w := range s.Windows {
+		if w.Name != name {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("window %q is ambiguous", name)
+		}
+		match = w
+	}
+	if match == nil {
+		return nil, fmt.Errorf("window %q not found", name)
+	}
+	return match, nil
+}
+
 // resolveWindow finds a window by 1-based index, exact name, or name prefix.
 func (s *Session) resolveWindow(ref string) *mux.Window {
 	// Try as 1-based index
