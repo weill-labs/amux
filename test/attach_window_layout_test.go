@@ -17,6 +17,7 @@ func TestAttachWindowStreamsLayoutUpdates(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
+	h.runCmd("rename-window", "2")
 
 	conn, err := net.Dial("unix", server.SocketPath(h.session))
 	if err != nil {
@@ -27,7 +28,7 @@ func TestAttachWindowStreamsLayoutUpdates(t *testing.T) {
 	if err := writeMsgOnConn(conn, &server.Message{
 		Type:       proto.MsgTypeAttachWindow,
 		Session:    h.session,
-		WindowName: "1", // first window, by index
+		WindowName: "2", // exact numeric name, not a window index
 	}); err != nil {
 		t.Fatalf("attach-window write: %v", err)
 	}
@@ -64,6 +65,7 @@ func TestAttachWindowInitialResizeBroadcasts(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
+	h.runCmd("rename-window", "2")
 
 	observer, err := net.Dial("unix", server.SocketPath(h.session))
 	if err != nil {
@@ -73,7 +75,7 @@ func TestAttachWindowInitialResizeBroadcasts(t *testing.T) {
 	if err := writeMsgOnConn(observer, &server.Message{
 		Type:       proto.MsgTypeAttachWindow,
 		Session:    h.session,
-		WindowName: "1",
+		WindowName: "2",
 	}); err != nil {
 		t.Fatalf("observer attach-window write: %v", err)
 	}
@@ -89,7 +91,7 @@ func TestAttachWindowInitialResizeBroadcasts(t *testing.T) {
 	if err := writeMsgOnConn(subscriber, &server.Message{
 		Type:       proto.MsgTypeAttachWindow,
 		Session:    h.session,
-		WindowName: "1",
+		WindowName: "2",
 		Cols:       123,
 		Rows:       45,
 	}); err != nil {
