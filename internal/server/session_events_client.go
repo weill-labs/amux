@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/weill-labs/amux/internal/eventloop"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -86,7 +87,17 @@ func (e detachClientEvent) handle(_ context.Context, s *Session) {
 // scope is set before addClient so the connection is never briefly treated as a
 // full client (which would receive pane output it should not).
 func (e attachWindowClientEvent) handle(_ context.Context, s *Session) {
-	w := s.resolveWindow(e.windowRef)
+	w := (*mux.Window)(nil)
+	for _, candidate := range s.Windows {
+		if candidate.Name != e.windowRef {
+			continue
+		}
+		if w != nil {
+			e.reply <- attachWindowClientResult{err: fmt.Errorf("window %q is ambiguous", e.windowRef)}
+			return
+		}
+		w = candidate
+	}
 	if w == nil {
 		e.reply <- attachWindowClientResult{err: fmt.Errorf("window %q not found", e.windowRef)}
 		return

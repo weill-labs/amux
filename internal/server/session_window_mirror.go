@@ -6,7 +6,7 @@ import (
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/remote"
+	"github.com/weill-labs/amux/internal/remoteref"
 	mirrorpkg "github.com/weill-labs/amux/internal/server/mirror"
 )
 
@@ -29,7 +29,10 @@ func (s *Session) enqueueWindowLayoutReconcile(localWindowID uint32, ref mirrorp
 	if s == nil || s.shutdown.Load() || layout == nil {
 		return
 	}
-	ws, err := remote.ResolveWindowFromLayout(layout, ref.WindowName)
+	ws, err := resolveRemoteWindowSnapshot(layout, remoteref.Ref{
+		SelectorKind: remoteref.SelectorName,
+		Selector:     ref.WindowName,
+	})
 	if err != nil {
 		return
 	}
