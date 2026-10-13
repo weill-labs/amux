@@ -216,7 +216,7 @@ type Message struct {
 	// MsgTypeChooser
 	Chooser *ChooserRequest
 
-	// MsgTypeAttachWindow — the remote window to subscribe to, by name.
+	// MsgTypeAttachWindow — the exact remote window name, never an index or prefix.
 	WindowName string
 }
 

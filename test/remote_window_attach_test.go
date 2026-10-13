@@ -5,7 +5,35 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
+
+func TestRemoteCLIAttachNumericWindowName(t *testing.T) {
+	t.Parallel()
+	pair := newRemoteCLIPair(t)
+	pair.remote.runCmd("rename-window", "2")
+	pair.remote.runCmd("rename", "pane-1", "numeric-window-pane")
+	pair.remote.runCmd("new-window", "--name", "other")
+	pair.remote.runCmd("select-window", "1")
+
+	ref := "amux://" + remoteCLITestHost + "/" + pair.remote.session + "/window/name/2"
+	pair.local.runCmd("remote", "attach-window", ref)
+	pair.remote.runCmd("spawn", "--name", "numeric-window-added", "--vertical")
+	if !pair.local.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		if len(c.Panes) != 2 {
+			return false
+		}
+		for _, pane := range c.Panes {
+			if pane.Mirror != nil && pane.Mirror.PaneName == "numeric-window-added" {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second) {
+		t.Fatal("mirror did not follow the window named 2 after its layout changed")
+	}
+}
 
 // TestRemoteCLIAttachWindow mirrors a whole remote window (two panes in a split)
 // into a new local window and verifies output flows from a mirrored pane.

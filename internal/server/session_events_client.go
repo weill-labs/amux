@@ -86,9 +86,9 @@ func (e detachClientEvent) handle(_ context.Context, s *Session) {
 // scope is set before addClient so the connection is never briefly treated as a
 // full client (which would receive pane output it should not).
 func (e attachWindowClientEvent) handle(_ context.Context, s *Session) {
-	w := s.resolveWindow(e.windowRef)
-	if w == nil {
-		e.reply <- attachWindowClientResult{err: fmt.Errorf("window %q not found", e.windowRef)}
+	w, err := s.resolveWindowName(e.windowRef)
+	if err != nil {
+		e.reply <- attachWindowClientResult{err: err}
 		return
 	}
 	// A mirror subscriber declares the size it wants the remote window rendered
